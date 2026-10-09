@@ -1,0 +1,14 @@
+services:
+  outbox:
+    build: .
+    ports:
+      # The UI and git endpoint have no authentication. Keep them on localhost.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Staging repos, their deploy keys, and known_hosts. Nothing from the
+      # host's home directory is mounted.
+      - outbox-data:/data
+    restart: unless-stopped
+
+volumes:
+  outbox-data:

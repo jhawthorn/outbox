@@ -37,6 +37,12 @@ on first use into `$OUTBOX_DATA/known_hosts`.
 
 HTTPS upstreams work too if the URL carries a token.
 
+**Open question:** per-repo deploy keys mean a trip to GitHub's settings for every repo
+added. The likely replacement is a single fine-grained GitHub token, scoped to the repos
+the outbox may push to, passed as one environment variable and answered to git through
+a `GIT_ASKPASS` program (no shell, no token on a command line). If that lands, the
+deploy-key path goes away rather than living alongside it. Parked for now.
+
 ## Fetching
 
 Upstream is fetched when a repo is added, once per repo at boot, and when you click
