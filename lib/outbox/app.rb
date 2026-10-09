@@ -20,6 +20,18 @@ module Outbox
     helpers do
       def h(text) = Rack::Utils.escape_html(text.to_s)
 
+      # Characters that render as nothing, or reorder what follows them, can
+      # hide content from a reviewer. Zero-width, soft hyphen, BOM, bidi
+      # controls, and C0 controls other than tab are shown as their code point.
+      INVISIBLE_RE = /[​-‏‪-‮⁠-⁤⁦-⁩﻿­\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+
+      # Escape for HTML and make invisible characters visible.
+      def hv(text)
+        h(text).gsub(INVISIBLE_RE) do |c|
+          %(<span class="invis" title="hidden character">U+#{c.ord.to_s(16).upcase.rjust(4, "0")}</span>)
+        end
+      end
+
       def hub = Outbox.hub
 
       def job_label(status)

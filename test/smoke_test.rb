@@ -217,7 +217,11 @@ class SmokeTest < Minitest::Test
     out
   end
 
-  def get(path) = Net::HTTP.get_response(URI("http://127.0.0.1:#{@port}#{path}"))
+  def get(path)
+    res = Net::HTTP.get_response(URI("http://127.0.0.1:#{@port}#{path}"))
+    res.body.force_encoding(Encoding::UTF_8)
+    res
+  end
 
   def post(path, form = {}) = Net::HTTP.post_form(URI("http://127.0.0.1:#{@port}#{path}"), form)
 

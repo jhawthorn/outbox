@@ -7,7 +7,7 @@
     <ul>
     <% files.each_with_index do |f, i| %>
       <li>
-        <a href="#f<%= i %>"><%= h f.path %></a>
+        <a href="#f<%= i %>"><%= hv f.path %></a>
         <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
         <% if f.binary? %><span class="muted">binary</span><% else %>
           <span class="count add">+<%= f.additions %></span>
@@ -24,8 +24,8 @@
   <% files.each_with_index do |f, i| %>
     <details class="file" id="f<%= i %>" open>
       <summary>
-        <code><%= h f.path %></code>
-        <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= h f.old_path %></code></span><% end %>
+        <code><%= hv f.path %></code>
+        <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= hv f.old_path %></code></span><% end %>
         <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
         <% if f.old_mode && f.new_mode && f.status == :modified %><span class="muted">mode <%= h f.old_mode %> → <%= h f.new_mode %></span><% end %>
         <% unless f.binary? %>
@@ -48,7 +48,7 @@
               <tr class="<%= l.kind %>">
                 <td class="no"><%= l.old_no %></td>
                 <td class="no"><%= l.new_no %></td>
-                <td class="code"><span class="mark"><%= l.add? ? "+" : (l.del? ? "−" : " ") %></span><%= h l.text %></td>
+                <td class="code"><span class="mark"><%= l.add? ? "+" : (l.del? ? "−" : " ") %></span><%= hv l.text %></td>
               </tr>
             <% end %>
           <% end %>

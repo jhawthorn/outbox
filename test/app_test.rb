@@ -94,6 +94,30 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "newest →"
   end
 
+  def test_commit_bodies_are_shown_in_full_on_the_branch_page
+    File.write(File.join(@stage, "a.txt"), "a\n")
+    git("add", "a.txt", chdir: @stage)
+    git("commit", "--quiet", "-m", "Tidy up\n\nAlso rewrites auth.\nAnd disables the tests.", chdir: @stage)
+    push(@stage, "main")
+
+    body = get("/repos/demo/branches/main")
+    assert_match(%r{<details class="more">\s*<summary class="ellipsis" title="Show full commit message \(2 more lines\)">…</summary>\s*<pre class="message">Also rewrites auth\.\nAnd disables the tests\.</pre>}m, body)
+    assert_includes body, "&lt;test@example.com&gt;"
+  end
+
+  def test_invisible_characters_are_made_visible
+    File.write(File.join(@stage, "a.txt"), "safe​hidden\n")
+    git("add", "a.txt", chdir: @stage)
+    git("commit", "--quiet", "-m", "Fix‮ gnihtemos", chdir: @stage)
+    push(@stage, "main")
+
+    body = get("/repos/demo/branches/main")
+    assert_includes body, '<span class="invis" title="hidden character">U+202E</span>'
+    assert_includes body, 'safe<span class="invis" title="hidden character">U+200B</span>hidden'
+    refute_includes body, "​"
+    refute_includes body, "‮"
+  end
+
   def test_commit_page_refuses_commits_outside_the_staged_range
     stage_commit
     upstream_sha = rev(@upstream, "main")

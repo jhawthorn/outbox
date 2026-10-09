@@ -4,10 +4,10 @@
   <a href="<%= branch_url(@repo, @branch.name) %>"><%= h @branch.name %></a> /
   commit <%= @position %> of <%= @total %>
 </p>
-<h1><%= h @commit.subject %></h1>
+<h1><%= hv @commit.subject %></h1>
 
 <div class="toolbar">
-  <span class="muted"><code><%= h @commit.sha %></code> · <%= h @commit.author %> · <%= h @commit.date %>
+  <span class="muted"><code><%= h @commit.sha %></code> · <%= hv @commit.author %> &lt;<%= hv @commit.author_email %>&gt; · <%= h @commit.date %>
     <% if @commit.merge? %>· merge commit, shown against its first parent<% end %>
     <% if @commit.root? %>· root commit<% end %>
   </span>
@@ -27,8 +27,8 @@
   </nav>
 </div>
 
-<% unless @commit.body.empty? %>
-  <pre class="message"><%= h @commit.body %></pre>
+<% if @commit.body? %>
+  <pre class="message"><%= hv @commit.body %></pre>
 <% end %>
 
 <%= render_patch(@patch) %>

@@ -34,24 +34,32 @@ module Outbox
       def needs_force? = status == :diverged
     end
 
+    # A commit with its complete message. The subject is the first line and
+    # the body is everything after it, verbatim, so nothing in the message
+    # can hide behind a tidy-looking first line.
     class Commit
-      attr_reader :sha, :short, :author, :date, :subject, :parents, :body
+      attr_reader :sha, :short, :author, :author_email, :date, :parents, :message
 
-      def initialize(sha:, short:, author:, date:, subject:, parents: [], body: "")
+      def initialize(sha:, short:, author:, author_email:, date:, parents:, message:)
         @sha = sha
         @short = short
         @author = author
+        @author_email = author_email
         @date = date
-        @subject = subject
         @parents = parents
-        @body = body
+        @message = message
       end
 
+      def subject = message.lines.first.to_s.chomp
+      def body = message.lines.drop(1).join.strip
+      def body? = !body.empty?
+      def body_lines = body.empty? ? 0 : body.lines.size
       def root? = parents.empty?
       def merge? = parents.size > 1
     end
 
     SHA_RE = /\A[0-9a-f]{7,64}\z/
+    LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%P%x1f%B"
 
     attr_reader :name, :path
 
@@ -304,9 +312,7 @@ module Outbox
     # belong to this repo (callers look it up in a commits list first).
     def commit_detail(sha)
       raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.match?(SHA_RE)
-      out = git("show", "-s", "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%P%x1f%b", sha)
-      full, short, author, date, subject, parents, body = out.split("\x1f", 7)
-      Commit.new(sha: full, short:, author:, date:, subject:, parents: parents.split, body: body.to_s.strip)
+      log(1, sha).first or raise NotFound, "no commit #{sha}"
     end
 
     # What one commit changed relative to its first parent (or to nothing,
@@ -348,12 +354,15 @@ module Outbox
       end
     end
 
+    # Commits are NUL-separated because the full message is included and
+    # may contain anything.
     def log(limit, *revs)
       return [] if revs.compact.empty?
-      out = git("log", "-n", limit.to_s, "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s", *revs)
-      out.each_line(chomp: true).map do |line|
-        sha, short, author, date, subject = line.split("\x1f", 5)
-        Commit.new(sha:, short:, author:, date:, subject:)
+      out = git("log", "-z", "-n", limit.to_s, "--format=#{LOG_FORMAT}", *revs)
+      out.split("\0").map do |record|
+        sha, short, author, author_email, date, parents, message = record.split("\x1f", 7)
+        Commit.new(sha:, short:, author:, author_email:, date:, parents: parents.split,
+                   message: message.to_s.chomp)
       end
     end
 

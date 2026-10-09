@@ -182,13 +182,30 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal second, c.sha
     assert_equal "Second", c.subject
     assert_equal "Why it was done.", c.body
+    assert c.body?
+    assert_equal 1, c.body_lines
+    assert_equal "test@example.com", c.author_email
     assert_equal [first], c.parents
     refute c.root?
     refute c.merge?
 
+    listed = @repo.commits("main")
+    assert_equal ["Second", "First"], listed.map(&:subject)
+    assert_equal ["Why it was done.", ""], listed.map(&:body), "the list carries full messages, not just subjects"
+    refute listed[1].body?
+
     assert_equal ["b.txt"], @repo.commit_diff(second).files.map(&:path)
     assert_equal ["a.txt"], @repo.commit_diff(first).files.map(&:path)
     assert_raises(ArgumentError) { @repo.commit_detail("not a sha") }
+  end
+
+  def test_commit_message_without_blank_line_still_exposes_the_rest
+    git("commit", "--quiet", "--allow-empty", "-m", "Looks innocent\nalso deletes prod\nand this", chdir: @stage)
+    push(@stage, "main")
+    c = @repo.commits("main").first
+    assert_equal "Looks innocent", c.subject
+    assert_equal "also deletes prod\nand this", c.body
+    assert_equal 2, c.body_lines
   end
 
   def test_patch_is_truncated_at_a_line_boundary

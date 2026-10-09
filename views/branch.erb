@@ -41,8 +41,14 @@
   <h2>Upstream commits that would be <%= @branch.status == :deleted ? "unreachable after deletion" : "dropped" %></h2>
   <div class="panel danger">
     <% @outgoing.each do |c| %>
-      <div class="commit"><code><%= c.short %></code> <span class="subject"><%= h c.subject %></span>
-        <span class="who">— <%= h c.author %>, <%= h c.date %></span></div>
+      <div class="commit"><code><%= c.short %></code> <span class="subject"><%= hv c.subject %></span>
+        <% if c.body? %>
+          <details class="more">
+            <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
+            <pre class="message"><%= hv c.body %></pre>
+          </details>
+        <% end %>
+        <div class="who"><%= hv c.author %> committed <%= h c.date %></div></div>
     <% end %>
   </div>
 <% end %>
@@ -53,9 +59,17 @@
       <a href="<%= commit_url(@repo, @branch.name, @commits.last) %>">review one at a time, oldest first</a></span>
   </h2>
   <% @commits.each do |c| %>
-    <div class="commit"><code><%= c.short %></code>
-      <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= h c.subject %></a>
-      <span class="who">— <%= h c.author %>, <%= h c.date %></span></div>
+    <div class="commit">
+      <code><%= c.short %></code>
+      <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= hv c.subject %></a>
+      <% if c.body? %>
+        <details class="more">
+          <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
+          <pre class="message"><%= hv c.body %></pre>
+        </details>
+      <% end %>
+      <div class="who"><%= hv c.author %> &lt;<%= hv c.author_email %>&gt; committed <%= h c.date %></div>
+    </div>
   <% end %>
 <% end %>
 
