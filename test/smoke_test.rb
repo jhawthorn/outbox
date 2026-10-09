@@ -23,6 +23,11 @@ class SmokeTest < Minitest::Test
     "GIT_TERMINAL_PROMPT" => "0",
   }.freeze
 
+  # Minitest skips teardown when the run is interrupted, so cleanup is also
+  # registered at_exit. Each cleanup runs at most once.
+  CLEANUPS = []
+  at_exit { CLEANUPS.each(&:call) }
+
   def setup
     @dir = Dir.mktmpdir("outbox-test")
     @port = free_port
@@ -32,17 +37,30 @@ class SmokeTest < Minitest::Test
       "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{@port}", "config.ru",
       chdir: ROOT, out: @log, err: @log,
     )
+    dir = @dir
+    server = @server
+    done = false
+    @cleanup = lambda do
+      next if done
+      done = true
+      begin
+        Process.kill("TERM", server)
+        Process.wait(server)
+      rescue Errno::ESRCH, Errno::ECHILD
+        # already gone
+      end
+      FileUtils.rm_rf(dir)
+    end
+    CLEANUPS << @cleanup
+
     wait_until("server to start") { port_open? }
     @upstream = make_upstream("demo")
     add_repo("demo", @upstream)
   end
 
   def teardown
-    Process.kill("TERM", @server)
-    Process.wait(@server)
-  rescue Errno::ESRCH, Errno::ECHILD
-  ensure
-    FileUtils.rm_rf(@dir)
+    @cleanup&.call
+    CLEANUPS.delete(@cleanup)
   end
 
   def test_push_review_approve

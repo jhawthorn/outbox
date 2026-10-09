@@ -54,9 +54,10 @@ module Outbox
 
       stdin, stdout, stderr, wait = Open3.popen3(cgi, "git", "http-backend", unsetenv_others: true)
 
+      # rack.input is optional in Rack 3; a GET may have none.
+      input = env["rack.input"]
       writer = Thread.new do
-        input = env["rack.input"]
-        while (chunk = input.read(CHUNK))
+        while input && (chunk = input.read(CHUNK))
           stdin.write(chunk)
         end
       rescue IOError, Errno::EPIPE

@@ -5,4 +5,5 @@ gem "puma", ">= 6.4"
 
 group :test do
   gem "minitest"
+  gem "rake"
 end

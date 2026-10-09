@@ -80,6 +80,19 @@ module Outbox
       @mutex.synchronize { @status.delete(repo.name) }
     end
 
+    # Stop every actor and the event thread. Jobs still queued are dropped.
+    def shutdown
+      actors = @mutex.synchronize { @actors.values.tap { @actors.clear } }
+      actors.each do |actor|
+        actor.send([:stop])
+        actor.join
+      rescue Ractor::ClosedError, Ractor::RemoteError
+        # Already gone.
+      end
+      @drain.kill
+      @drain.join
+    end
+
     private
 
     def enqueue(repo, message)
