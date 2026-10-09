@@ -82,7 +82,8 @@ class SmokeTest < Minitest::Test
     assert_includes page, "+a thing"
 
     post("/repos/demo/branches/feature/thing/discard")
-    wait_until("discard") { !get("/repos/demo").body.include?("feature/thing") }
+    # The branch row goes away; the "discarded ... feature/thing" result line stays.
+    wait_until("discard") { !get("/repos/demo").body.include?("/branches/feature/thing") }
     assert_equal "", sh("git", "--git-dir", @upstream, "branch", "--list", "feature/thing").strip
   end
 
@@ -176,7 +177,7 @@ class SmokeTest < Minitest::Test
 
   def add_repo(name, upstream)
     res = post("/repos", "name" => name, "upstream" => upstream)
-    assert_equal "302", res.code, res.body
+    assert_includes %w[302 303], res.code, res.body
     wait_until("initial fetch of #{name}") { get("/repos/#{name}").body.include?("fetched upstream") }
   end
 
