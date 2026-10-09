@@ -1,0 +1,73 @@
+<% @title = @repo.name %>
+<h1><%= h @repo.name %></h1>
+
+<div class="toolbar">
+  <span class="muted">upstream <code><%= h @repo.upstream_url %></code></span>
+  <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
+  <span class="spacer"></span>
+  <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
+    <button type="submit" <%= "disabled" if @sync&.running? %>>Fetch upstream</button>
+  </form>
+  <form class="inline" method="post" action="<%= repo_url(@repo) %>/destroy"
+        onsubmit="return confirm('Remove <%= h @repo.name %> from the outbox? Upstream is not touched.')">
+    <button type="submit" class="danger" <%= "disabled" if @sync&.running? %>>Remove</button>
+  </form>
+</div>
+
+<% if @sync&.running? %>
+  <div class="panel">
+    <span class="badge syncing">syncing</span>
+    Fetching upstream <span class="muted">(<%= duration(@sync.elapsed) %>)</span>
+    <div class="progress"><%= h @sync.progress %></div>
+  </div>
+<% elsif @sync&.failed? %>
+  <div class="panel danger">
+    <span class="badge failed">sync failed</span> after <%= duration(@sync.elapsed) %>
+    <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @sync.error %></pre>
+  </div>
+<% elsif @sync&.done? %>
+  <p class="muted">Fetched upstream in <%= duration(@sync.elapsed) %>.</p>
+<% end %>
+
+<% if @branches.empty? %>
+  <% unless @sync&.running? %>
+    <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
+  <% end %>
+<% else %>
+  <table>
+    <thead><tr><th>Branch</th><th>Status</th><th>Staged</th><th>Upstream</th><th></th></tr></thead>
+    <tbody>
+    <% @branches.sort_by { |b| [b.pending? ? 0 : 1, b.name] }.each do |b| %>
+      <tr>
+        <td>
+          <% if b.pending? %>
+            <a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a>
+          <% else %>
+            <%= h b.name %>
+          <% end %>
+        </td>
+        <td>
+          <span class="badge <%= b.status %>"><%= status_label(b.status) %></span>
+          <div class="muted" style="font-size:13px"><%= h summary(b) %></div>
+        </td>
+        <td><code><%= short(b.staged) %></code></td>
+        <td><code><%= short(b.upstream) %></code></td>
+        <td class="actions">
+          <% if b.pending? %>
+            <a href="<%= branch_url(@repo, b.name) %>">Review</a>
+            <% unless b.needs_force? %>
+              <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
+                <button type="submit" class="primary">Approve</button>
+              </form>
+            <% end %>
+            <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
+                  onsubmit="return confirm('Discard staged changes on <%= h b.name %>?')">
+              <button type="submit" class="danger">Discard</button>
+            </form>
+          <% end %>
+        </td>
+      </tr>
+    <% end %>
+    </tbody>
+  </table>
+<% end %>

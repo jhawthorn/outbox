@@ -1,0 +1,63 @@
+<% @title = "#{@repo.name} / #{@branch.name}" %>
+<p class="muted"><a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /</p>
+<h1><%= h @branch.name %>
+  <span class="badge <%= @branch.status %>"><%= status_label(@branch.status) %></span></h1>
+
+<div class="toolbar">
+  <span><%= h summary(@branch) %></span>
+  <span class="muted">staged <code><%= short(@branch.staged) %></code> · upstream <code><%= short(@branch.upstream) %></code></span>
+  <span class="spacer"></span>
+  <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
+    <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">
+    <button type="submit">Fetch upstream</button>
+  </form>
+</div>
+
+<% if @branch.pending? %>
+  <div class="panel <%= @branch.needs_force? ? "warn" : "" %>">
+    <div class="actions">
+      <% if @branch.needs_force? %>
+        <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
+              onsubmit="return confirm('Force-push <%= h @branch.name %> to upstream? <%= @outgoing.size %> upstream commit(s) will be dropped.')">
+          <input type="hidden" name="force" value="1">
+          <button type="submit" class="warn">Force approve</button>
+        </form>
+        <span>Upstream moved since this was staged. Approving will overwrite it. Usually you want to
+          fetch, rebase the branch locally, and push again instead.</span>
+      <% else %>
+        <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve">
+          <button type="submit" class="primary">Approve and push to upstream</button>
+        </form>
+      <% end %>
+      <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/discard"
+            onsubmit="return confirm('Discard staged changes on <%= h @branch.name %>?')">
+        <button type="submit" class="danger">Discard</button>
+      </form>
+    </div>
+  </div>
+<% end %>
+
+<% unless @outgoing.empty? %>
+  <h2>Upstream commits that would be <%= @branch.status == :deleted ? "unreachable after deletion" : "dropped" %></h2>
+  <div class="panel danger">
+    <% @outgoing.each do |c| %>
+      <div class="commit"><code><%= c.short %></code> <span class="subject"><%= h c.subject %></span>
+        <span class="who">— <%= h c.author %>, <%= h c.date %></span></div>
+    <% end %>
+  </div>
+<% end %>
+
+<% unless @commits.empty? %>
+  <h2>Commits (<%= @commits.size %>)</h2>
+  <% @commits.each do |c| %>
+    <div class="commit"><code><%= c.short %></code> <span class="subject"><%= h c.subject %></span>
+      <span class="who">— <%= h c.author %>, <%= h c.date %></span></div>
+  <% end %>
+<% end %>
+
+<% if @diff.empty? %>
+  <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
+<% else %>
+  <h2>Diff <span class="muted" style="font-weight:400;font-size:14px"><%= h @stat %></span></h2>
+  <pre class="diff"><%= diff_html(@diff) %></pre>
+<% end %>

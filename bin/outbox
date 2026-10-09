@@ -1,0 +1,65 @@
+#!/usr/bin/env ruby
+# Command-line access to the same operations as the web UI. Intended for use
+# inside the container:  docker compose exec outbox bin/outbox list
+require_relative "../lib/outbox/git"
+require_relative "../lib/outbox/repo"
+
+# The CLI is its own process, so fetches here are synchronous and show git's
+# progress on stderr.
+def fetch_with_progress(repo)
+  repo.fetch! { |line| $stderr.print "\r\e[K#{line}" }
+  $stderr.puts
+  repo.set_default_head! unless repo.head_valid?
+end
+
+def usage
+  warn <<~USAGE
+    usage: outbox <command> [args]
+
+      list                         list repositories and pending branches
+      add <name> <upstream-url>    add a staging repository
+      remove <name>                remove a staging repository (upstream untouched)
+      fetch <name>                 fetch upstream
+      approve <name> <branch>      push a staged branch to upstream (--force to overwrite)
+      discard <name> <branch>      reset a staged branch back to upstream
+  USAGE
+  exit 1
+end
+
+cmd, *args = ARGV
+force = args.delete("--force")
+
+begin
+  case cmd
+  when "list"
+    Outbox::Repo.all.each do |repo|
+      puts "#{repo.name}  (#{repo.upstream_url})"
+      repo.branches.each do |b|
+        puts format("  %-30s %-10s staged=%s upstream=%s", b.name, b.status, b.staged&.[](0, 10), b.upstream&.[](0, 10))
+      end
+    end
+  when "add"
+    usage unless args.size == 2
+    repo = Outbox::Repo.create(*args)
+    fetch_with_progress(repo)
+    puts "added #{repo.name}"
+  when "remove"
+    usage unless args.size == 1
+    Outbox::Repo.find!(args[0]).destroy!
+  when "fetch"
+    usage unless args.size == 1
+    fetch_with_progress(Outbox::Repo.find!(args[0]))
+  when "approve"
+    usage unless args.size == 2
+    Outbox::Repo.find!(args[0]).approve!(args[1], force: !force.nil?)
+    puts "pushed #{args[1]} to upstream"
+  when "discard"
+    usage unless args.size == 2
+    Outbox::Repo.find!(args[0]).discard!(args[1])
+  else
+    usage
+  end
+rescue Outbox::Error, ArgumentError => e
+  warn "error: #{e.message}"
+  exit 1
+end

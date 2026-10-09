@@ -1,0 +1,46 @@
+<h1>Repositories</h1>
+
+<% if @repos.empty? %>
+  <p class="empty">No repositories yet. Add one below, then point a clone at it with
+  <code>git remote add outbox <%= h request.base_url %>/&lt;name&gt;.git</code>.</p>
+<% else %>
+  <table>
+    <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
+    <tbody>
+    <% @repos.each do |repo, branches, sync| %>
+      <% pending = branches.select(&:pending?) %>
+      <tr>
+        <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
+        <td class="muted"><%= h repo.upstream_url %></td>
+        <td>
+          <% if sync&.running? %>
+            <span class="badge syncing">syncing</span>
+            <div class="progress muted"><%= h sync.progress %></div>
+          <% elsif sync&.failed? %>
+            <span class="badge failed">sync failed</span>
+          <% elsif pending.empty? %>
+            <span class="muted">nothing</span>
+          <% else %>
+            <% pending.each do |b| %>
+              <a href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
+              <span class="badge <%= b.status %>"><%= status_label(b.status) %></span><br>
+            <% end %>
+          <% end %>
+        </td>
+        <td><code><%= h clone_url(repo) %></code></td>
+      </tr>
+    <% end %>
+    </tbody>
+  </table>
+<% end %>
+
+<details class="add" <%= "open" if @repos.empty? %>>
+  <summary>Add a repository</summary>
+  <form method="post" action="/repos">
+    <input type="text" name="name" placeholder="name (e.g. myapp)" required pattern="[A-Za-z0-9][A-Za-z0-9._-]*">
+    <input type="text" name="upstream" placeholder="upstream URL (git@github.com:you/myapp.git)" required size="50">
+    <button type="submit" class="primary">Add</button>
+  </form>
+  <p class="muted">The full upstream history is fetched in the background after adding; big
+  repositories take a while and show progress here.</p>
+</details>

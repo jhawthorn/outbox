@@ -1,0 +1,135 @@
+require "sinatra/base"
+
+module Outbox
+  class App < Sinatra::Base
+    set :views, File.expand_path("../../views", __dir__)
+    set :show_exceptions, false
+    set :raise_errors, false
+    set :logging, false
+
+    STATUS_LABELS = {
+      synced:   "in sync",
+      ready:    "ready",
+      new:      "new branch",
+      deleted:  "deleted",
+      diverged: "diverged",
+    }.freeze
+
+    helpers do
+      def h(text) = Rack::Utils.escape_html(text.to_s)
+
+      def repo_url(repo) = "/repos/#{repo.name}"
+
+      def branch_url(repo, branch) = "#{repo_url(repo)}/branches/#{branch}"
+
+      def clone_url(repo) = "#{request.base_url}/#{repo.name}.git"
+
+      def status_label(status) = STATUS_LABELS.fetch(status, status.to_s)
+
+      def short(sha) = sha ? sha[0, 10] : "—"
+
+      def summary(branch)
+        case branch.status
+        when :synced   then "nothing staged"
+        when :ready    then "#{pluralize(branch.ahead, "commit")} to push"
+        when :new      then "#{pluralize(branch.ahead, "new commit")}, branch does not exist upstream"
+        when :deleted  then "branch will be deleted upstream (#{pluralize(branch.behind, "commit")} only reachable from it)"
+        when :diverged then "#{pluralize(branch.ahead, "commit")} to push; upstream has #{pluralize(branch.behind, "commit")} not in staged"
+        end
+      end
+
+      def pluralize(n, word) = "#{n} #{word}#{n == 1 ? "" : "s"}"
+
+      def duration(seconds)
+        seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
+      end
+
+      def diff_html(diff)
+        diff.each_line.map do |line|
+          cls = case line
+                when /\A(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode|Binary)/ then "meta"
+                when /\A@@/ then "hunk"
+                when /\A\+/ then "add"
+                when /\A-/  then "del"
+                else "ctx"
+                end
+          %(<span class="#{cls}">#{h(line.chomp)}</span>\n)
+        end.join
+      end
+    end
+
+    error NotFound do
+      status 404
+      @message = env["sinatra.error"].message
+      erb :error
+    end
+
+    error GitError, ArgumentError do
+      status 422
+      @message = env["sinatra.error"].message
+      erb :error
+    end
+
+    error do
+      status 500
+      @message = env["sinatra.error"].message
+      erb :error
+    end
+
+    get "/" do
+      @repos = Repo.all.map { |r| [r, r.branches, Sync.for(r)] }
+      @refresh = @repos.any? { |_, _, sync| sync&.running? }
+      erb :index
+    end
+
+    post "/repos" do
+      repo = Repo.create(params[:name].to_s.strip, params[:upstream].to_s.strip)
+      Sync.start(repo)
+      redirect repo_url(repo)
+    end
+
+    get "/repos/:name" do
+      @repo = Repo.find!(params[:name])
+      @sync = Sync.for(@repo)
+      @branches = @repo.branches
+      @refresh = @sync&.running?
+      erb :repo
+    end
+
+    post "/repos/:name/fetch" do
+      repo = Repo.find!(params[:name])
+      Sync.start(repo)
+      redirect(params[:back] || repo_url(repo))
+    end
+
+    post "/repos/:name/destroy" do
+      repo = Repo.find!(params[:name])
+      sync = Sync.for(repo)
+      raise GitError, "#{repo.name} is still syncing; wait for it to finish" if sync&.running?
+      repo.destroy!
+      Sync.forget(repo)
+      redirect "/"
+    end
+
+    get "/repos/:name/branches/*" do
+      @repo = Repo.find!(params[:name])
+      @branch = @repo.branch(params[:splat].first)
+      @commits = @repo.commits(@branch.name)
+      @outgoing = @repo.outgoing_commits(@branch.name)
+      @stat, @diff = @repo.diff(@branch.name)
+      erb :branch
+    end
+
+    post "/repos/:name/branches/*/approve" do
+      repo = Repo.find!(params[:name])
+      repo.approve!(params[:splat].first, force: params[:force] == "1")
+      redirect repo_url(repo)
+    end
+
+    post "/repos/:name/branches/*/discard" do
+      repo = Repo.find!(params[:name])
+      repo.discard!(params[:splat].first)
+      redirect repo_url(repo)
+    end
+  end
+end
