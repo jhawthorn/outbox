@@ -14,11 +14,8 @@
 </div>
 
 <% if @pushes.first&.forced? %>
-  <div class="panel danger">
-    <strong>The last push rewrote history.</strong>
-    It replaced <code><%= short(@pushes.first.old) %></code> with <code><%= short(@pushes.first.new) %></code>
-    rather than building on it. Anything you reviewed before <%= h @pushes.first.time.strftime("%Y-%m-%d %H:%M") %> is void.
-  </div>
+  <div class="panel warn">Force-pushed <%= h @pushes.first.time.strftime("%Y-%m-%d %H:%M") %>:
+    <code><%= short(@pushes.first.old) %></code> → <code><%= short(@pushes.first.new) %></code></div>
 <% end %>
 
 <% if @branch.pending? %>
@@ -44,7 +41,6 @@
         <input type="hidden" name="expected" value="<%= @branch.staged %>">
         <button type="submit" class="danger">Discard</button>
       </form>
-      <span class="muted">Approves exactly <code><%= short(@branch.staged) %></code>. If the branch is pushed to again first, this is refused.</span>
     </div>
   </div>
 <% end %>
@@ -77,7 +73,7 @@
           <pre class="message"><%= hv c.body %></pre>
         </details>
       <% end %>
-      <% if c.merge? %><span class="badge merge" title="A merge's diff is shown against its first parent only; changes introduced by the merge itself are easy to miss">merge</span><% end %>
+      <% if c.merge? %><span class="badge merge">merge</span><% end %>
       <div class="who"><%= identity_line(c) %></div>
     </div>
   <% end %>
@@ -99,7 +95,7 @@
           <% else %>
             <%= h p.message.empty? ? "push" : p.message %>
           <% end %>
-          <% if p.forced? %><span class="badge deleted">rewrote history</span><% end %>
+          <% if p.forced? %><span class="badge deleted">forced</span><% end %>
           <% if p.created? %><span class="badge new">created</span><% end %>
         </td>
       </tr>
