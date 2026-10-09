@@ -78,8 +78,8 @@ class SmokeTest < Minitest::Test
 
     page = get("/repos/demo/branches/main").body
     assert_includes page, "Say hello to the world"
-    assert_includes page, "+hello world"
-    assert_includes page, "-hello"
+    assert_includes page, '<span class="mark">+</span>hello world'
+    assert_includes page, '<span class="mark">−</span>hello'
 
     post("/repos/demo/branches/main/approve")
     wait_until("approve to reach upstream") { upstream_sha(@upstream, "main") == pushed }
@@ -97,7 +97,7 @@ class SmokeTest < Minitest::Test
     page = get("/repos/demo/branches/feature/thing").body
     assert_includes page, "new branch"
     assert_includes page, "Add a thing"
-    assert_includes page, "+a thing"
+    assert_includes page, '<span class="mark">+</span>a thing'
 
     post("/repos/demo/branches/feature/thing/discard")
     # The branch row goes away; the "discarded ... feature/thing" result line stays.

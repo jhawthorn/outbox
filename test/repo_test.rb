@@ -77,11 +77,12 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal [second, first], @repo.commits("main").map(&:sha)
     assert_empty @repo.outgoing_commits("main")
 
-    stat, diff = @repo.diff("main")
-    assert_includes stat, "2 files changed"
-    assert_includes diff, "+a"
-    assert_includes diff, "+b"
-    refute_includes diff, "README"
+    patch = @repo.diff("main")
+    assert_includes patch.stat, "2 files changed"
+    assert_equal %w[a.txt b.txt], patch.files.map(&:path)
+    assert_equal %i[added added], patch.files.map(&:status)
+    refute_includes patch.text, "README"
+    refute patch.truncated?
   end
 
   def test_synced_branch_has_nothing_to_show
@@ -90,7 +91,7 @@ class RepoTest < OutboxTest::RepoCase
     refute b.pending?
     assert_equal [0, 0], [b.ahead, b.behind]
     assert_empty @repo.commits("main")
-    assert_equal ["", ""], @repo.diff("main")
+    assert @repo.diff("main").empty?
   end
 
   def test_new_branch_diffs_against_where_it_forked
@@ -104,10 +105,10 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal 1, b.ahead
     assert_equal ["Add x"], @repo.commits("feature/x").map(&:subject)
 
-    stat, diff = @repo.diff("feature/x")
-    assert_includes stat, "1 file changed"
-    assert_includes diff, "+x"
-    refute_includes diff, "README", "diff must be against the fork point, not the empty tree"
+    patch = @repo.diff("feature/x")
+    assert_includes patch.stat, "1 file changed"
+    assert_equal ["x.txt"], patch.files.map(&:path)
+    refute_includes patch.text, "README", "diff must be against the fork point, not the empty tree"
   end
 
   def test_new_branch_on_empty_upstream_diffs_against_empty_tree
@@ -127,8 +128,7 @@ class RepoTest < OutboxTest::RepoCase
     b = repo.branch("main")
     assert_equal :new, b.status
     assert_equal 1, b.ahead
-    _, diff = repo.diff("main")
-    assert_includes diff, "+first"
+    assert_includes repo.diff("main").text, "+first"
 
     repo.approve!("main")
     assert_equal sha, rev(bare, "main")
@@ -145,7 +145,7 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal 1, b.behind, "one commit only reachable from the deleted branch"
     assert_equal ["extra commit"], @repo.outgoing_commits("extra").map(&:subject)
     assert_empty @repo.commits("extra")
-    assert_equal ["", ""], @repo.diff("extra")
+    assert @repo.diff("extra").empty?
   end
 
   def test_diverged_branch
@@ -164,9 +164,41 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal ["Staged change"], @repo.commits("main").map(&:subject)
     assert_equal ["Upstream change"], @repo.outgoing_commits("main").map(&:subject)
 
-    _, diff = @repo.diff("main")
-    assert_includes diff, "+staged"
-    refute_includes diff, "up.txt", "diff shows only what the staged branch adds since the fork point"
+    patch = @repo.diff("main")
+    assert_equal ["staged.txt"], patch.files.map(&:path), "diff shows only what the staged branch adds since the fork point"
+  end
+
+  # --- commits ------------------------------------------------------------
+
+  def test_commit_detail_and_commit_diff
+    first = stage_commit("a.txt", "a\n", "First")
+    File.write(File.join(@stage, "b.txt"), "b\n")
+    git("add", "b.txt", chdir: @stage)
+    git("commit", "--quiet", "-m", "Second\n\nWhy it was done.", chdir: @stage)
+    second = rev(@stage, "HEAD")
+    push(@stage, "main")
+
+    c = @repo.commit_detail(second)
+    assert_equal second, c.sha
+    assert_equal "Second", c.subject
+    assert_equal "Why it was done.", c.body
+    assert_equal [first], c.parents
+    refute c.root?
+    refute c.merge?
+
+    assert_equal ["b.txt"], @repo.commit_diff(second).files.map(&:path)
+    assert_equal ["a.txt"], @repo.commit_diff(first).files.map(&:path)
+    assert_raises(ArgumentError) { @repo.commit_detail("not a sha") }
+  end
+
+  def test_patch_is_truncated_at_a_line_boundary
+    stage_commit("big.txt", (1..500).map { |i| "line #{i}" }.join("\n") + "\n", "Big")
+    patch = @repo.diff("main", max_bytes: 1000)
+    assert patch.truncated?
+    assert_operator patch.text.bytesize, :<=, 1000
+    assert patch.text.end_with?("\n")
+    assert_equal ["big.txt"], patch.files.map(&:path)
+    refute @repo.diff("main").truncated?
   end
 
   def test_branch_names_are_validated

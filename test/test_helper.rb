@@ -49,6 +49,7 @@ module OutboxTest
     end
 
     def commit(work, file, content, message)
+      FileUtils.mkdir_p(File.dirname(File.join(work, file)))
       File.write(File.join(work, file), content)
       git("add", "--", file, chdir: work)
       git("commit", "--quiet", "-m", message, chdir: work)
