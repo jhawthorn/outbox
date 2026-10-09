@@ -44,23 +44,22 @@
   <p class="muted"><%= h @status.last.message %>.</p>
 <% end %>
 
+<% pending = @branches.select(&:pending?) %>
+<% synced = @branches.size - pending.size %>
+
 <% if @branches.empty? %>
   <% unless @status.busy? %>
     <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
   <% end %>
+<% elsif pending.empty? %>
+  <p class="empty"><%= pluralize(synced, "branch", "branches") %> in sync with upstream. Nothing to review.</p>
 <% else %>
   <table>
     <thead><tr><th>Branch</th><th>Status</th><th>Staged</th><th>Upstream</th><th></th></tr></thead>
     <tbody>
-    <% @branches.sort_by { |b| [b.pending? ? 0 : 1, b.name] }.each do |b| %>
+    <% pending.each do |b| %>
       <tr>
-        <td>
-          <% if b.pending? %>
-            <a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a>
-          <% else %>
-            <%= h b.name %>
-          <% end %>
-        </td>
+        <td><a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a></td>
         <td>
           <span class="badge <%= b.status %>"><%= status_label(b.status) %></span>
           <div class="muted" style="font-size:13px"><%= h summary(b) %></div>
@@ -68,23 +67,24 @@
         <td><code><%= short(b.staged) %></code></td>
         <td><code><%= short(b.upstream) %></code></td>
         <td class="actions">
-          <% if b.pending? %>
-            <a href="<%= branch_url(@repo, b.name) %>">Review</a>
-            <% unless b.needs_force? %>
-              <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
-                <input type="hidden" name="expected" value="<%= b.staged %>">
-                <button type="submit" class="primary">Approve</button>
-              </form>
-            <% end %>
-            <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
-                  onsubmit="return confirm('Discard staged changes on <%= h b.name %>?')">
+          <a href="<%= branch_url(@repo, b.name) %>">Review</a>
+          <% unless b.needs_force? %>
+            <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
               <input type="hidden" name="expected" value="<%= b.staged %>">
-              <button type="submit" class="danger">Discard</button>
+              <button type="submit" class="primary">Approve</button>
             </form>
           <% end %>
+          <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
+                onsubmit="return confirm('Discard staged changes on <%= h b.name %>?')">
+            <input type="hidden" name="expected" value="<%= b.staged %>">
+            <button type="submit" class="danger">Discard</button>
+          </form>
         </td>
       </tr>
     <% end %>
     </tbody>
   </table>
+  <% if synced > 0 %>
+    <p class="muted" style="margin-top:8px"><%= pluralize(synced, "other branch", "other branches") %> in sync with upstream.</p>
+  <% end %>
 <% end %>

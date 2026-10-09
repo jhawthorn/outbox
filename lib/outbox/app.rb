@@ -63,7 +63,7 @@ module Outbox
         end
       end
 
-      def pluralize(n, word) = "#{n} #{word}#{n == 1 ? "" : "s"}"
+      def pluralize(n, singular, plural = "#{singular}s") = "#{n} #{n == 1 ? singular : plural}"
 
       # Deep link to the deploy keys page when the upstream is on GitHub.
       def github_keys_url(upstream)
