@@ -75,11 +75,13 @@
             <a href="<%= branch_url(@repo, b.name) %>">Review</a>
             <% unless b.needs_force? %>
               <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
+                <input type="hidden" name="expected" value="<%= b.staged %>">
                 <button type="submit" class="primary">Approve</button>
               </form>
             <% end %>
             <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
                   onsubmit="return confirm('Discard staged changes on <%= h b.name %>?')">
+              <input type="hidden" name="expected" value="<%= b.staged %>">
               <button type="submit" class="danger">Discard</button>
             </form>
           <% end %>

@@ -7,8 +7,8 @@
 <h1><%= hv @commit.subject %></h1>
 
 <div class="toolbar">
-  <span class="muted"><code><%= h @commit.sha %></code> · <%= hv @commit.author %> &lt;<%= hv @commit.author_email %>&gt; · <%= h @commit.date %>
-    <% if @commit.merge? %>· merge commit, shown against its first parent<% end %>
+  <span class="muted"><code><%= h @commit.sha %></code> · <%= identity_line(@commit) %>
+    <% if @commit.merge? %>· <span class="badge merge">merge</span> shown against its first parent only<% end %>
     <% if @commit.root? %>· root commit<% end %>
   </span>
   <span class="spacer"></span>

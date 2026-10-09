@@ -63,8 +63,8 @@ module Outbox
     end
 
     def fetch(repo) = enqueue(repo, [:fetch])
-    def approve(repo, branch, force: false) = enqueue(repo, [:approve, branch, force])
-    def discard(repo, branch) = enqueue(repo, [:discard, branch])
+    def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
+    def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
 
     def remove(repo)
       actor = @mutex.synchronize { @actors.delete(repo.name) }

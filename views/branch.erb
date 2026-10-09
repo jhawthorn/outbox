@@ -13,6 +13,14 @@
   </form>
 </div>
 
+<% if @pushes.first&.forced? %>
+  <div class="panel danger">
+    <strong>The last push rewrote history.</strong>
+    It replaced <code><%= short(@pushes.first.old) %></code> with <code><%= short(@pushes.first.new) %></code>
+    rather than building on it. Anything you reviewed before <%= h @pushes.first.time.strftime("%Y-%m-%d %H:%M") %> is void.
+  </div>
+<% end %>
+
 <% if @branch.pending? %>
   <div class="panel <%= @branch.needs_force? ? "warn" : "" %>">
     <div class="actions">
@@ -20,19 +28,23 @@
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
               onsubmit="return confirm('Force-push <%= h @branch.name %> to upstream? <%= @outgoing.size %> upstream commit(s) will be dropped.')">
           <input type="hidden" name="force" value="1">
+          <input type="hidden" name="expected" value="<%= @branch.staged %>">
           <button type="submit" class="warn">Force approve</button>
         </form>
         <span>Upstream moved since this was staged. Approving will overwrite it. Usually you want to
           fetch, rebase the branch locally, and push again instead.</span>
       <% else %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve">
+          <input type="hidden" name="expected" value="<%= @branch.staged %>">
           <button type="submit" class="primary">Approve and push to upstream</button>
         </form>
       <% end %>
       <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/discard"
             onsubmit="return confirm('Discard staged changes on <%= h @branch.name %>?')">
+        <input type="hidden" name="expected" value="<%= @branch.staged %>">
         <button type="submit" class="danger">Discard</button>
       </form>
+      <span class="muted">Approves exactly <code><%= short(@branch.staged) %></code>. If the branch is pushed to again first, this is refused.</span>
     </div>
   </div>
 <% end %>
@@ -48,16 +60,13 @@
             <pre class="message"><%= hv c.body %></pre>
           </details>
         <% end %>
-        <div class="who"><%= hv c.author %> committed <%= h c.date %></div></div>
+        <div class="who"><%= identity_line(c) %></div></div>
     <% end %>
   </div>
 <% end %>
 
 <% unless @commits.empty? %>
-  <h2>Commits (<%= @commits.size %>)
-    <span class="muted" style="font-weight:400;font-size:14px">·
-      <a href="<%= commit_url(@repo, @branch.name, @commits.last) %>">review one at a time, oldest first</a></span>
-  </h2>
+  <h2>Commits (<%= @commits.size %>)</h2>
   <% @commits.each do |c| %>
     <div class="commit">
       <code><%= c.short %></code>
@@ -68,9 +77,35 @@
           <pre class="message"><%= hv c.body %></pre>
         </details>
       <% end %>
-      <div class="who"><%= hv c.author %> &lt;<%= hv c.author_email %>&gt; committed <%= h c.date %></div>
+      <% if c.merge? %><span class="badge merge" title="A merge's diff is shown against its first parent only; changes introduced by the merge itself are easy to miss">merge</span><% end %>
+      <div class="who"><%= identity_line(c) %></div>
     </div>
   <% end %>
+<% end %>
+
+<% unless @pushes.empty? %>
+  <h2>Push history</h2>
+  <table class="pushes">
+    <thead><tr><th>When</th><th>From</th><th>To</th><th>What</th></tr></thead>
+    <tbody>
+    <% @pushes.each do |p| %>
+      <tr class="<%= p.forced? ? "forced" : "" %>">
+        <td><%= h p.time.strftime("%Y-%m-%d %H:%M:%S") %></td>
+        <td><code><%= p.created? ? "—" : short(p.old) %></code></td>
+        <td><code><%= short(p.new) %></code></td>
+        <td>
+          <% if p.message.start_with?("outbox:") %>
+            <span class="muted"><%= h p.message.delete_prefix("outbox: ") %></span>
+          <% else %>
+            <%= h p.message.empty? ? "push" : p.message %>
+          <% end %>
+          <% if p.forced? %><span class="badge deleted">rewrote history</span><% end %>
+          <% if p.created? %><span class="badge new">created</span><% end %>
+        </td>
+      </tr>
+    <% end %>
+    </tbody>
+  </table>
 <% end %>
 
 <% if @patch.empty? %>

@@ -9,15 +9,19 @@
       <li>
         <a href="#f<%= i %>"><%= hv f.path %></a>
         <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
-        <% if f.binary? %><span class="muted">binary</span><% else %>
+        <% if f.binary? %><span class="badge deleted">binary, not reviewable</span><% else %>
           <span class="count add">+<%= f.additions %></span>
           <span class="count del">−<%= f.deletions %></span>
+          <% if f.truncated? %><span class="badge deleted">cut off, not fully shown</span><% end %>
         <% end %>
       </li>
     <% end %>
     </ul>
     <% if patch.truncated? %>
-      <p class="muted">This patch was cut off at <%= Outbox::Repo::MAX_PATCH_BYTES / 1_000_000 %> MB. Files past that point are not shown.</p>
+      <div class="panel danger" style="margin:10px 0 0">
+        <strong>This patch is bigger than <%= Outbox::Repo::MAX_PATCH_BYTES / 1_000_000 %> MB and was cut off.</strong>
+        Files past that point are not listed at all. Do not approve from this page; review commit by commit or pull the branch locally.
+      </div>
     <% end %>
   </div>
 
@@ -34,7 +38,7 @@
         <% end %>
       </summary>
       <% if f.binary? %>
-        <p class="muted" style="padding:8px 12px;margin:0">Binary file, no textual diff.</p>
+        <p style="padding:8px 12px;margin:0;color:var(--bad)">Binary file. Its contents cannot be reviewed here; approving includes it unseen.</p>
       <% elsif f.hunks.empty? %>
         <p class="muted" style="padding:8px 12px;margin:0">No content changes.</p>
       <% else %>
@@ -55,7 +59,7 @@
         <% end %>
         </table>
         <% if f.truncated? %>
-          <p class="muted" style="padding:8px 12px;margin:0">File truncated after <%= Outbox::Diff::MAX_LINES_PER_FILE %> lines.</p>
+          <p style="padding:8px 12px;margin:0;color:var(--bad)">Cut off after <%= Outbox::Diff::MAX_LINES_PER_FILE %> lines. The rest of this file's changes are not shown.</p>
         <% end %>
       <% end %>
     </details>

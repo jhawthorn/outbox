@@ -332,6 +332,96 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal moved, rev(@upstream, "main"), "force-with-lease must protect commits the outbox has not seen"
   end
 
+  def test_approve_refuses_when_branch_moved_since_review
+    reviewed = stage_commit("a.txt", "a\n", "Reviewed")
+    sneaked = stage_commit("b.txt", "b\n", "Pushed after review")
+
+    err = assert_raises(Outbox::GitError) { @repo.approve!("main", expected: reviewed) }
+    assert_includes err.message, "changed since you reviewed it"
+    assert_includes err.message, reviewed[0, 10]
+    assert_includes err.message, sneaked[0, 10]
+    refute_equal sneaked, rev(@upstream, "main")
+
+    @repo.approve!("main", expected: sneaked)
+    assert_equal sneaked, rev(@upstream, "main")
+  end
+
+  def test_expected_covers_deletion_and_recreation
+    add_upstream_branch("extra")
+    git("push", "--quiet", "origin", ":extra", chdir: @stage)
+    # Reviewer saw it deleted; agent then recreates it before approve lands.
+    git("fetch", "--quiet", "origin", chdir: @stage)
+    git("push", "--quiet", "origin", "main:refs/heads/extra", chdir: @stage)
+    assert_raises(Outbox::GitError) { @repo.approve!("extra", expected: "") }
+    assert ref_exists?(@upstream, "refs/heads/extra")
+  end
+
+  def test_discard_refuses_when_branch_moved_since_review
+    reviewed = stage_commit("a.txt", "a\n", "Reviewed")
+    stage_commit("b.txt", "b\n", "Pushed after review")
+    assert_raises(Outbox::GitError) { @repo.discard!("main", expected: reviewed) }
+    assert_equal :ready, status_of
+  end
+
+  # --- push history -------------------------------------------------------
+
+  def test_push_history_records_pushes_and_force_pushes
+    first = stage_commit("a.txt", "a\n", "First")
+    git("reset", "--quiet", "--hard", "HEAD~1", chdir: @stage)
+    rewritten = commit(@stage, "a.txt", "A\n", "First, rewritten")
+    push(@stage, "main", force: true)
+
+    pushes = @repo.push_history("main")
+    assert_equal [rewritten, first], pushes.first(2).map(&:new)
+    assert pushes[0].forced?, "non-fast-forward push must be flagged"
+    assert_equal first, pushes[0].old
+    refute pushes[1].forced?
+    assert_equal "push", pushes[1].message
+    assert pushes.last.created?
+    assert_kind_of Time, pushes[0].time
+  end
+
+  def test_push_history_includes_outbox_updates
+    stage_commit
+    @repo.discard!("main")
+    upstream_commit
+    @repo.fetch!
+    messages = @repo.push_history("main").map(&:message)
+    assert_equal ["outbox: follow upstream", "outbox: discard", "push"], messages.first(3)
+    assert_empty @repo.push_history("no-such-branch")
+  end
+
+  # --- identity -----------------------------------------------------------
+
+  def test_committer_is_exposed_when_it_differs_from_author
+    env = OutboxTest::GIT_ENV.merge("GIT_COMMITTER_NAME" => "Someone Else", "GIT_COMMITTER_EMAIL" => "else@example.com")
+    _, err, status = Open3.capture3(env, "git", "commit", "--quiet", "--allow-empty", "-m", "Rebased", chdir: @stage)
+    assert status.success?, err
+    push(@stage, "main")
+
+    c = @repo.commits("main").first
+    assert c.committer_differs?
+    assert_equal "Test", c.author
+    assert_equal "Someone Else", c.committer
+    assert_equal "else@example.com", c.committer_email
+    refute @repo.commits("main").last.committer_differs? if @repo.commits("main").size > 1
+  end
+
+  def test_merge_commits_are_identified
+    git("checkout", "--quiet", "-b", "side", chdir: @stage)
+    commit(@stage, "s.txt", "s\n", "Side")
+    git("checkout", "--quiet", "main", chdir: @stage)
+    commit(@stage, "m.txt", "m\n", "Main")
+    git("merge", "--quiet", "--no-ff", "-m", "Merge side", "side", chdir: @stage)
+    push(@stage, "main")
+
+    merge = @repo.commits("main").first
+    assert merge.merge?
+    assert_equal 2, merge.parents.size
+    assert_equal ["s.txt"], @repo.commit_diff(merge.sha).files.map(&:path),
+                 "merge diff is against the first parent, so only the side branch's file shows"
+  end
+
   # --- discard ------------------------------------------------------------
 
   def test_discard_resets_staged_branch_to_upstream

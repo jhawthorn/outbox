@@ -38,14 +38,19 @@ module Outbox
     # the body is everything after it, verbatim, so nothing in the message
     # can hide behind a tidy-looking first line.
     class Commit
-      attr_reader :sha, :short, :author, :author_email, :date, :parents, :message
+      attr_reader :sha, :short, :author, :author_email, :date,
+                  :committer, :committer_email, :commit_date, :parents, :message
 
-      def initialize(sha:, short:, author:, author_email:, date:, parents:, message:)
+      def initialize(sha:, short:, author:, author_email:, date:,
+                     committer:, committer_email:, commit_date:, parents:, message:)
         @sha = sha
         @short = short
         @author = author
         @author_email = author_email
         @date = date
+        @committer = committer
+        @committer_email = committer_email
+        @commit_date = commit_date
         @parents = parents
         @message = message
       end
@@ -56,10 +61,31 @@ module Outbox
       def body_lines = body.empty? ? 0 : body.lines.size
       def root? = parents.empty?
       def merge? = parents.size > 1
+
+      # The author is whoever the commit claims wrote it; the committer is
+      # whoever actually created the object. They differ after rebases,
+      # amends and cherry-picks, and when someone sets one by hand.
+      def committer_differs? = committer != author || committer_email != author_email
+    end
+
+    # One update to a staged branch, from the repo's reflog.
+    class Push
+      attr_reader :time, :old, :new, :message
+
+      def initialize(time:, old:, new:, forced:, message:)
+        @time = time
+        @old = old
+        @new = new
+        @forced = forced
+        @message = message
+      end
+
+      def forced? = @forced
+      def created? = old.nil?
     end
 
     SHA_RE = /\A[0-9a-f]{7,64}\z/
-    LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%P%x1f%B"
+    LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1f%B"
 
     attr_reader :name, :path
 
@@ -96,6 +122,9 @@ module Outbox
         repo.git("config", "http.receivepack", "true")
         repo.git("config", "receive.denyNonFastForwards", "false")
         repo.git("config", "receive.denyDeleteCurrent", "ignore")
+        # Bare repos don't keep reflogs by default. We want one per staged
+        # branch: it is the push history, and it is how force pushes show.
+        repo.git("config", "core.logAllRefUpdates", "true")
         repo.git("remote", "add", "upstream", upstream_url.strip)
         repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
         repo.git("config", "remote.upstream.tagOpt", "--no-tags")
@@ -219,12 +248,31 @@ module Outbox
       after.each do |branch, sha|
         old = before[branch]
         untouched = staged[branch].nil? ? old.nil? : staged[branch] == old
-        git("update-ref", "refs/heads/#{branch}", sha) if untouched && staged[branch] != sha
+        git("update-ref", "-m", "outbox: follow upstream", "refs/heads/#{branch}", sha) if untouched && staged[branch] != sha
       end
 
       (before.keys - after.keys).each do |branch|
         next unless staged[branch] == before[branch]
-        git("update-ref", "-d", "refs/heads/#{branch}", staged[branch])
+        git("update-ref", "-m", "outbox: follow upstream", "-d", "refs/heads/#{branch}", staged[branch])
+      end
+    end
+
+    # Every update to the staged branch, newest first: pushes from clients
+    # and the outbox's own follow/discard updates, with force pushes marked.
+    def push_history(name, limit: 50)
+      out = begin
+        git("log", "-g", "-n", limit.to_s, "--date=unix", "--format=%H%x1f%gd%x1f%gs", "refs/heads/#{name}")
+      rescue GitError
+        return []
+      end
+      entries = out.each_line(chomp: true).map do |line|
+        sha, selector, message = line.split("\x1f", 3)
+        [sha, selector[/@\{(\d+)\}/, 1].to_i, message.to_s]
+      end
+      entries.each_with_index.map do |(sha, time, message), i|
+        old = entries[i + 1]&.first
+        forced = !old.nil? && !ancestor?(old, sha)
+        Push.new(time: Time.at(time), old: old, new: sha, forced: forced, message: message)
       end
     end
 
@@ -249,8 +297,12 @@ module Outbox
 
     # --- review -------------------------------------------------------------
 
-    def approve!(name, force: false)
+    # expected: the staged sha the reviewer looked at ("" for a deletion).
+    # If the branch has moved since, refuse: approving must mean approving
+    # exactly what was reviewed, not whatever got pushed afterwards.
+    def approve!(name, force: false, expected: nil)
       b = branch(name)
+      check_expected!(b, expected)
       ref = "refs/heads/#{name}"
       case b.status
       when :synced
@@ -274,12 +326,13 @@ module Outbox
       b
     end
 
-    def discard!(name)
+    def discard!(name, expected: nil)
       b = branch(name)
+      check_expected!(b, expected)
       if b.upstream
-        git("update-ref", "refs/heads/#{name}", b.upstream)
+        git("update-ref", "-m", "outbox: discard", "refs/heads/#{name}", b.upstream)
       else
-        git("update-ref", "-d", "refs/heads/#{name}", b.staged)
+        git("update-ref", "-m", "outbox: discard", "-d", "refs/heads/#{name}", b.staged)
       end
       b
     end
@@ -326,6 +379,22 @@ module Outbox
 
     private
 
+    def check_expected!(b, expected)
+      return if expected.nil?
+      actual = b.staged.to_s
+      return if actual == expected
+      was = expected.empty? ? "deleted" : expected[0, 10]
+      now = actual.empty? ? "deleted" : actual[0, 10]
+      raise GitError, "#{b.name} changed since you reviewed it (reviewed #{was}, now #{now}). Review it again."
+    end
+
+    def ancestor?(old, new)
+      git("merge-base", "--is-ancestor", old, new)
+      true
+    rescue GitError
+      false
+    end
+
     def branch_info(name, staged, upstream)
       status, ahead, behind =
         if upstream.nil?
@@ -360,9 +429,10 @@ module Outbox
       return [] if revs.compact.empty?
       out = git("log", "-z", "-n", limit.to_s, "--format=#{LOG_FORMAT}", *revs)
       out.split("\0").map do |record|
-        sha, short, author, author_email, date, parents, message = record.split("\x1f", 7)
-        Commit.new(sha:, short:, author:, author_email:, date:, parents: parents.split,
-                   message: message.to_s.chomp)
+        sha, short, author, author_email, date, committer, committer_email, commit_date, parents, message =
+          record.split("\x1f", 10)
+        Commit.new(sha:, short:, author:, author_email:, date:, committer:, committer_email:, commit_date:,
+                   parents: parents.split, message: message.to_s.chomp)
       end
     end
 

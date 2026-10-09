@@ -77,6 +77,15 @@ module Outbox
 
       def commit_url(repo, branch, commit) = "#{branch_url(repo, branch)}/commits/#{commit.sha}"
 
+      def identity_line(c)
+        author = "#{hv c.author} &lt;#{hv c.author_email}&gt;"
+        if c.committer_differs?
+          "#{author} authored #{h c.date} · #{hv c.committer} &lt;#{hv c.committer_email}&gt; committed #{h c.commit_date}"
+        else
+          "#{author} committed #{h c.date}"
+        end
+      end
+
       def file_status_label(file)
         case file.status
         when :added   then "added"
@@ -166,22 +175,24 @@ module Outbox
       @commits = @repo.commits(@branch.name)
       @outgoing = @repo.outgoing_commits(@branch.name)
       @patch = @repo.diff(@branch.name)
+      @pushes = @repo.push_history(@branch.name)
       erb :branch
     end
 
     # Approve and discard are queued on the repo's actor. The outcome shows
-    # up on the repo page as the last result.
+    # up on the repo page as the last result. Both carry the sha the
+    # reviewer saw, so a push that lands in between is refused, not approved.
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.approve(repo, branch.name, force: params[:force] == "1")
+      hub.approve(repo, branch.name, force: params[:force] == "1", expected: params[:expected])
       redirect repo_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.discard(repo, branch.name)
+      hub.discard(repo, branch.name, expected: params[:expected])
       redirect repo_url(repo)
     end
   end

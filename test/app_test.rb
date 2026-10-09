@@ -62,10 +62,6 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/branches/main")
     assert_includes body, "/repos/demo/branches/main/commits/#{first}"
     assert_includes body, "/repos/demo/branches/main/commits/#{second}"
-    assert_includes body, "review one at a time, oldest first"
-    assert_match(%r{oldest first</a>.*}m, body)
-    assert_includes body[/oldest first.*?<\/h2>/m].to_s, "" # link exists
-    assert_includes body, "href=\"/repos/demo/branches/main/commits/#{first}\">review one at a time"
   end
 
   def test_commit_page_shows_one_commit_with_navigation
