@@ -1,0 +1,34 @@
+<% @title = "#{@commit.short} · #{@repo.name} / #{@branch.name}" %>
+<p class="muted">
+  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
+  <a href="<%= branch_url(@repo, @branch.name) %>"><%= h @branch.name %></a> /
+  commit <%= @position %> of <%= @total %>
+</p>
+<h1><%= h @commit.subject %></h1>
+
+<div class="toolbar">
+  <span class="muted"><code><%= h @commit.sha %></code> · <%= h @commit.author %> · <%= h @commit.date %>
+    <% if @commit.merge? %>· merge commit, shown against its first parent<% end %>
+    <% if @commit.root? %>· root commit<% end %>
+  </span>
+  <span class="spacer"></span>
+  <nav class="actions">
+    <% if @older %>
+      <a href="<%= commit_url(@repo, @branch.name, @older) %>">← older: <%= h @older.subject %></a>
+    <% else %>
+      <span class="muted">← oldest</span>
+    <% end %>
+    <span class="muted">·</span>
+    <% if @newer %>
+      <a href="<%= commit_url(@repo, @branch.name, @newer) %>">newer: <%= h @newer.subject %> →</a>
+    <% else %>
+      <span class="muted">newest →</span>
+    <% end %>
+  </nav>
+</div>
+
+<% unless @commit.body.empty? %>
+  <pre class="message"><%= h @commit.body %></pre>
+<% end %>
+
+<%= render_patch(@patch) %>

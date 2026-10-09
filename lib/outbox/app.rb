@@ -63,17 +63,19 @@ module Outbox
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end
 
-      def diff_html(diff)
-        diff.each_line.map do |line|
-          cls = case line
-                when /\A(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename |old mode|new mode|Binary)/ then "meta"
-                when /\A@@/ then "hunk"
-                when /\A\+/ then "add"
-                when /\A-/  then "del"
-                else "ctx"
-                end
-          %(<span class="#{cls}">#{h(line.chomp)}</span>\n)
-        end.join
+      def commit_url(repo, branch, commit) = "#{branch_url(repo, branch)}/commits/#{commit.sha}"
+
+      def file_status_label(file)
+        case file.status
+        when :added   then "added"
+        when :deleted then "deleted"
+        when :renamed then "renamed"
+        when :copied  then "copied"
+        end
+      end
+
+      def render_patch(patch)
+        erb :_patch, layout: false, locals: { patch: patch }
       end
     end
 
@@ -128,12 +130,30 @@ module Outbox
       redirect "/"
     end
 
+    # Must be defined before the branch route, whose splat would otherwise
+    # swallow "/commits/<sha>".
+    get "/repos/:name/branches/*/commits/:sha" do
+      @repo = Repo.find!(params[:name])
+      @branch = @repo.branch(params[:splat].first)
+      list = @repo.commits(@branch.name, limit: 1000)
+      index = list.index { |c| c.sha == params[:sha] }
+      raise NotFound, "that commit is not part of what is staged on #{@branch.name}" unless index
+      @commit = @repo.commit_detail(params[:sha])
+      @patch = @repo.commit_diff(params[:sha])
+      # list is newest first; present as oldest = 1 of N.
+      @newer = index.positive? ? list[index - 1] : nil
+      @older = list[index + 1]
+      @position = list.size - index
+      @total = list.size
+      erb :commit
+    end
+
     get "/repos/:name/branches/*" do
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
       @commits = @repo.commits(@branch.name)
       @outgoing = @repo.outgoing_commits(@branch.name)
-      @stat, @diff = @repo.diff(@branch.name)
+      @patch = @repo.diff(@branch.name)
       erb :branch
     end
 

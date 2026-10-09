@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "outbox/git"
+require_relative "outbox/diff"
 require_relative "outbox/repo"
 require_relative "outbox/repo_actor"
 require_relative "outbox/hub"

@@ -1,0 +1,63 @@
+<% files = patch.files %>
+<% if files.empty? %>
+  <p class="empty">No changes.</p>
+<% else %>
+  <div class="patch-summary">
+    <span class="muted"><%= h patch.stat %></span>
+    <ul>
+    <% files.each_with_index do |f, i| %>
+      <li>
+        <a href="#f<%= i %>"><%= h f.path %></a>
+        <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
+        <% if f.binary? %><span class="muted">binary</span><% else %>
+          <span class="count add">+<%= f.additions %></span>
+          <span class="count del">−<%= f.deletions %></span>
+        <% end %>
+      </li>
+    <% end %>
+    </ul>
+    <% if patch.truncated? %>
+      <p class="muted">This patch was cut off at <%= Outbox::Repo::MAX_PATCH_BYTES / 1_000_000 %> MB. Files past that point are not shown.</p>
+    <% end %>
+  </div>
+
+  <% files.each_with_index do |f, i| %>
+    <details class="file" id="f<%= i %>" open>
+      <summary>
+        <code><%= h f.path %></code>
+        <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= h f.old_path %></code></span><% end %>
+        <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
+        <% if f.old_mode && f.new_mode && f.status == :modified %><span class="muted">mode <%= h f.old_mode %> → <%= h f.new_mode %></span><% end %>
+        <% unless f.binary? %>
+          <span class="count add">+<%= f.additions %></span>
+          <span class="count del">−<%= f.deletions %></span>
+        <% end %>
+      </summary>
+      <% if f.binary? %>
+        <p class="muted" style="padding:8px 12px;margin:0">Binary file, no textual diff.</p>
+      <% elsif f.hunks.empty? %>
+        <p class="muted" style="padding:8px 12px;margin:0">No content changes.</p>
+      <% else %>
+        <table class="hunks">
+        <% f.hunks.each do |hk| %>
+          <tr class="hunk"><td class="no"></td><td class="no"></td><td class="code"><%= h hk.header %></td></tr>
+          <% hk.lines.each do |l| %>
+            <% if l.note? %>
+              <tr class="note"><td class="no"></td><td class="no"></td><td class="code"><%= h l.text %></td></tr>
+            <% else %>
+              <tr class="<%= l.kind %>">
+                <td class="no"><%= l.old_no %></td>
+                <td class="no"><%= l.new_no %></td>
+                <td class="code"><span class="mark"><%= l.add? ? "+" : (l.del? ? "−" : " ") %></span><%= h l.text %></td>
+              </tr>
+            <% end %>
+          <% end %>
+        <% end %>
+        </table>
+        <% if f.truncated? %>
+          <p class="muted" style="padding:8px 12px;margin:0">File truncated after <%= Outbox::Diff::MAX_LINES_PER_FILE %> lines.</p>
+        <% end %>
+      <% end %>
+    </details>
+  <% end %>
+<% end %>

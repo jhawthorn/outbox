@@ -35,16 +35,23 @@ module Outbox
     end
 
     class Commit
-      attr_reader :sha, :short, :author, :date, :subject
+      attr_reader :sha, :short, :author, :date, :subject, :parents, :body
 
-      def initialize(sha:, short:, author:, date:, subject:)
+      def initialize(sha:, short:, author:, date:, subject:, parents: [], body: "")
         @sha = sha
         @short = short
         @author = author
         @date = date
         @subject = subject
+        @parents = parents
+        @body = body
       end
+
+      def root? = parents.empty?
+      def merge? = parents.size > 1
     end
+
+    SHA_RE = /\A[0-9a-f]{7,64}\z/
 
     attr_reader :name, :path
 
@@ -285,15 +292,31 @@ module Outbox
       end
     end
 
-    def diff(name, max_bytes: 2_000_000)
+    # Everything approving this branch would change on upstream, as one patch.
+    def diff(name, max_bytes: MAX_PATCH_BYTES)
       b = branch(name)
       from, to = diff_endpoints(b)
-      return ["", ""] if from.nil?
-      stat = git("diff", "--shortstat", from, to).strip
-      full = git("diff", from, to)
-      full = full.byteslice(0, max_bytes) + "\n[diff truncated at #{max_bytes} bytes]\n" if full.bytesize > max_bytes
-      [stat, full]
+      return Diff::Patch.new(stat: "", text: "") if from.nil?
+      patch(from, to, max_bytes)
     end
+
+    # One commit, with its full message. The sha must already be known to
+    # belong to this repo (callers look it up in a commits list first).
+    def commit_detail(sha)
+      raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.match?(SHA_RE)
+      out = git("show", "-s", "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%P%x1f%b", sha)
+      full, short, author, date, subject, parents, body = out.split("\x1f", 7)
+      Commit.new(sha: full, short:, author:, date:, subject:, parents: parents.split, body: body.to_s.strip)
+    end
+
+    # What one commit changed relative to its first parent (or to nothing,
+    # for a root commit).
+    def commit_diff(sha, max_bytes: MAX_PATCH_BYTES)
+      c = commit_detail(sha)
+      patch(c.parents.first || empty_tree, c.sha, max_bytes)
+    end
+
+    MAX_PATCH_BYTES = 2_000_000
 
     private
 
@@ -344,6 +367,19 @@ module Outbox
       else
         [nil, nil]
       end
+    end
+
+    def patch(from, to, max_bytes)
+      stat = git("diff", "--shortstat", "-M", from, to).strip
+      text = git("diff", "-M", from, to)
+      truncated = false
+      if text.bytesize > max_bytes
+        text = text.byteslice(0, max_bytes)
+        text = text[0..text.rindex("\n")] if text.include?("\n")
+        text = text.scrub
+        truncated = true
+      end
+      Diff::Patch.new(stat:, text:, truncated:)
     end
 
     # For a brand-new branch, diff against the closest point on any upstream

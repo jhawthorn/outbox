@@ -48,16 +48,20 @@
 <% end %>
 
 <% unless @commits.empty? %>
-  <h2>Commits (<%= @commits.size %>)</h2>
+  <h2>Commits (<%= @commits.size %>)
+    <span class="muted" style="font-weight:400;font-size:14px">·
+      <a href="<%= commit_url(@repo, @branch.name, @commits.last) %>">review one at a time, oldest first</a></span>
+  </h2>
   <% @commits.each do |c| %>
-    <div class="commit"><code><%= c.short %></code> <span class="subject"><%= h c.subject %></span>
+    <div class="commit"><code><%= c.short %></code>
+      <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= h c.subject %></a>
       <span class="who">— <%= h c.author %>, <%= h c.date %></span></div>
   <% end %>
 <% end %>
 
-<% if @diff.empty? %>
+<% if @patch.empty? %>
   <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
 <% else %>
-  <h2>Diff <span class="muted" style="font-weight:400;font-size:14px"><%= h @stat %></span></h2>
-  <pre class="diff"><%= diff_html(@diff) %></pre>
+  <h2>All changes</h2>
+  <%= render_patch(@patch) %>
 <% end %>
