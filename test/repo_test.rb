@@ -363,34 +363,6 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal :ready, status_of
   end
 
-  # --- push history -------------------------------------------------------
-
-  def test_push_history_records_pushes_and_force_pushes
-    first = stage_commit("a.txt", "a\n", "First")
-    git("reset", "--quiet", "--hard", "HEAD~1", chdir: @stage)
-    rewritten = commit(@stage, "a.txt", "A\n", "First, rewritten")
-    push(@stage, "main", force: true)
-
-    pushes = @repo.push_history("main")
-    assert_equal [rewritten, first], pushes.first(2).map(&:new)
-    assert pushes[0].forced?, "non-fast-forward push must be flagged"
-    assert_equal first, pushes[0].old
-    refute pushes[1].forced?
-    assert_equal "push", pushes[1].message
-    assert pushes.last.created?
-    assert_kind_of Time, pushes[0].time
-  end
-
-  def test_push_history_includes_outbox_updates
-    stage_commit
-    @repo.discard!("main")
-    upstream_commit
-    @repo.fetch!
-    messages = @repo.push_history("main").map(&:message)
-    assert_equal ["outbox: follow upstream", "outbox: discard", "push"], messages.first(3)
-    assert_empty @repo.push_history("no-such-branch")
-  end
-
   # --- identity -----------------------------------------------------------
 
   def test_committer_is_exposed_when_it_differs_from_author

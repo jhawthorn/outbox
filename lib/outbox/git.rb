@@ -14,13 +14,16 @@ module Outbox
     # The only variables from the server's environment that git may see.
     # Deliberately no GIT_SSH_COMMAND or SSH_AUTH_SOCK: a repo's SSH setup
     # comes from its own deploy key (Repo#git_env), never from the host.
-    PASSTHROUGH = %w[PATH HOME GIT_CONFIG_GLOBAL].freeze
+    # HOME is needed by ssh, but git's global config is disabled below so
+    # nothing in ~/.gitconfig applies.
+    PASSTHROUGH = %w[PATH HOME].freeze
 
     def self.env
       base = {
         "LANG" => "C.UTF-8",
         "GIT_TERMINAL_PROMPT" => "0",
         "GIT_CONFIG_NOSYSTEM" => "1",
+        "GIT_CONFIG_GLOBAL" => "/dev/null",
       }
       PASSTHROUGH.each { |k| base[k] = ENV[k] if ENV.key?(k) }
       base

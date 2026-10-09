@@ -27,9 +27,21 @@ class GitTest < Minitest::Test
     refute_includes out, "OUTBOX_LEAK_TEST="
     assert_includes out, "GIT_TERMINAL_PROMPT=0"
     assert_includes out, "GIT_CONFIG_NOSYSTEM=1"
+    assert_includes out, "GIT_CONFIG_GLOBAL=/dev/null"
     assert_includes out, "PATH="
   ensure
     ENV.delete("OUTBOX_LEAK_TEST")
+  end
+
+  def test_users_global_gitconfig_is_ignored
+    Dir.mktmpdir do |home|
+      File.write(File.join(home, ".gitconfig"), "[alias]\n\tleak = !echo leaked\n")
+      saved = ENV["HOME"]
+      ENV["HOME"] = home
+      assert_raises(Outbox::GitError) { Git.run("leak") }
+    ensure
+      ENV["HOME"] = saved
+    end
   end
 
   def test_ssh_variables_from_the_server_are_not_passed_through

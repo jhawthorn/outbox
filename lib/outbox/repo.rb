@@ -68,22 +68,6 @@ module Outbox
       def committer_differs? = committer != author || committer_email != author_email
     end
 
-    # One update to a staged branch, from the repo's reflog.
-    class Push
-      attr_reader :time, :old, :new, :message
-
-      def initialize(time:, old:, new:, forced:, message:)
-        @time = time
-        @old = old
-        @new = new
-        @forced = forced
-        @message = message
-      end
-
-      def forced? = @forced
-      def created? = old.nil?
-    end
-
     SHA_RE = /\A[0-9a-f]{7,64}\z/
     LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1f%B"
 
@@ -257,25 +241,6 @@ module Outbox
       end
     end
 
-    # Every update to the staged branch, newest first: pushes from clients
-    # and the outbox's own follow/discard updates, with force pushes marked.
-    def push_history(name, limit: 50)
-      out = begin
-        git("log", "-g", "-n", limit.to_s, "--date=unix", "--format=%H%x1f%gd%x1f%gs", "refs/heads/#{name}")
-      rescue GitError
-        return []
-      end
-      entries = out.each_line(chomp: true).map do |line|
-        sha, selector, message = line.split("\x1f", 3)
-        [sha, selector[/@\{(\d+)\}/, 1].to_i, message.to_s]
-      end
-      entries.each_with_index.map do |(sha, time, message), i|
-        old = entries[i + 1]&.first
-        forced = !old.nil? && !ancestor?(old, sha)
-        Push.new(time: Time.at(time), old: old, new: sha, forced: forced, message: message)
-      end
-    end
-
     # True when HEAD points at a branch that exists. A freshly created repo's
     # HEAD points at a branch that may not exist upstream, which makes clones
     # from the outbox warn and check out nothing.
@@ -388,13 +353,6 @@ module Outbox
       raise GitError, "#{b.name} changed since you reviewed it (reviewed #{was}, now #{now}). Review it again."
     end
 
-    def ancestor?(old, new)
-      git("merge-base", "--is-ancestor", old, new)
-      true
-    rescue GitError
-      false
-    end
-
     def branch_info(name, staged, upstream)
       status, ahead, behind =
         if upstream.nil?
@@ -461,17 +419,14 @@ module Outbox
       Diff::Patch.new(stat:, text:, truncated:)
     end
 
-    # For a brand-new branch, diff against the closest point on any upstream
-    # branch; fall back to the empty tree when upstream is empty or unrelated.
+    # For a brand-new branch, diff against where it forked from upstream's
+    # default branch, like a compare against main. Falls back to the empty
+    # tree when upstream is empty or unrelated.
     def nearest_upstream_base(sha)
-      bases = upstream_refs.values.uniq.first(50).filter_map do |up|
-        git("merge-base", up, sha).strip
-      rescue GitError
-        nil
-      end
-      return empty_tree if bases.empty?
-      # Pick the most recent base (the branch it was actually forked from).
-      bases.uniq.max_by { |base| git("show", "-s", "--format=%ct", base).to_i }
+      default = git("symbolic-ref", "HEAD").strip.delete_prefix("refs/heads/")
+      git("merge-base", "refs/remotes/upstream/#{default}", sha).strip
+    rescue GitError
+      empty_tree
     end
 
     def empty_tree

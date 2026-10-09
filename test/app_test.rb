@@ -45,7 +45,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/branches/main")
 
     assert_includes body, "Add a"
-    assert_includes body, "All changes"
+    assert_includes body, "Files changed (1)"
     assert_includes body, '<a href="#f0">lib/a.rb</a>'
     assert_includes body, 'class="badge added"'
     assert_includes body, "+2</span>"

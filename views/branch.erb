@@ -13,11 +13,6 @@
   </form>
 </div>
 
-<% if @pushes.first&.forced? %>
-  <div class="panel warn">Force-pushed <%= h @pushes.first.time.strftime("%Y-%m-%d %H:%M") %>:
-    <code><%= short(@pushes.first.old) %></code> → <code><%= short(@pushes.first.new) %></code></div>
-<% end %>
-
 <% if @branch.pending? %>
   <div class="panel <%= @branch.needs_force? ? "warn" : "" %>">
     <div class="actions">
@@ -28,8 +23,7 @@
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
           <button type="submit" class="warn">Force approve</button>
         </form>
-        <span>Upstream moved since this was staged. Approving will overwrite it. Usually you want to
-          fetch, rebase the branch locally, and push again instead.</span>
+        <span class="muted">Upstream has moved. Approving overwrites it.</span>
       <% else %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
@@ -46,7 +40,7 @@
 <% end %>
 
 <% unless @outgoing.empty? %>
-  <h2>Upstream commits that would be <%= @branch.status == :deleted ? "unreachable after deletion" : "dropped" %></h2>
+  <h2>Dropped from upstream (<%= @outgoing.size %>)</h2>
   <div class="panel danger">
     <% @outgoing.each do |c| %>
       <div class="commit"><code><%= c.short %></code> <span class="subject"><%= hv c.subject %></span>
@@ -79,34 +73,9 @@
   <% end %>
 <% end %>
 
-<% unless @pushes.empty? %>
-  <h2>Push history</h2>
-  <table class="pushes">
-    <thead><tr><th>When</th><th>From</th><th>To</th><th>What</th></tr></thead>
-    <tbody>
-    <% @pushes.each do |p| %>
-      <tr class="<%= p.forced? ? "forced" : "" %>">
-        <td><%= h p.time.strftime("%Y-%m-%d %H:%M:%S") %></td>
-        <td><code><%= p.created? ? "—" : short(p.old) %></code></td>
-        <td><code><%= short(p.new) %></code></td>
-        <td>
-          <% if p.message.start_with?("outbox:") %>
-            <span class="muted"><%= h p.message.delete_prefix("outbox: ") %></span>
-          <% else %>
-            <%= h p.message.empty? ? "push" : p.message %>
-          <% end %>
-          <% if p.forced? %><span class="badge deleted">forced</span><% end %>
-          <% if p.created? %><span class="badge new">created</span><% end %>
-        </td>
-      </tr>
-    <% end %>
-    </tbody>
-  </table>
-<% end %>
-
 <% if @patch.empty? %>
   <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
 <% else %>
-  <h2>All changes</h2>
+  <h2>Files changed (<%= @patch.files.size %>)</h2>
   <%= render_patch(@patch) %>
 <% end %>

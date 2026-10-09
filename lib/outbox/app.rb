@@ -175,7 +175,6 @@ module Outbox
       @commits = @repo.commits(@branch.name)
       @outgoing = @repo.outgoing_commits(@branch.name)
       @patch = @repo.diff(@branch.name)
-      @pushes = @repo.push_history(@branch.name)
       erb :branch
     end
 
