@@ -66,7 +66,7 @@
         </td>
         <td><code><%= short(b.staged) %></code></td>
         <td><code><%= short(b.upstream) %></code></td>
-        <td class="actions">
+        <td><div class="actions">
           <a href="<%= branch_url(@repo, b.name) %>">Review</a>
           <% unless b.needs_force? %>
             <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
@@ -79,7 +79,7 @@
             <input type="hidden" name="expected" value="<%= b.staged %>">
             <button type="submit" class="danger">Discard</button>
           </form>
-        </td>
+        </div></td>
       </tr>
     <% end %>
     </tbody>
