@@ -53,6 +53,12 @@ module Outbox
 
       def pluralize(n, word) = "#{n} #{word}#{n == 1 ? "" : "s"}"
 
+      # Deep link to the deploy keys page when the upstream is on GitHub.
+      def github_keys_url(upstream)
+        m = upstream.match(%r{github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?\z})
+        m && "https://github.com/#{m[1]}/#{m[2]}/settings/keys"
+      end
+
       def duration(seconds)
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end

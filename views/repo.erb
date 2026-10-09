@@ -14,6 +14,20 @@
   </form>
 </div>
 
+<details class="add" style="margin:0 0 16px" <%= "open" if @status.last && !@status.last.ok? && @status.last.job != :discard %>>
+  <summary>Deploy key for pushing to upstream</summary>
+  <% if @repo.public_key %>
+    <p class="muted" style="margin:8px 0">Generated inside the outbox for this repository only. Add it to the upstream
+      as a deploy key <strong>with write access</strong>
+      <% if (url = github_keys_url(@repo.upstream_url)) %>at <a href="<%= h url %>" target="_blank" rel="noopener"><%= h url %></a><% end %>.
+      Pushes to upstream use this key and nothing else.</p>
+    <pre style="white-space:pre-wrap;word-break:break-all;margin:0"><%= h @repo.public_key %></pre>
+  <% else %>
+    <p class="muted" style="margin:8px 0">No deploy key was generated (ssh-keygen was not available when this
+      repository was added). Pushes use whatever SSH setup the server's environment provides.</p>
+  <% end %>
+</details>
+
 <% if @status.running? %>
   <div class="panel">
     <span class="badge busy">working</span>

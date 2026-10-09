@@ -12,7 +12,9 @@ module Outbox
   # inheriting the server's.
   module Git
     # The only variables from the server's environment that git may see.
-    PASSTHROUGH = %w[PATH HOME GIT_SSH_COMMAND SSH_AUTH_SOCK GIT_CONFIG_GLOBAL].freeze
+    # Deliberately no GIT_SSH_COMMAND or SSH_AUTH_SOCK: a repo's SSH setup
+    # comes from its own deploy key (Repo#git_env), never from the host.
+    PASSTHROUGH = %w[PATH HOME GIT_CONFIG_GLOBAL].freeze
 
     def self.env
       base = {
@@ -24,10 +26,11 @@ module Outbox
       base
     end
 
-    def self.run(*args, chdir: nil, input: nil)
+    # extra: additional variables for this one invocation (a repo's SSH setup).
+    def self.run(*args, chdir: nil, input: nil, extra: {})
       opts = { stdin_data: input || "", unsetenv_others: true }
       opts[:chdir] = chdir if chdir
-      out, err, status = Open3.capture3(env, "git", *args, **opts)
+      out, err, status = Open3.capture3(env.merge(extra), "git", *args, **opts)
       raise GitError, failure_message(args, err, status) unless status.success?
       out.force_encoding(Encoding::UTF_8).scrub
     end
@@ -35,10 +38,10 @@ module Outbox
     # Like run, but yields each line git writes to stderr as it happens. Git
     # separates progress updates with \r, so those are yielded as lines too.
     # Used for long-running network operations so the UI can show progress.
-    def self.stream(*args, chdir: nil)
+    def self.stream(*args, chdir: nil, extra: {})
       opts = { unsetenv_others: true }
       opts[:chdir] = chdir if chdir
-      Open3.popen3(env, "git", *args, **opts) do |stdin, stdout, stderr, wait|
+      Open3.popen3(env.merge(extra), "git", *args, **opts) do |stdin, stdout, stderr, wait|
         stdin.close
         reader = Thread.new { stdout.read }
         all = +""

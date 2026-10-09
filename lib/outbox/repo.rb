@@ -84,6 +84,7 @@ module Outbox
         repo.git("remote", "add", "upstream", upstream_url.strip)
         repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
         repo.git("config", "remote.upstream.tagOpt", "--no-tags")
+        repo.generate_deploy_key
       rescue StandardError
         FileUtils.rm_rf(repo.path)
         raise
@@ -95,11 +96,56 @@ module Outbox
 
     def initialize(name, root: self.class.root)
       @name = name
+      @root = root
       @path = File.join(self.class.repos_dir(root), "#{name}.git")
     end
 
     def git(*args, input: nil)
-      Git.run(*args, chdir: path, input: input)
+      Git.run(*args, chdir: path, input: input, extra: git_env)
+    end
+
+    # --- upstream credentials ----------------------------------------------
+    #
+    # Each repo gets its own SSH keypair, generated here and never leaving
+    # the data directory. The public half is added to the upstream as a
+    # deploy key with write access, so a key can only ever touch one repo.
+    # Nothing from the host's ~/.ssh is involved.
+
+    def deploy_key_path = File.join(path, "deploy_key")
+
+    def public_key
+      File.read("#{deploy_key_path}.pub").strip
+    rescue Errno::ENOENT
+      nil
+    end
+
+    def generate_deploy_key
+      out, err, status = Open3.capture3(
+        { "PATH" => ENV["PATH"] },
+        "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "outbox deploy key: #{name}", "-f", deploy_key_path,
+        unsetenv_others: true,
+      )
+      raise GitError, "ssh-keygen: #{err.strip}" unless status.success?
+      out
+    rescue Errno::ENOENT
+      # No ssh-keygen on this machine. Pushes fall back to whatever SSH the
+      # environment provides, and the UI says so.
+      nil
+    end
+
+    # When a deploy key exists, every git command for this repo uses it and
+    # nothing else. GIT_SSH (unlike GIT_SSH_COMMAND) is executed directly by
+    # git without a shell; the wrapper reads the key path from the
+    # environment and execs ssh with separate arguments.
+    SSH_WRAPPER = File.expand_path("../../bin/outbox-ssh", __dir__).freeze
+
+    def git_env
+      return {} unless File.exist?(deploy_key_path)
+      {
+        "GIT_SSH" => SSH_WRAPPER,
+        "OUTBOX_SSH_KEY" => deploy_key_path,
+        "OUTBOX_KNOWN_HOSTS" => File.join(@root, "known_hosts"),
+      }
     end
 
     def upstream_url
@@ -148,7 +194,7 @@ module Outbox
     def fetch!(&progress)
       before = upstream_refs
       if progress
-        Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, &progress)
+        Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: git_env, &progress)
       else
         git("fetch", "--prune", "--quiet", "upstream")
       end
