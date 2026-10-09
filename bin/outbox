@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# frozen_string_literal: true
 # Command-line access to the same operations as the web UI. Intended for use
 # inside the container:  docker compose exec outbox bin/outbox list
 require_relative "../lib/outbox/git"

@@ -1,8 +1,9 @@
+# frozen_string_literal: true
+
 require_relative "lib/outbox"
 
-# One fetch per repository at boot: cheap when nothing changed, and it
-# completes any first fetch that a restart interrupted.
-Outbox::Sync.start_all
+Outbox.hub = Outbox::Hub.new
+Outbox.hub.start_all
 
 use Rack::CommonLogger
 use Outbox::GitHttp, Outbox::Repo.repos_dir

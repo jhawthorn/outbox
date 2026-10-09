@@ -7,17 +7,19 @@
   <table>
     <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
     <tbody>
-    <% @repos.each do |repo, branches, sync| %>
+    <% @repos.each do |repo, branches, status| %>
       <% pending = branches.select(&:pending?) %>
       <tr>
         <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
         <td class="muted"><%= h repo.upstream_url %></td>
         <td>
-          <% if sync&.running? %>
-            <span class="badge syncing">syncing</span>
-            <div class="progress muted"><%= h sync.progress %></div>
-          <% elsif sync&.failed? %>
-            <span class="badge failed">sync failed</span>
+          <% if status.running? %>
+            <span class="badge busy"><%= h job_label(status) %></span>
+            <div class="progress muted"><%= h status.progress %></div>
+          <% elsif status.busy? %>
+            <span class="badge busy">queued</span>
+          <% elsif status.last && !status.last.ok? %>
+            <span class="badge failed"><%= h status.last.job %> failed</span>
           <% elsif pending.empty? %>
             <span class="muted">nothing</span>
           <% else %>

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Outbox
   # The body of the Ractor that owns one repository. It is the only place
   # that mutates the repo. It receives jobs on its default port and reports

@@ -6,31 +6,35 @@
   <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
   <span class="spacer"></span>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
-    <button type="submit" <%= "disabled" if @sync&.running? %>>Fetch upstream</button>
+    <button type="submit" <%= "disabled" if @status.busy? %>>Fetch upstream</button>
   </form>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/destroy"
         onsubmit="return confirm('Remove <%= h @repo.name %> from the outbox? Upstream is not touched.')">
-    <button type="submit" class="danger" <%= "disabled" if @sync&.running? %>>Remove</button>
+    <button type="submit" class="danger" <%= "disabled" if @status.busy? %>>Remove</button>
   </form>
 </div>
 
-<% if @sync&.running? %>
+<% if @status.running? %>
   <div class="panel">
-    <span class="badge syncing">syncing</span>
-    Fetching upstream <span class="muted">(<%= duration(@sync.elapsed) %>)</span>
-    <div class="progress"><%= h @sync.progress %></div>
+    <span class="badge busy">working</span>
+    <%= h job_label(@status) %> <span class="muted">(<%= duration(@status.elapsed) %>)</span>
+    <% if @status.queued > 1 %><span class="muted">· <%= @status.queued - 1 %> more queued</span><% end %>
+    <% if @status.progress %><div class="progress"><%= h @status.progress %></div><% end %>
   </div>
-<% elsif @sync&.failed? %>
+<% elsif @status.busy? %>
+  <div class="panel"><span class="badge busy">queued</span> starting shortly</div>
+<% elsif @status.last && !@status.last.ok? %>
   <div class="panel danger">
-    <span class="badge failed">sync failed</span> after <%= duration(@sync.elapsed) %>
-    <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @sync.error %></pre>
+    <span class="badge failed"><%= h @status.last.job %> failed</span>
+    <% if @status.last.branch %>on <code><%= h @status.last.branch %></code><% end %>
+    <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @status.last.message %></pre>
   </div>
-<% elsif @sync&.done? %>
-  <p class="muted">Fetched upstream in <%= duration(@sync.elapsed) %>.</p>
+<% elsif @status.last %>
+  <p class="muted"><%= h @status.last.message %>.</p>
 <% end %>
 
 <% if @branches.empty? %>
-  <% unless @sync&.running? %>
+  <% unless @status.busy? %>
     <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
   <% end %>
 <% else %>

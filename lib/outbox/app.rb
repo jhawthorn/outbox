@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "sinatra/base"
 
 module Outbox
@@ -17,6 +19,17 @@ module Outbox
 
     helpers do
       def h(text) = Rack::Utils.escape_html(text.to_s)
+
+      def hub = Outbox.hub
+
+      def job_label(status)
+        case status.job
+        when :fetch   then "Fetching upstream"
+        when :approve then "Pushing #{status.branch} to upstream"
+        when :discard then "Discarding #{status.branch}"
+        else status.job.to_s
+        end
+      end
 
       def repo_url(repo) = "/repos/#{repo.name}"
 
@@ -77,37 +90,35 @@ module Outbox
     end
 
     get "/" do
-      @repos = Repo.all.map { |r| [r, r.branches, Sync.for(r)] }
-      @refresh = @repos.any? { |_, _, sync| sync&.running? }
+      @repos = Repo.all.map { |r| [r, r.branches, hub.status(r)] }
+      @refresh = @repos.any? { |_, _, status| status.busy? }
       erb :index
     end
 
     post "/repos" do
       repo = Repo.create(params[:name].to_s.strip, params[:upstream].to_s.strip)
-      Sync.start(repo)
+      hub.fetch(repo)
       redirect repo_url(repo)
     end
 
     get "/repos/:name" do
       @repo = Repo.find!(params[:name])
-      @sync = Sync.for(@repo)
+      @status = hub.status(@repo)
       @branches = @repo.branches
-      @refresh = @sync&.running?
+      @refresh = @status.busy?
       erb :repo
     end
 
     post "/repos/:name/fetch" do
       repo = Repo.find!(params[:name])
-      Sync.start(repo)
+      hub.fetch(repo)
       redirect(params[:back] || repo_url(repo))
     end
 
     post "/repos/:name/destroy" do
       repo = Repo.find!(params[:name])
-      sync = Sync.for(repo)
-      raise GitError, "#{repo.name} is still syncing; wait for it to finish" if sync&.running?
-      repo.destroy!
-      Sync.forget(repo)
+      raise GitError, "#{repo.name} is busy; wait for it to finish" if hub.status(repo).busy?
+      hub.remove(repo)
       redirect "/"
     end
 
@@ -120,15 +131,19 @@ module Outbox
       erb :branch
     end
 
+    # Approve and discard are queued on the repo's actor. The outcome shows
+    # up on the repo page as the last result.
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
-      repo.approve!(params[:splat].first, force: params[:force] == "1")
+      branch = repo.branch(params[:splat].first)
+      hub.approve(repo, branch.name, force: params[:force] == "1")
       redirect repo_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
-      repo.discard!(params[:splat].first)
+      branch = repo.branch(params[:splat].first)
+      hub.discard(repo, branch.name)
       redirect repo_url(repo)
     end
   end

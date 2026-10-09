@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "fileutils"
 
 module Outbox
@@ -48,7 +50,7 @@ module Outbox
 
     # Where staging repos live. The container sets OUTBOX_DATA=/data; running
     # locally defaults to ./data in the project directory.
-    DEFAULT_ROOT = File.expand_path("../../data", __dir__).freeze
+    DEFAULT_ROOT = File.expand_path("../../data", __dir__).freeze # expand_path returns a new String
 
     def self.root = ENV.fetch("OUTBOX_DATA", DEFAULT_ROOT)
     def self.repos_dir(root = self.root) = File.join(root, "repos")
