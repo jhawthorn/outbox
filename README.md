@@ -37,12 +37,6 @@ on first use into `$OUTBOX_DATA/known_hosts`.
 
 HTTPS upstreams work too if the URL carries a token.
 
-**Open question:** per-repo deploy keys mean a trip to GitHub's settings for every repo
-added. The likely replacement is a single fine-grained GitHub token, scoped to the repos
-the outbox may push to, passed as one environment variable and answered to git through
-a `GIT_ASKPASS` program (no shell, no token on a command line). If that lands, the
-deploy-key path goes away rather than living alongside it. Parked for now.
-
 ## Fetching
 
 Upstream is fetched when a repo is added, once per repo at boot, and when you click
@@ -59,3 +53,29 @@ bundle exec ruby test/smoke_test.rb         # end-to-end, uses a temp dir and a 
 Docker: `docker compose up -d --build`, then http://localhost:8080. Data lives in the
 `outbox-data` volume. The UI and git endpoint have no auth; the compose file binds to
 localhost only.
+
+## Not yet done
+
+Things discussed and deliberately left.
+
+- **Upstream auth.** Per-repo deploy keys mean a trip to GitHub's settings for every repo
+  added. The likely replacement is a single fine-grained token, scoped to the repos the
+  outbox may push to, passed as one environment variable and answered to git through a
+  `GIT_ASKPASS` program (no shell, no token on a command line). If that lands, the
+  deploy-key path goes away rather than living alongside it. Keys are currently
+  generated for every repo, including local and HTTPS upstreams where they are unused.
+- **Staleness.** Everything on a branch page is computed against upstream as of the last
+  fetch. If an agent builds on a newer upstream than the outbox has and pushes, upstream's
+  own commits show up as new work. Fetching when a push arrives (the HTTP middleware
+  already sees every `git-receive-pack`) would fix the common case at one fetch per push.
+  Not done because fetch policy was explicitly limited to add, boot and the button.
+- **Diff base for a new branch** is the merge-base with upstream's default branch, like
+  a GitHub compare. A branch forked from some other upstream branch shows that branch's
+  commits too. `git rev-list --boundary <branch> --not --remotes=upstream` finds the exact
+  attachment point in one call and would be more accurate when there is a single boundary.
+- **Commit limits disagree.** The branch page lists up to 200 commits; the commit page
+  validates against 1000. Past 200 the two views do not match.
+- **Two diff truncation mechanisms**, a byte cap on the whole patch and a line cap per
+  file, that overlap and report separately.
+- **Merge commits** get a "merge" badge in the commit list. GitHub does not badge them;
+  it shows the parents on the commit page instead. Undecided.

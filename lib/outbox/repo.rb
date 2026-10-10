@@ -186,30 +186,39 @@ module Outbox
 
     # --- refs ---------------------------------------------------------------
 
-    def staged_refs = refs("refs/heads/")
-    def upstream_refs = refs("refs/remotes/upstream/")
+    STAGED_PREFIX = "refs/heads/"
+    UPSTREAM_PREFIX = "refs/remotes/upstream/"
 
-    def refs(prefix)
-      out = git("for-each-ref", "--format=%(refname) %(objectname)", prefix.chomp("/"))
-      out.each_line.with_object({}) do |line, h|
+    def staged_refs = all_refs.first
+    def upstream_refs = all_refs.last
+
+    # Both ref namespaces in one git call. Returns [staged, upstream], each
+    # a hash of branch name to sha.
+    def all_refs
+      staged = {}
+      upstream = {}
+      out = git("for-each-ref", "--format=%(refname) %(objectname)", STAGED_PREFIX.chomp("/"), UPSTREAM_PREFIX.chomp("/"))
+      out.each_line do |line|
         ref, sha = line.split
-        short = ref.delete_prefix(prefix)
-        next if short == "HEAD"
-        h[short] = sha
+        if ref.start_with?(STAGED_PREFIX)
+          staged[ref.delete_prefix(STAGED_PREFIX)] = sha
+        elsif ref.start_with?(UPSTREAM_PREFIX)
+          name = ref.delete_prefix(UPSTREAM_PREFIX)
+          upstream[name] = sha unless name == "HEAD"
+        end
       end
+      [staged, upstream]
     end
 
     def branches
-      staged = staged_refs
-      upstream = upstream_refs
+      staged, upstream = all_refs
       (staged.keys | upstream.keys).sort.map { |n| branch_info(n, staged[n], upstream[n]) }
     end
 
     def branch(name)
-      staged = staged_refs[name]
-      upstream = upstream_refs[name]
-      raise NotFound, "no branch named #{name.inspect}" if staged.nil? && upstream.nil?
-      branch_info(name, staged, upstream)
+      staged, upstream = all_refs
+      raise NotFound, "no branch named #{name.inspect}" if staged[name].nil? && upstream[name].nil?
+      branch_info(name, staged[name], upstream[name])
     end
 
     def pending_branches = branches.select(&:pending?)
@@ -302,25 +311,29 @@ module Outbox
       b
     end
 
+    # The three methods below take a Branch, or a branch name for convenience.
+    # Callers that already hold a Branch should pass it so the refs are read
+    # once per request rather than once per call.
+
     # Commits that approving would add to upstream.
-    def commits(name, limit: 200)
-      b = branch(name)
+    def commits(branch, limit: 200)
+      b = resolve(branch)
       log(limit, *incoming_revs(b))
     end
 
     # Commits on upstream that approving would remove (diverged or deleted).
-    def outgoing_commits(name, limit: 200)
-      b = branch(name)
+    def outgoing_commits(branch, limit: 200)
+      b = resolve(branch)
       case b.status
-      when :deleted  then log(limit, "refs/remotes/upstream/#{name}", "--not", "--branches")
-      when :diverged then log(limit, "refs/heads/#{name}..refs/remotes/upstream/#{name}")
+      when :deleted  then log(limit, "refs/remotes/upstream/#{b.name}", "--not", "--branches")
+      when :diverged then log(limit, "refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}")
       else []
       end
     end
 
     # Everything approving this branch would change on upstream, as one patch.
-    def diff(name, max_bytes: MAX_PATCH_BYTES)
-      b = branch(name)
+    def diff(branch, max_bytes: MAX_PATCH_BYTES)
+      b = resolve(branch)
       from, to = diff_endpoints(b)
       return Diff::Patch.new(stat: "", text: "") if from.nil?
       patch(from, to, max_bytes)
@@ -343,6 +356,8 @@ module Outbox
     MAX_PATCH_BYTES = 2_000_000
 
     private
+
+    def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)
 
     def check_expected!(b, expected)
       return if expected.nil?

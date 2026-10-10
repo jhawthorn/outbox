@@ -156,7 +156,7 @@ module Outbox
     get "/repos/:name/branches/*/commits/:sha" do
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
-      list = @repo.commits(@branch.name, limit: 1000)
+      list = @repo.commits(@branch, limit: 1000)
       index = list.index { |c| c.sha == params[:sha] }
       raise NotFound, "that commit is not part of what is staged on #{@branch.name}" unless index
       @commit = @repo.commit_detail(params[:sha])
@@ -172,9 +172,9 @@ module Outbox
     get "/repos/:name/branches/*" do
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
-      @commits = @repo.commits(@branch.name)
-      @outgoing = @repo.outgoing_commits(@branch.name)
-      @patch = @repo.diff(@branch.name)
+      @commits = @repo.commits(@branch)
+      @outgoing = @repo.outgoing_commits(@branch)
+      @patch = @repo.diff(@branch)
       erb :branch
     end
 
