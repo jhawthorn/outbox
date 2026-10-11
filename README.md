@@ -35,20 +35,25 @@ shell) and which execs ssh with `-F /dev/null -i <key> -o IdentitiesOnly=yes`, s
 can only ever reach its one upstream and `~/.ssh` is never read. Host keys are accepted
 on first use into `$OUTBOX_DATA/keys/known_hosts`.
 
-## Agents
+## Access
 
-Agents must be able to push to the outbox and nothing else, and must not be able to
-reach the UI (it has no auth; an agent that can reach it can approve its own push).
+`OUTBOX_PASSWORD` is required; the server refuses to start without it. Every request
+needs it as HTTP basic auth (any username). Browsers remember it; git stores it in your
+credential helper after the first prompt. It travels in the clear, so this assumes a
+trusted LAN. Put a TLS proxy in front if that is not true.
 
-`docker-compose.yml` runs two containers from the same image:
+An agent must never have the password: with it, an agent can approve its own push. Two
+ways to give agents git access without it:
 
-- `outbox`: the UI and git over HTTP, published on `127.0.0.1:8080` for you. Mounts
-  the repos and keys volumes. Not on the `agents` network.
-- `outbox-git`: plain `git daemon` with push enabled, on the `agents` network only.
-  Mounts the repos volume only, so no keys. Not published to the host.
+- `OUTBOX_GIT_AUTH=none`: the git endpoint on the main port (`/<name>.git/*`) needs no
+  password. Simplest. Means anything on the LAN can clone and push.
+- Default: the git endpoint needs the password too, and agents use `outbox-git`, a plain
+  `git daemon` with push enabled on the compose `agents` network, not published to the
+  host and mounting only the repos volume. Agent containers join that network and use
+  `git://outbox-git/<name>.git`. The network is `internal`, so agents need a second
+  network for the LLM API.
 
-Put agent containers on the `agents` network and give them
-`git://outbox-git/<name>.git` as their remote. They get no credentials of any kind.
+Either way agents get no credentials of any kind.
 
 Every staging repo has an `update` hook that rejects pushes to anything but
 `refs/heads/*`. Without it, `receive-pack` would accept an update to
@@ -67,13 +72,13 @@ Upstream is fetched when a repo is added, once per repo at boot, and when you cl
 
 ```sh
 bundle install
-bundle exec puma -p 8080 config.ru          # data in ./data
+OUTBOX_PASSWORD=... bundle exec puma -p 8080 config.ru   # data in ./data
 bundle exec ruby test/smoke_test.rb         # end-to-end, uses a temp dir and a random port
 ```
 
-Docker: `docker compose up -d --build`, then http://localhost:8080. Data lives in the
-`outbox-data` volume. The UI and git endpoint have no auth; the compose file binds to
-localhost only.
+Docker: put `OUTBOX_PASSWORD=...` in `.env`, then `docker compose up -d --build` and
+open port 8080 on this machine. Data lives in the `outbox-repos` and `outbox-keys`
+volumes.
 
 ## Not yet done
 

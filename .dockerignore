@@ -3,3 +3,4 @@ data
 test
 README.md
 docker-compose.yml
+.env

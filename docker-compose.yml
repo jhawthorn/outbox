@@ -1,19 +1,23 @@
 services:
-  # Web UI, plus git over HTTP for use from the host. Not on the agents
-  # network, so agents cannot reach the UI.
+  # Web UI, plus git over HTTP. Everything requires OUTBOX_PASSWORD unless
+  # OUTBOX_GIT_AUTH=none, which leaves the git endpoint open for agents on
+  # the network (and to anything else on it).
   outbox:
     build: .
     ports:
-      # No authentication. Keep it on localhost.
-      - "127.0.0.1:8080:8080"
+      - "8080:8080"
+    environment:
+      OUTBOX_PASSWORD: ${OUTBOX_PASSWORD:?set OUTBOX_PASSWORD in .env}
+      OUTBOX_GIT_AUTH: ${OUTBOX_GIT_AUTH:-password}
     volumes:
       - outbox-repos:/data/repos
       - outbox-keys:/data/keys
     restart: unless-stopped
 
-  # Git-only endpoint for agents: clone, fetch and push over git://. Plain
-  # git daemon, no outbox code. It sees the repos and nothing else; the
-  # update hook in each repo limits pushes to refs/heads/*.
+  # Git-only endpoint for agents when the HTTP one is password protected.
+  # Plain git daemon with push enabled, on the agents network only, not
+  # published to the host. Sees the repos and nothing else; the update hook
+  # in each repo limits pushes to refs/heads/*.
   outbox-git:
     build: .
     command: >
@@ -26,9 +30,10 @@ services:
     restart: unless-stopped
 
 networks:
-  # Attach agent containers to this network. Their remote is
-  # git://outbox-git/<name>.git
+  # Attach agent containers here. Their remote is git://outbox-git/<name>.git.
+  # Internal: no route out, so agents need a second network for the LLM API.
   agents:
+    internal: true
 
 volumes:
   outbox-repos:

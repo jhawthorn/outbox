@@ -23,6 +23,8 @@ class SmokeTest < Minitest::Test
     "GIT_TERMINAL_PROMPT" => "0",
   }.freeze
 
+  PASSWORD = "smoke-test-password"
+
   # Minitest skips teardown when the run is interrupted, so cleanup is also
   # registered at_exit. Each cleanup runs at most once.
   CLEANUPS = []
@@ -33,7 +35,7 @@ class SmokeTest < Minitest::Test
     @port = free_port
     @log = File.join(@dir, "server.log")
     @server = spawn(
-      { "OUTBOX_DATA" => File.join(@dir, "data"), "RACK_ENV" => "test", "RUBYOPT" => "-W0" },
+      { "OUTBOX_DATA" => File.join(@dir, "data"), "OUTBOX_PASSWORD" => PASSWORD, "RACK_ENV" => "test", "RUBYOPT" => "-W0" },
       "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{@port}", "config.ru",
       chdir: ROOT, out: @log, err: @log,
     )
@@ -158,6 +160,18 @@ class SmokeTest < Minitest::Test
     assert_equal "hello\n", read_upstream_file(@upstream, "README"), "demo upstream untouched"
   end
 
+  def test_everything_needs_the_password_by_default
+    res = Net::HTTP.get_response(URI("http://127.0.0.1:#{@port}/"))
+    assert_equal "401", res.code
+    res = Net::HTTP.get_response(URI("http://127.0.0.1:#{@port}/demo.git/info/refs?service=git-upload-pack"))
+    assert_equal "401", res.code
+
+    _, err, status = Open3.capture3(GIT_ENV, "git", "clone", "--quiet", "http://127.0.0.1:#{@port}/demo.git", File.join(@dir, "noauth"))
+    refute status.success?
+    assert_match(/401|Authentication|could not read Username/, err)
+    refute File.exist?(File.join(@dir, "noauth", "README"))
+  end
+
   def test_deploy_key_is_per_repo
     page = get("/repos/demo").body
     assert_includes page, "ssh-ed25519 "
@@ -170,7 +184,8 @@ class SmokeTest < Minitest::Test
 
   private
 
-  def outbox_url(name) = "http://127.0.0.1:#{@port}/#{name}.git"
+  # Git takes the password from the URL; fine for a test, not for real use.
+  def outbox_url(name) = "http://outbox:#{PASSWORD}@127.0.0.1:#{@port}/#{name}.git"
 
   def make_upstream(name)
     bare = File.join(@dir, "#{name}-upstream.git")
@@ -218,12 +233,19 @@ class SmokeTest < Minitest::Test
   end
 
   def get(path)
-    res = Net::HTTP.get_response(URI("http://127.0.0.1:#{@port}#{path}"))
+    req = Net::HTTP::Get.new(path)
+    req.basic_auth("outbox", PASSWORD)
+    res = Net::HTTP.start("127.0.0.1", @port) { |http| http.request(req) }
     res.body.force_encoding(Encoding::UTF_8)
     res
   end
 
-  def post(path, form = {}) = Net::HTTP.post_form(URI("http://127.0.0.1:#{@port}#{path}"), form)
+  def post(path, form = {})
+    req = Net::HTTP::Post.new(path)
+    req.basic_auth("outbox", PASSWORD)
+    req.set_form_data(form)
+    Net::HTTP.start("127.0.0.1", @port) { |http| http.request(req) }
+  end
 
   def free_port
     s = TCPServer.new("127.0.0.1", 0)
