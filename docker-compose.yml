@@ -1,14 +1,35 @@
 services:
+  # Web UI, plus git over HTTP for use from the host. Not on the agents
+  # network, so agents cannot reach the UI.
   outbox:
     build: .
     ports:
-      # The UI and git endpoint have no authentication. Keep them on localhost.
+      # No authentication. Keep it on localhost.
       - "127.0.0.1:8080:8080"
     volumes:
-      # Staging repos, their deploy keys, and known_hosts. Nothing from the
-      # host's home directory is mounted.
-      - outbox-data:/data
+      - outbox-repos:/data/repos
+      - outbox-keys:/data/keys
     restart: unless-stopped
 
+  # Git-only endpoint for agents: clone, fetch and push over git://. Plain
+  # git daemon, no outbox code. It sees the repos and nothing else; the
+  # update hook in each repo limits pushes to refs/heads/*.
+  outbox-git:
+    build: .
+    command: >
+      git daemon --base-path=/data/repos --export-all --enable=receive-pack
+                 --reuseaddr --informative-errors --listen=0.0.0.0 --port=9418
+    volumes:
+      - outbox-repos:/data/repos
+    networks:
+      - agents
+    restart: unless-stopped
+
+networks:
+  # Attach agent containers to this network. Their remote is
+  # git://outbox-git/<name>.git
+  agents:
+
 volumes:
-  outbox-data:
+  outbox-repos:
+  outbox-keys:

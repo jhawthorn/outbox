@@ -16,10 +16,44 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal [%w[main synced]], @repo.branches.map { |b| [b.name, b.status.to_s] }
   end
 
-  def test_create_generates_a_private_deploy_key
+  def test_create_generates_a_private_deploy_key_outside_the_repo
     assert_match(/\Assh-ed25519 \S+ outbox deploy key: demo\z/, @repo.public_key)
     assert_equal 0o600, File.stat(@repo.deploy_key_path).mode & 0o777
-    assert_equal @repo.path, File.dirname(@repo.deploy_key_path)
+    assert_equal File.join(ENV["OUTBOX_DATA"], "keys", "demo"), @repo.deploy_key_path
+    refute Dir.glob(File.join(@repo.path, "**", "*")).any? { |f| f.include?("deploy_key") }
+  end
+
+  def test_destroy_removes_the_deploy_key
+    key = @repo.deploy_key_path
+    @repo.destroy!
+    refute File.exist?(key)
+    refute File.exist?("#{key}.pub")
+  end
+
+  def test_only_branches_can_be_pushed
+    hook = File.join(@repo.path, "hooks", "update")
+    assert File.executable?(hook)
+
+    # The stage clone pushes through receive-pack, same as the daemon or HTTP.
+    commit(@stage, "a.txt", "a\n", "Local only")
+    _, err, status = Open3.capture3(OutboxTest::GIT_ENV, "git", "push", "origin", "HEAD:refs/remotes/upstream/main", chdir: @stage)
+    refute status.success?
+    assert_includes err, "only branches"
+    assert_equal rev(@upstream, "main"), rev(@repo.path, "refs/remotes/upstream/main")
+
+    git("tag", "v1", chdir: @stage)
+    _, err, status = Open3.capture3(OutboxTest::GIT_ENV, "git", "push", "origin", "v1", chdir: @stage)
+    refute status.success?
+    assert_includes err, "only branches"
+
+    stage_commit
+    assert_equal :ready, status_of
+  end
+
+  def test_fetch_installs_the_hook_on_older_repos
+    File.delete(File.join(@repo.path, "hooks", "update"))
+    @repo.fetch!
+    assert File.executable?(File.join(@repo.path, "hooks", "update"))
   end
 
   def test_create_validates_input_and_leaves_nothing_behind
@@ -50,7 +84,7 @@ class RepoTest < OutboxTest::RepoCase
     env = @repo.git_env
     assert_equal Repo::SSH_WRAPPER, env["GIT_SSH"]
     assert_equal @repo.deploy_key_path, env["OUTBOX_SSH_KEY"]
-    assert_equal File.join(ENV["OUTBOX_DATA"], "known_hosts"), env["OUTBOX_KNOWN_HOSTS"]
+    assert_equal File.join(ENV["OUTBOX_DATA"], "keys", "known_hosts"), env["OUTBOX_KNOWN_HOSTS"]
     assert File.executable?(Repo::SSH_WRAPPER)
     refute env.key?("GIT_SSH_COMMAND")
 

@@ -12,7 +12,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system outbox && useradd --system --gid outbox --create-home outbox \
- && mkdir /data && chown outbox:outbox /data
+ && mkdir -p /data/repos /data/keys && chown -R outbox:outbox /data
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --chown=outbox:outbox . .

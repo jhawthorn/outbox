@@ -79,6 +79,11 @@ module Outbox
 
     def self.root = ENV.fetch("OUTBOX_DATA", DEFAULT_ROOT)
     def self.repos_dir(root = self.root) = File.join(root, "repos")
+    # Deploy keys and known_hosts live outside repos/ so a git-only process
+    # (git daemon for agents) can be given repos/ alone.
+    def self.keys_dir(root = self.root) = File.join(root, "keys")
+
+    UPDATE_HOOK = File.expand_path("hooks/update", __dir__).freeze
 
     def self.all
       Dir.glob(File.join(repos_dir, "*.git")).sort.map { |p| new(File.basename(p, ".git")) }
@@ -112,6 +117,7 @@ module Outbox
         repo.git("remote", "add", "upstream", upstream_url.strip)
         repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
         repo.git("config", "remote.upstream.tagOpt", "--no-tags")
+        repo.install_hook
         repo.generate_deploy_key
       rescue StandardError
         FileUtils.rm_rf(repo.path)
@@ -139,7 +145,7 @@ module Outbox
     # deploy key with write access, so a key can only ever touch one repo.
     # Nothing from the host's ~/.ssh is involved.
 
-    def deploy_key_path = File.join(path, "deploy_key")
+    def deploy_key_path = File.join(self.class.keys_dir(@root), name)
 
     def public_key
       File.read("#{deploy_key_path}.pub").strip
@@ -148,6 +154,7 @@ module Outbox
     end
 
     def generate_deploy_key
+      FileUtils.mkdir_p(self.class.keys_dir(@root), mode: 0o700)
       out, err, status = Open3.capture3(
         { "PATH" => ENV["PATH"] },
         "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "outbox deploy key: #{name}", "-f", deploy_key_path,
@@ -172,7 +179,7 @@ module Outbox
       {
         "GIT_SSH" => SSH_WRAPPER,
         "OUTBOX_SSH_KEY" => deploy_key_path,
-        "OUTBOX_KNOWN_HOSTS" => File.join(@root, "known_hosts"),
+        "OUTBOX_KNOWN_HOSTS" => File.join(self.class.keys_dir(@root), "known_hosts"),
       }
     end
 
@@ -182,6 +189,17 @@ module Outbox
 
     def destroy!
       FileUtils.rm_rf(path)
+      FileUtils.rm_f([deploy_key_path, "#{deploy_key_path}.pub"])
+    end
+
+    # Pushes may only update refs/heads/*. Enforced by git itself via the
+    # update hook, so it holds for any server that runs receive-pack here.
+    def install_hook
+      target = File.join(path, "hooks", "update")
+      return if File.exist?(target) && File.read(target) == File.read(UPDATE_HOOK)
+      FileUtils.mkdir_p(File.dirname(target))
+      FileUtils.cp(UPDATE_HOOK, target)
+      File.chmod(0o755, target)
     end
 
     # --- refs ---------------------------------------------------------------
@@ -229,6 +247,7 @@ module Outbox
     # with staged changes are left alone (they show up as diverged if upstream
     # moved underneath them). Yields git's progress lines if a block is given.
     def fetch!(&progress)
+      install_hook
       before = upstream_refs
       if progress
         Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: git_env, &progress)

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Installed by outbox into every staging repo. receive-pack would otherwise
+# accept updates to any ref, including refs/remotes/upstream/*, which is the
+# outbox's record of what upstream has. Only branches may be pushed.
+case "$1" in
+  refs/heads/*) exit 0 ;;
+  *) echo "outbox: only branches (refs/heads/*) may be pushed, not $1" >&2; exit 1 ;;
+esac

@@ -163,7 +163,7 @@ class SmokeTest < Minitest::Test
     assert_includes page, "ssh-ed25519 "
     assert_includes page, "outbox deploy key: demo"
 
-    key = File.join(@dir, "data", "repos", "demo.git", "deploy_key")
+    key = File.join(@dir, "data", "keys", "demo")
     assert File.exist?(key)
     assert_equal 0o600, File.stat(key).mode & 0o777
   end
