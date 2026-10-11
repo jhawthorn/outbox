@@ -12,6 +12,10 @@ services:
     volumes:
       - outbox-repos:/data/repos
       - outbox-keys:/data/keys
+    # Starts after the daemon: this container's entrypoint fixes the shared
+    # volume's ownership, and podman resets it when the daemon container starts.
+    depends_on:
+      - outbox-git
     restart: unless-stopped
 
   # Git-only endpoint for agents when the HTTP one is password protected.
@@ -19,10 +23,9 @@ services:
   # published to the host. Sees the repos and nothing else; the update hook
   # in each repo limits pushes to refs/heads/*.
   outbox-git:
-    build: .
-    command: >
-      git daemon --base-path=/data/repos --export-all --enable=receive-pack
-                 --reuseaddr --informative-errors --listen=0.0.0.0 --port=9418
+    build:
+      context: .
+      dockerfile: Dockerfile.git
     volumes:
       - outbox-repos:/data/repos
     networks:

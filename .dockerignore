@@ -3,4 +3,5 @@ data
 test
 README.md
 docker-compose.yml
+Dockerfile*
 .env

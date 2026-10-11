@@ -1,4 +1,4 @@
-FROM ruby:4.0-slim AS build
+FROM docker.io/library/ruby:4.0-slim AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
  && rm -rf /var/lib/apt/lists/*
@@ -7,11 +7,13 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle config set --local without test \
  && bundle install --jobs 4
 
-FROM ruby:4.0-slim
+FROM docker.io/library/ruby:4.0-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
  && rm -rf /var/lib/apt/lists/*
-RUN groupadd --system outbox && useradd --system --gid outbox --create-home outbox \
+# Fixed uid so the git daemon container (a stock git image sharing the repos
+# volume) can run as the same user.
+RUN groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home outbox \
  && mkdir -p /data/repos /data/keys && chown -R outbox:outbox /data
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
@@ -22,5 +24,6 @@ ENV OUTBOX_DATA=/data \
     HOME=/home/outbox
 VOLUME /data
 EXPOSE 8080
-USER outbox
+# Starts as root to fix volume ownership, then runs as outbox. See bin/entrypoint.
+ENTRYPOINT ["/app/bin/entrypoint"]
 CMD ["bundle", "exec", "puma", "-b", "tcp://0.0.0.0:8080", "config.ru"]

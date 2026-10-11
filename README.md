@@ -76,9 +76,9 @@ OUTBOX_PASSWORD=... bundle exec puma -p 8080 config.ru   # data in ./data
 bundle exec ruby test/smoke_test.rb         # end-to-end, uses a temp dir and a random port
 ```
 
-Docker: put `OUTBOX_PASSWORD=...` in `.env`, then `docker compose up -d --build` and
-open port 8080 on this machine. Data lives in the `outbox-repos` and `outbox-keys`
-volumes.
+Container: put `OUTBOX_PASSWORD=...` in `.env`, then `podman compose up -d --build`
+(or `docker compose`) and open port 8080 on this machine. Data lives in the
+`outbox-repos` and `outbox-keys` volumes. Rootless podman is fine; nothing needs root.
 
 ## Not yet done
 
