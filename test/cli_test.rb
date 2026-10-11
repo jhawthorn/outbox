@@ -30,10 +30,11 @@ class CliTest < OutboxTest::RepoCase
     other, = make_upstream("other")
     out = outbox!("add", "other", other)
     assert_includes out, "added other"
+    assert_match(/deploy key.*\nssh-ed25519 /, out)
     assert_equal({ "other" => other }, Outbox::Config.load.repos)
     repo = Outbox::Repo.find!("other")
     assert_equal %w[main], repo.branches.map(&:name)
-    refute File.exist?(@repo.path), "add applies the configuration, which demo is not in"
+    assert File.exist?(@repo.path), "demo is not configured but is left alone"
 
     _, err, status = outbox("add", "bad name", other)
     refute status.success?
@@ -43,12 +44,28 @@ class CliTest < OutboxTest::RepoCase
     assert_includes err, "reserved"
   end
 
+  # The upstream will not accept the new key until it is added there, so
+  # the first fetch is expected to fail; the repo is still added.
+  def test_add_survives_a_failed_first_fetch
+    out, err, status = outbox("add", "unreachable", File.join(@dir, "nonexistent.git"))
+    assert status.success?, err
+    assert_includes out, "added unreachable"
+    assert_includes err, "first fetch failed"
+    assert_includes err, "outbox fetch unreachable"
+    assert Outbox::Repo.find("unreachable")
+    assert_equal File.join(@dir, "nonexistent.git"), Outbox::Config.load.repos["unreachable"]
+  end
+
   def test_remove_edits_the_configuration_and_destroys
     Outbox::Config.add("demo", @upstream)
     outbox!("remove", "demo")
     assert_empty Outbox::Config.load.repos
     refute File.exist?(@repo.path)
     assert_equal "hello\n", git("show", "main:README", chdir: @upstream), "upstream untouched"
+
+    _, err, status = outbox("remove", "demo")
+    refute status.success?
+    assert_includes err, "no repository named"
   end
 
   def test_fetch_approve_and_discard

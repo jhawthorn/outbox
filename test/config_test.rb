@@ -34,6 +34,19 @@ class ConfigTest < OutboxTest::RepoCase
     assert_equal %w[_config demo], Repo.all.map(&:name)
   end
 
+  # A data directory from before the configuration existed: repos on disk,
+  # no config.git. They are left exactly as they are.
+  def test_ensure_leaves_existing_repos_alone
+    FileUtils.rm_rf(live)
+    Config.staging.destroy!
+
+    Config.ensure!
+    assert_empty Config.load.repos
+    assert_empty Config.apply!
+    assert_equal %w[_config demo], Repo.all.map(&:name)
+    assert File.exist?(@repo.path)
+  end
+
   def test_load_parses_entries_and_reports_problems
     assert_empty Config.load.repos
     assert_empty Config.load.problems
@@ -71,7 +84,7 @@ class ConfigTest < OutboxTest::RepoCase
     assert_match(/outbox\.conf could not be read/, config.problems.first)
   end
 
-  def test_add_and_remove_edit_the_live_config
+  def test_add_edits_the_live_config
     Config.add("demo", @upstream)
     assert_equal({ "demo" => @upstream }, Config.load.repos)
     assert_equal "Add demo", git("log", "-1", "--format=%s", chdir: live).strip
@@ -79,30 +92,41 @@ class ConfigTest < OutboxTest::RepoCase
     other, = make_upstream("other")
     Config.add("other", other)
     assert_equal %w[demo other], Config.load.repos.keys
-
-    Config.remove("demo")
-    assert_equal({ "other" => other }, Config.load.repos)
-    assert_equal 4, git("rev-list", "--count", "main", chdir: live).to_i
+    assert_equal 3, git("rev-list", "--count", "main", chdir: live).to_i
 
     assert_raises(ArgumentError) { Config.add("bad name", other) }
     assert_raises(ArgumentError) { Config.add("_config", other) }
     assert_raises(ArgumentError) { Config.add("x", " ") }
-    assert_raises(Outbox::GitError) { Config.remove("nope") }
   end
 
-  def test_apply_creates_updates_and_destroys
+  def test_remove_drops_the_entry_and_destroys_the_staging_repo
+    Config.add("demo", @upstream)
+    key = @repo.deploy_key_path
+    Config.remove("demo")
+    assert_empty Config.load.repos
+    refute File.exist?(@repo.path)
+    refute File.exist?(key)
+    assert_equal "hello\n", git("show", "main:README", chdir: @upstream), "upstream untouched"
+
+    # Also for a repo that was never configured, and never for _config.
+    other, = make_upstream("other")
+    Repo.create("other", other)
+    Config.remove("other")
+    assert_equal %w[_config], Repo.all.map(&:name)
+    assert_raises(Outbox::NotFound) { Config.remove("nope") }
+    assert_raises(ArgumentError) { Config.remove("_config") }
+    assert File.directory?(Config.staging.path)
+  end
+
+  def test_apply_creates_and_updates_but_never_destroys
     # demo exists on disk but is not configured; other is configured but absent.
     other, = make_upstream("other")
     Config.add("other", other)
-    key = @repo.deploy_key_path
 
-    stopped = []
-    created = Config.apply! { |repo| stopped << repo.name }
+    created = Config.apply!
     assert_equal ["other"], created.map(&:name)
-    assert_equal ["demo"], stopped
-    refute File.exist?(@repo.path)
-    refute File.exist?(key)
-    assert_equal %w[_config other], Repo.all.map(&:name)
+    assert File.exist?(@repo.path), "a repo with no entry is left alone"
+    assert_equal %w[_config demo other], Repo.all.map(&:name)
     assert_equal other, Repo.find!("other").upstream_url
 
     created.first.fetch!

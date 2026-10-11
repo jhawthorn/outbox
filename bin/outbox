@@ -1,10 +1,21 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 # Command-line access to the same operations as the web UI. Intended for use
-# inside the container:  docker compose exec outbox bin/outbox list
+# inside the container, as the user the server runs as:
+#
+#   podman compose exec -u outbox outbox bin/outbox list
+#
 require_relative "../lib/outbox/git"
 require_relative "../lib/outbox/repo"
 require_relative "../lib/outbox/config"
+
+# As root, git refuses the data directory (owned by outbox) and anything
+# created would be root-owned and unusable by the server.
+if Process.euid.zero?
+  warn "error: do not run as root; the data directory belongs to the server's user.\n" \
+       "In the container: podman compose exec -u outbox outbox bin/outbox #{ARGV.join(" ")}"
+  exit 1
+end
 
 # The CLI is its own process, so fetches here are synchronous and show git's
 # progress on stderr.
@@ -19,7 +30,7 @@ def usage
 
       list                         list repositories and pending branches
       add <name> <upstream-url>    add a repository to the configuration, without review
-      remove <name>                remove a repository from the configuration (upstream untouched)
+      remove <name>                remove a repository and its staging repo (upstream untouched)
       fetch <name>                 fetch upstream
       approve <name> <branch>      push a staged branch to upstream (--force to overwrite)
       discard <name> <branch>      reset a staged branch back to upstream
@@ -43,12 +54,22 @@ begin
   when "add"
     usage unless args.size == 2
     Outbox::Config.add(*args)
-    Outbox::Config.apply!.each { |repo| fetch_with_progress(repo) }
-    puts "added #{args[0]}"
+    Outbox::Config.apply!.each do |repo|
+      puts "added #{repo.name}"
+      if repo.public_key
+        puts "deploy key (add to the upstream with write access):"
+        puts repo.public_key
+      end
+      begin
+        fetch_with_progress(repo)
+      rescue Outbox::GitError => e
+        warn "first fetch failed: #{e.message}"
+        warn "once the upstream accepts the key, run: outbox fetch #{repo.name}"
+      end
+    end
   when "remove"
     usage unless args.size == 1
     Outbox::Config.remove(args[0])
-    Outbox::Config.apply!
   when "fetch"
     usage unless args.size == 1
     fetch_with_progress(Outbox::Repo.find!(args[0]))

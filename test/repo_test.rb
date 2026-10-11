@@ -22,6 +22,14 @@ class RepoTest < OutboxTest::RepoCase
     refute Dir.glob(File.join(@repo.path, "**", "*")).any? { |f| f.include?("deploy_key") }
   end
 
+  def test_create_replaces_a_stale_deploy_key
+    old = @repo.public_key
+    FileUtils.rm_rf(@repo.path)
+    repo = Repo.create("demo", @upstream)
+    refute_equal old, repo.public_key
+    assert_match(/\Assh-ed25519 /, repo.public_key)
+  end
+
   def test_destroy_removes_the_deploy_key
     key = @repo.deploy_key_path
     @repo.destroy!

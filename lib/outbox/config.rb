@@ -15,9 +15,9 @@ module Outbox
   # That repo is never served. What is served is a staging repo for it,
   # _config.git, whose upstream is the approved copy. Proposing a change is a
   # push to _config and making it real is an approval, the same as for any
-  # other repository. After an approval, apply! brings repos/ in line: a
-  # staging repo is created for each new entry, re-pointed when an upstream
-  # changes, and destroyed when its entry is gone.
+  # other repository. After an approval, apply! creates a staging repo for
+  # each new entry and re-points one whose upstream changed. Nothing is ever
+  # deleted here: a staging repo stays until the operator removes it.
   class Config
     NAME = "_config"
     FILE = "outbox.conf"
@@ -91,20 +91,15 @@ module Outbox
       new(repos: repos, problems: problems)
     end
 
-    # Make repos/ match the approved configuration. Yields each repo whose
-    # entry is gone, before it is destroyed, so the caller can stop its actor.
-    # Returns the repos created, which still need a first fetch.
+    # Create a staging repo for each configured entry that lacks one, and
+    # re-point any whose upstream changed. Returns the repos created, which
+    # still need a first fetch. A repo on disk with no entry is left alone.
     def self.apply!(root = Repo.root)
       config = load(root)
       existing = Repo.all(root).reject(&:config?)
       existing.each do |repo|
         url = config.repos[repo.name]
-        if url.nil?
-          yield repo if block_given?
-          repo.destroy!
-        elsif repo.upstream_url != url
-          repo.upstream_url = url
-        end
+        repo.upstream_url = url if url && repo.upstream_url != url
       end
       (config.repos.keys - existing.map(&:name)).map { |name| Repo.create(name, config.repos[name], root: root) }
     end
@@ -132,11 +127,17 @@ module Outbox
       end
     end
 
+    # Drops the entry and destroys the staging repo. The only way a staging
+    # repo is deleted; approving a config change never is.
     def self.remove(name, root = Repo.root)
-      raise ArgumentError, "invalid repository name #{name.inspect}" unless name.to_s.match?(Repo::NAME_RE)
-      edit(root, message: "Remove #{name}") do |file|
-        Git.run("config", "-f", file, "--remove-section", "repo.#{name}")
+      repo = Repo.find(name) or raise NotFound, "no repository named #{name.inspect}"
+      raise ArgumentError, "#{NAME} cannot be removed" if repo.config?
+      if load(root).repos.key?(name)
+        edit(root, message: "Remove #{name}") do |file|
+          Git.run("config", "-f", file, "--remove-section", "repo.#{name}")
+        end
       end
+      repo.destroy!
     end
 
     attr_reader :repos, :problems

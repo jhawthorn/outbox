@@ -32,30 +32,16 @@ class SmokeTest < Minitest::Test
 
   def setup
     @dir = Dir.mktmpdir("outbox-test")
-    @port = free_port
+    @data = File.join(@dir, "data")
     @log = File.join(@dir, "server.log")
-    @server = spawn(
-      { "OUTBOX_DATA" => File.join(@dir, "data"), "OUTBOX_PASSWORD" => PASSWORD, "RACK_ENV" => "test", "RUBYOPT" => "-W0" },
-      "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{@port}", "config.ru",
-      chdir: ROOT, out: @log, err: @log,
-    )
     dir = @dir
-    server = @server
-    done = false
     @cleanup = lambda do
-      next if done
-      done = true
-      begin
-        Process.kill("TERM", server)
-        Process.wait(server)
-      rescue Errno::ESRCH, Errno::ECHILD
-        # already gone
-      end
+      stop_server
       FileUtils.rm_rf(dir)
     end
     CLEANUPS << @cleanup
 
-    wait_until("server to start") { port_open? }
+    boot_server
     @upstream = make_upstream("demo")
     add_repo("demo", @upstream)
   end
@@ -63,6 +49,26 @@ class SmokeTest < Minitest::Test
   def teardown
     @cleanup&.call
     CLEANUPS.delete(@cleanup)
+  end
+
+  def boot_server
+    @port = free_port
+    @server = spawn(
+      { "OUTBOX_DATA" => @data, "OUTBOX_PASSWORD" => PASSWORD, "RACK_ENV" => "test", "RUBYOPT" => "-W0" },
+      "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{@port}", "config.ru",
+      chdir: ROOT, out: @log, err: @log,
+    )
+    wait_until("server to start") { port_open? }
+  end
+
+  def stop_server
+    return unless @server
+    Process.kill("TERM", @server)
+    Process.wait(@server)
+  rescue Errno::ESRCH, Errno::ECHILD
+    # already gone
+  ensure
+    @server = nil
   end
 
   def test_push_review_approve
@@ -192,27 +198,50 @@ class SmokeTest < Minitest::Test
     assert_includes page, "ssh-ed25519 "
     assert_includes page, "outbox deploy key: demo"
 
-    key = File.join(@dir, "data", "keys", "demo")
+    key = File.join(@data, "keys", "demo")
     assert File.exist?(key)
     assert_equal 0o600, File.stat(key).mode & 0o777
   end
 
-  def test_removing_from_config_destroys_the_staging_repo
+  def test_removing_from_config_leaves_the_staging_repo_alone
     clone = clone_from_outbox("_config")
     sh("git", "config", "-f", File.join(clone, "outbox.conf"), "--remove-section", "repo.demo")
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Remove demo")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
     post("/repos/_config/branches/main/approve")
-    wait_until("demo to go away") { get("/repos/demo").code == "404" }
-    refute File.exist?(File.join(@dir, "data", "repos", "demo.git"))
-    assert_equal "hello\n", read_upstream_file(@upstream, "README"), "upstream untouched"
-    assert_includes get("/").body, "Adding a repository"
+    wait_until("approval") { get("/repos/_config").body.include?("in sync") }
+    assert_equal "200", get("/repos/demo").code
+    assert File.exist?(File.join(@data, "repos", "demo.git"))
+  end
+
+  # A data directory from before the configuration repos existed: staging
+  # repos on disk and nothing else. Deleting the two config repos from a
+  # current data directory leaves exactly that.
+  def test_existing_repos_survive_an_upgrade
+    clone = clone_from_outbox("demo")
+    write(clone, "README", "staged\n")
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Staged before upgrade")
+    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
+    staged = sh("git", "-C", clone, "rev-parse", "HEAD").strip
+
+    stop_server
+    FileUtils.rm_rf(File.join(@data, "config.git"))
+    FileUtils.rm_rf(File.join(@data, "repos", "_config.git"))
+    boot_server
+
+    wait_until("_config to be fetched") { get("/repos/_config").body.include?("in sync") }
+    assert File.exist?(File.join(@data, "repos", "demo.git"))
+    page = get("/repos/demo").body
+    assert_includes page, "ready"
+    assert_includes page, "1 commit to push"
+    assert_includes get("/repos/demo/branches/main").body, "Staged before upgrade"
+    assert_equal staged, sh("git", "--git-dir", File.join(@data, "repos", "demo.git"), "rev-parse", "refs/heads/main").strip
   end
 
   def test_config_live_copy_is_not_served
     res = get("/config.git/info/refs?service=git-upload-pack")
     assert_equal "404", res.code
-    assert File.exist?(File.join(@dir, "data", "config.git", "HEAD"))
+    assert File.exist?(File.join(@data, "config.git", "HEAD"))
   end
 
   private

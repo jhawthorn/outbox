@@ -126,15 +126,19 @@ class HubTest < OutboxTest::RepoCase
   def test_start_all_applies_the_configuration_and_fetches_everything
     other_upstream, = make_upstream("other")
     Outbox::Config.add("other", other_upstream)
+    sha = upstream_commit
     # demo was created directly and is not in the configuration.
     @hub.start_all
     other = Outbox::Repo.find!("other")
     wait_idle(other)
     wait_idle(Outbox::Config.staging)
-    refute File.exist?(@repo.path), "a repo missing from the configuration is destroyed"
-    assert_equal %w[_config other], Outbox::Repo.all.map(&:name)
+    wait_idle
+    assert File.exist?(@repo.path), "a repo missing from the configuration is left alone"
+    assert_equal %w[_config demo other], Outbox::Repo.all.map(&:name)
     assert_equal %w[main], other.branches.map(&:name)
+    assert_equal sha, rev(@repo.path, "refs/heads/main"), "and fetched like the rest"
     assert @hub.status(other).last.ok?
+    assert @hub.status(@repo).last.ok?
     assert @hub.status(Outbox::Config.staging).last.ok?
   end
 
@@ -158,7 +162,6 @@ class HubTest < OutboxTest::RepoCase
     assert_includes config.diff("main").text, "+[repo \"other\"]"
     assert_nil Outbox::Repo.find("other"), "nothing happens before approval"
 
-    @hub.fetch(@repo)
     @hub.approve(config, "main")
     wait_idle(config)
     wait_until("other to be created") { Outbox::Repo.find("other") }
@@ -166,10 +169,9 @@ class HubTest < OutboxTest::RepoCase
     wait_idle(other)
     assert @hub.status(config).last.ok?, @hub.status(config).last.message
     assert_equal %w[main], other.branches.map(&:name)
-    wait_until("demo to be destroyed") { !File.exist?(@repo.path) }
-    refute File.exist?(@repo.deploy_key_path)
     assert_equal ["other"], Outbox::Config.load.repos.keys
-    assert_equal %w[_config other], Outbox::Repo.all.map(&:name)
+    assert File.exist?(@repo.path), "dropping an entry does not delete the staging repo"
+    assert_equal %w[_config demo other], Outbox::Repo.all.map(&:name)
   end
 
   def test_a_failed_apply_is_reported_on_the_config_repo

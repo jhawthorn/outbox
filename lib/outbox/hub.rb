@@ -63,10 +63,10 @@ module Outbox
     end
 
     # Apply the approved configuration: create staging repos for new
-    # entries and start their first fetch, destroy those whose entry is
-    # gone. Runs at boot and after every approval on the config repo.
+    # entries and start their first fetch. Runs at boot and after every
+    # approval on the config repo.
     def reconcile
-      created = Config.apply! { |repo| forget(repo) }
+      created = Config.apply!
       created.each { |repo| fetch(repo) }
       created
     end
@@ -93,21 +93,6 @@ module Outbox
     end
 
     private
-
-    # Stop a repo's actor and drop its status. The repo is about to be
-    # destroyed, so a job still queued on it would only fail.
-    def forget(repo)
-      actor = @mutex.synchronize { @actors.delete(repo.name) }
-      if actor
-        begin
-          actor.send([:stop])
-          actor.join
-        rescue Ractor::ClosedError, Ractor::RemoteError
-          # Already dead; nothing to wait for.
-        end
-      end
-      @mutex.synchronize { @status.delete(repo.name) }
-    end
 
     def enqueue(repo, message)
       @mutex.synchronize do

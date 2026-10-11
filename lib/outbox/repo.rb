@@ -159,6 +159,9 @@ module Outbox
 
     def generate_deploy_key
       FileUtils.mkdir_p(self.class.keys_dir(@root), mode: 0o700)
+      # A key left behind by a repo that no longer exists would make
+      # ssh-keygen stop and ask; it is useless without its repo.
+      FileUtils.rm_f([deploy_key_path, "#{deploy_key_path}.pub"])
       out, err, status = Open3.capture3(
         { "PATH" => ENV["PATH"] },
         "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "outbox deploy key: #{name}", "-f", deploy_key_path,
