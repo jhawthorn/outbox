@@ -30,6 +30,21 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, ">demo<"
     assert_includes body, "ready"
     assert_includes body, "http://example.org/demo.git"
+    assert_includes body, ">_config<"
+    assert_includes body, "http://example.org/_config.git"
+    assert_includes body, "Adding a repository"
+    refute_includes body, "<form", "repositories are added through _config, not a form"
+    assert_equal 404, @request.post("/repos", params: { "name" => "x", "upstream" => "y" }).status
+  end
+
+  def test_index_reports_configuration_problems
+    Outbox::Config.edit(message: "Bad entry") do |f|
+      File.write(f, "[repo \"-bad\"]\n\tupstream = x\n[repo \"_config\"]\n\tupstream = y\n[repo \"ok\"]\n\tupstream =\n")
+    end
+    body = get("/")
+    assert_includes body, "&quot;-bad&quot; is not a valid repository name"
+    assert_includes body, "_config is reserved"
+    assert_includes body, "ok has no upstream"
   end
 
   def test_repo_page_shows_branches_and_deploy_key
@@ -37,7 +52,32 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "in sync"
     assert_includes body, "ssh-ed25519 "
     assert_includes body, "Fetch upstream"
+    refute_includes body, "Remove"
     assert_equal 404, @request.get("/repos/nope").status
+    assert_equal 404, @request.post("/repos/demo/destroy").status
+  end
+
+  def test_config_repo_page_has_no_deploy_key
+    Outbox::Config.staging.fetch!
+    body = get("/repos/_config")
+    assert_includes body, "the outbox's own configuration"
+    refute_includes body, "Deploy key"
+    assert_includes body, "in sync"
+  end
+
+  def test_config_change_is_reviewed_like_any_other
+    config = Outbox::Config.staging
+    config.fetch!
+    work = File.join(@dir, "config-work")
+    git("clone", "--quiet", config.path, work)
+    git("config", "-f", File.join(work, "outbox.conf"), "repo.demo.upstream", @upstream, chdir: work)
+    git("commit", "--quiet", "-am", "Add demo", chdir: work)
+    push(work, "main")
+
+    body = get("/repos/_config/branches/main")
+    assert_includes body, "Add demo"
+    assert_includes body, '<a href="#f0">outbox.conf</a>'
+    assert_includes get("/repos/_config/branches/main.patch"), "+[repo \"demo\"]"
   end
 
   def test_branch_page_renders_summary_and_diff_placeholders
@@ -213,18 +253,5 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 303, res.status
     wait_until("discard") { !Outbox.hub.status(@repo).busy? }
     assert_equal :synced, status_of
-  end
-
-  def test_add_repo_form
-    other, = make_upstream("other")
-    res = @request.post("/repos", params: { "name" => "other", "upstream" => other })
-    assert_equal 303, res.status
-    assert_equal "http://example.org/repos/other", res["location"]
-    wait_until("fetch") { !Outbox.hub.status(Outbox::Repo.find("other")).busy? }
-    assert_includes get("/repos/other"), "in sync"
-
-    res = @request.post("/repos", params: { "name" => "bad name", "upstream" => other })
-    assert_equal 422, res.status
-    assert_includes res.body, "invalid repository name"
   end
 end

@@ -123,14 +123,76 @@ class HubTest < OutboxTest::RepoCase
     assert_equal %w[main], other.branches.map(&:name)
   end
 
-  def test_remove_stops_the_actor_and_deletes_the_repo
-    @hub.fetch(@repo)
+  def test_start_all_applies_the_configuration_and_fetches_everything
+    other_upstream, = make_upstream("other")
+    Outbox::Config.add("other", other_upstream)
+    # demo was created directly and is not in the configuration.
+    @hub.start_all
+    other = Outbox::Repo.find!("other")
+    wait_idle(other)
+    wait_idle(Outbox::Config.staging)
+    refute File.exist?(@repo.path), "a repo missing from the configuration is destroyed"
+    assert_equal %w[_config other], Outbox::Repo.all.map(&:name)
+    assert_equal %w[main], other.branches.map(&:name)
+    assert @hub.status(other).last.ok?
+    assert @hub.status(Outbox::Config.staging).last.ok?
+  end
+
+  def test_approving_a_configuration_change_applies_it
+    Outbox::Config.add("demo", @upstream)
+    @hub.start_all
+    config = Outbox::Config.staging
+    wait_idle(config)
     wait_idle
-    @hub.remove(@repo)
-    refute File.exist?(@repo.path)
-    s = @hub.status(@repo)
-    refute s.busy?
-    assert_nil s.last
+    assert_equal "refs/heads/main", config.git("symbolic-ref", "HEAD").strip
+
+    other_upstream, = make_upstream("other")
+    work = File.join(@dir, "config-work")
+    git("clone", "--quiet", config.path, work)
+    git("config", "-f", File.join(work, "outbox.conf"), "repo.other.upstream", other_upstream, chdir: work)
+    git("config", "-f", File.join(work, "outbox.conf"), "--remove-section", "repo.demo", chdir: work)
+    git("commit", "--quiet", "-am", "Swap demo for other", chdir: work)
+    push(work, "main")
+
+    assert_equal :ready, config.branch("main").status
+    assert_includes config.diff("main").text, "+[repo \"other\"]"
+    assert_nil Outbox::Repo.find("other"), "nothing happens before approval"
+
+    @hub.fetch(@repo)
+    @hub.approve(config, "main")
+    wait_idle(config)
+    wait_until("other to be created") { Outbox::Repo.find("other") }
+    other = Outbox::Repo.find!("other")
+    wait_idle(other)
+    assert @hub.status(config).last.ok?, @hub.status(config).last.message
+    assert_equal %w[main], other.branches.map(&:name)
+    wait_until("demo to be destroyed") { !File.exist?(@repo.path) }
+    refute File.exist?(@repo.deploy_key_path)
+    assert_equal ["other"], Outbox::Config.load.repos.keys
+    assert_equal %w[_config other], Outbox::Repo.all.map(&:name)
+  end
+
+  def test_a_failed_apply_is_reported_on_the_config_repo
+    @hub.start_all
+    config = Outbox::Config.staging
+    wait_idle(config)
+    wait_idle
+
+    work = File.join(@dir, "config-work")
+    git("clone", "--quiet", config.path, work)
+    File.write(File.join(work, "outbox.conf"), "[repo \"bad\"]\n\tupstream = x\n")
+    git("commit", "--quiet", "-am", "Break it", chdir: work)
+    push(work, "main")
+    # A directory that is not a repo, where the staging repo would go, is
+    # one way apply! can fail: git refuses to read its remote.
+    FileUtils.mkdir_p(File.join(Outbox::Repo.repos_dir, "bad.git"))
+
+    @hub.approve(config, "main")
+    wait_idle(config)
+    wait_until("apply to fail") { @hub.status(config).last&.job == :apply }
+    s = @hub.status(config).last
+    refute s.ok?
+    assert_match(/git config/, s.message)
   end
 
   def test_a_dead_actor_is_replaced

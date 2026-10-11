@@ -2,18 +2,19 @@
 <h1><%= h @repo.name %></h1>
 
 <div class="toolbar">
-  <span class="muted">upstream <code><%= h @repo.upstream_url %></code></span>
+  <% if @repo.config? %>
+    <span class="muted">the outbox's own configuration; approving a change here applies it</span>
+  <% else %>
+    <span class="muted">upstream <code><%= h @repo.upstream_url %></code></span>
+  <% end %>
   <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
   <span class="spacer"></span>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <button type="submit" <%= "disabled" if @status.busy? %>>Fetch upstream</button>
   </form>
-  <form class="inline" method="post" action="<%= repo_url(@repo) %>/destroy"
-        onsubmit="return confirm('Remove <%= h @repo.name %> from the outbox? Upstream is not touched.')">
-    <button type="submit" class="danger" <%= "disabled" if @status.busy? %>>Remove</button>
-  </form>
 </div>
 
+<% unless @repo.config? %>
 <details class="add" style="margin:0 0 16px" <%= "open" if @status.last && !@status.last.ok? && @status.last.job != :discard %>>
   <summary>Deploy key for pushing to upstream</summary>
   <% if @repo.public_key %>
@@ -24,6 +25,7 @@
     <p class="muted" style="margin:8px 0">No deploy key (ssh-keygen unavailable).</p>
   <% end %>
 </details>
+<% end %>
 
 <% if @status.running? %>
   <div class="panel">

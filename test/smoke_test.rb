@@ -197,6 +197,24 @@ class SmokeTest < Minitest::Test
     assert_equal 0o600, File.stat(key).mode & 0o777
   end
 
+  def test_removing_from_config_destroys_the_staging_repo
+    clone = clone_from_outbox("_config")
+    sh("git", "config", "-f", File.join(clone, "outbox.conf"), "--remove-section", "repo.demo")
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Remove demo")
+    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
+    post("/repos/_config/branches/main/approve")
+    wait_until("demo to go away") { get("/repos/demo").code == "404" }
+    refute File.exist?(File.join(@dir, "data", "repos", "demo.git"))
+    assert_equal "hello\n", read_upstream_file(@upstream, "README"), "upstream untouched"
+    assert_includes get("/").body, "Adding a repository"
+  end
+
+  def test_config_live_copy_is_not_served
+    res = get("/config.git/info/refs?service=git-upload-pack")
+    assert_equal "404", res.code
+    assert File.exist?(File.join(@dir, "data", "config.git", "HEAD"))
+  end
+
   private
 
   # Git takes the password from the URL; fine for a test, not for real use.
@@ -223,10 +241,24 @@ class SmokeTest < Minitest::Test
     sh("git", "-C", work, "push", "--quiet", bare, "main")
   end
 
+  # The way anyone adds a repository: push a change to _config, approve it.
   def add_repo(name, upstream)
-    res = post("/repos", "name" => name, "upstream" => upstream)
-    assert_includes %w[302 303], res.code, res.body
-    wait_until("initial fetch of #{name}") { get("/repos/#{name}").body.include?("fetched upstream") }
+    wait_until("_config to be fetched and idle") { get("/repos/_config").body.include?("in sync") }
+    clone = clone_from_outbox("_config")
+    sh("git", "config", "-f", File.join(clone, "outbox.conf"), "repo.#{name}.upstream", upstream)
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Add #{name}")
+    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
+
+    page = get("/repos/_config/branches/main").body
+    assert_includes page, "Add #{name}"
+    assert_includes get("/repos/_config/branches/main.patch").body, "+[repo \"#{name}\"]"
+    assert_equal "404", get("/repos/#{name}").code, "nothing exists before approval"
+
+    post("/repos/_config/branches/main/approve")
+    wait_until("initial fetch of #{name}") do
+      res = get("/repos/#{name}")
+      res.code == "200" && res.body.include?("fetched upstream")
+    end
   end
 
   def clone_from_outbox(name)

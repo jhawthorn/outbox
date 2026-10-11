@@ -52,10 +52,23 @@ module Outbox
       @drain.report_on_exception = true
     end
 
-    # One fetch per repository at boot: cheap when nothing changed, and it
-    # completes any first fetch that a restart interrupted.
+    # Boot: make sure the configuration repos exist, bring repos/ in line
+    # with the approved configuration, then fetch every repository once.
+    # Cheap when nothing changed, and it completes any first fetch that a
+    # restart interrupted.
     def start_all
-      Repo.all.each { |repo| fetch(repo) }
+      Config.ensure!
+      created = reconcile.map(&:name)
+      Repo.all.each { |repo| fetch(repo) unless created.include?(repo.name) }
+    end
+
+    # Apply the approved configuration: create staging repos for new
+    # entries and start their first fetch, destroy those whose entry is
+    # gone. Runs at boot and after every approval on the config repo.
+    def reconcile
+      created = Config.apply! { |repo| forget(repo) }
+      created.each { |repo| fetch(repo) }
+      created
     end
 
     def status(repo)
@@ -65,20 +78,6 @@ module Outbox
     def fetch(repo) = enqueue(repo, [:fetch])
     def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
     def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
-
-    def remove(repo)
-      actor = @mutex.synchronize { @actors.delete(repo.name) }
-      if actor
-        begin
-          actor.send([:stop])
-          actor.join
-        rescue Ractor::ClosedError, Ractor::RemoteError
-          # Already dead; nothing to wait for.
-        end
-      end
-      repo.destroy!
-      @mutex.synchronize { @status.delete(repo.name) }
-    end
 
     # Stop every actor and the event thread. Jobs still queued are dropped.
     def shutdown
@@ -94,6 +93,21 @@ module Outbox
     end
 
     private
+
+    # Stop a repo's actor and drop its status. The repo is about to be
+    # destroyed, so a job still queued on it would only fail.
+    def forget(repo)
+      actor = @mutex.synchronize { @actors.delete(repo.name) }
+      if actor
+        begin
+          actor.send([:stop])
+          actor.join
+        rescue Ractor::ClosedError, Ractor::RemoteError
+          # Already dead; nothing to wait for.
+        end
+      end
+      @mutex.synchronize { @status.delete(repo.name) }
+    end
 
     def enqueue(repo, message)
       @mutex.synchronize do
@@ -130,6 +144,19 @@ module Outbox
               s
             end
         end
+        apply_config if name == Config::NAME && kind == :finished && rest[0] == :approve && rest[2]
+      end
+    end
+
+    # An approved change to the configuration takes effect here, on the
+    # event thread. A failure is shown on the config repo's page, as a
+    # failed job would be, since the fix is another change to the config.
+    def apply_config
+      reconcile
+    rescue StandardError => e
+      @mutex.synchronize do
+        s = @status[Config::NAME] || Status.new
+        @status[Config::NAME] = s.with(last: Result.new(job: :apply, branch: nil, ok: false, message: e.message, finished_at: Time.now))
       end
     end
   end

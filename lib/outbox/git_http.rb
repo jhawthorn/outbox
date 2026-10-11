@@ -6,7 +6,7 @@ module Outbox
   # Rack middleware that serves git smart-HTTP for /<name>.git/* by delegating
   # to `git http-backend` as a CGI. Everything else falls through to the app.
   class GitHttp
-    PATH_RE = %r{\A/([A-Za-z0-9][A-Za-z0-9._-]*)\.git(/.*)?\z}
+    PATH_RE = %r{\A/([A-Za-z0-9_][A-Za-z0-9._-]*)\.git(/.*)?\z}
     CHUNK = 64 * 1024
 
     def initialize(app, root)

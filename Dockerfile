@@ -14,7 +14,7 @@ RUN apt-get update \
 # Fixed uid so the git daemon container (a stock git image sharing the repos
 # volume) can run as the same user.
 RUN groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home outbox \
- && mkdir -p /data/repos /data/keys && chown -R outbox:outbox /data
+ && mkdir -p /data/repos /data/keys /data/config.git && chown -R outbox:outbox /data
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --chown=outbox:outbox . .

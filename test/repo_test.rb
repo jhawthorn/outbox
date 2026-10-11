@@ -62,13 +62,17 @@ class RepoTest < OutboxTest::RepoCase
     assert_raises(ArgumentError) { Repo.create("ok", "   ") }
     assert_raises(ArgumentError) { Repo.create("demo", @upstream) }
     refute File.exist?(File.join(Repo.repos_dir, "ok.git"))
-    assert_equal ["demo"], Repo.all.map(&:name)
+    assert_equal %w[_config demo], Repo.all.map(&:name)
   end
 
   def test_find
     assert_equal "demo", Repo.find("demo").name
+    assert_equal "_config", Repo.find("_config").name
+    assert Repo.find("_config").config?
+    refute @repo.config?
     assert_nil Repo.find("nope")
     assert_nil Repo.find("../demo")
+    assert_nil Repo.find("-x")
     assert_nil Repo.find(nil)
     assert_raises(Outbox::NotFound) { Repo.find!("nope") }
   end
@@ -76,7 +80,13 @@ class RepoTest < OutboxTest::RepoCase
   def test_destroy
     @repo.destroy!
     refute File.exist?(@repo.path)
-    assert_empty Repo.all
+    assert_equal %w[_config], Repo.all.map(&:name)
+  end
+
+  def test_upstream_url_can_be_changed
+    other, = make_upstream("other")
+    @repo.upstream_url = other
+    assert_equal other, @repo.upstream_url
   end
 
   def test_git_env_uses_the_deploy_key_through_the_wrapper

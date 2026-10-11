@@ -16,7 +16,8 @@ module Outbox
   # approve!, discard!) are only ever called from the repo's RepoActor, which
   # serialises them.
   class Repo
-    NAME_RE = /\A[A-Za-z0-9][A-Za-z0-9._-]*\z/
+    # No leading "." or "-": those would be path traversal or a git flag.
+    NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/
 
     class Branch
       attr_reader :name, :staged, :upstream, :status, :ahead, :behind
@@ -85,8 +86,8 @@ module Outbox
 
     UPDATE_HOOK = File.expand_path("hooks/update", __dir__).freeze
 
-    def self.all
-      Dir.glob(File.join(repos_dir, "*.git")).sort.map { |p| new(File.basename(p, ".git")) }
+    def self.all(root = self.root)
+      Dir.glob(File.join(repos_dir(root), "*.git")).sort.map { |p| new(File.basename(p, ".git"), root: root) }
     end
 
     def self.find(name)
@@ -99,13 +100,13 @@ module Outbox
       find(name) or raise NotFound, "no repository named #{name.inspect}"
     end
 
-    def self.create(name, upstream_url)
+    def self.create(name, upstream_url, root: self.root)
       raise ArgumentError, "invalid repository name #{name.inspect}" unless name.to_s.match?(NAME_RE)
       raise ArgumentError, "upstream URL is required" if upstream_url.to_s.strip.empty?
-      repo = new(name)
+      repo = new(name, root: root)
       raise ArgumentError, "repository #{name} already exists" if File.exist?(repo.path)
 
-      FileUtils.mkdir_p(repos_dir)
+      FileUtils.mkdir_p(repos_dir(root))
       Git.run("init", "--bare", "--quiet", repo.path)
       begin
         repo.git("config", "http.receivepack", "true")
@@ -133,6 +134,9 @@ module Outbox
       @root = root
       @path = File.join(self.class.repos_dir(root), "#{name}.git")
     end
+
+    # The staging repo for the outbox's own configuration (Outbox::Config).
+    def config? = name == Config::NAME
 
     def git(*args, input: nil)
       Git.run(*args, chdir: path, input: input, extra: git_env)
@@ -185,6 +189,12 @@ module Outbox
 
     def upstream_url
       git("config", "remote.upstream.url").strip
+    end
+
+    # The URL is a copy of what the configuration says (Config.apply! keeps
+    # it current); git needs it here to fetch and push.
+    def upstream_url=(url)
+      git("remote", "set-url", "upstream", url)
     end
 
     def destroy!

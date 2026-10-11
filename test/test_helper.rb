@@ -69,9 +69,10 @@ module OutboxTest
     end
   end
 
-  # Base for tests that need a staging repo: a temp data dir, one upstream
-  # with an initial commit, a fetched Outbox::Repo named "demo", and a
-  # working clone of the staging repo to push from.
+  # Base for tests that need a staging repo: a temp data dir with the
+  # configuration repos in place, one upstream with an initial commit, a
+  # fetched Outbox::Repo named "demo" (created directly, not through the
+  # configuration), and a working clone of the staging repo to push from.
   class RepoCase < Minitest::Test
     include GitHelpers
 
@@ -79,6 +80,7 @@ module OutboxTest
       @dir = Dir.mktmpdir("outbox-unit")
       @saved_root = ENV["OUTBOX_DATA"]
       ENV["OUTBOX_DATA"] = File.join(@dir, "data")
+      Outbox::Config.ensure!
       @upstream, @up_work = make_upstream("upstream")
       @repo = Outbox::Repo.create("demo", @upstream)
       @repo.fetch!

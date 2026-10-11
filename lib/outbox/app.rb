@@ -52,6 +52,8 @@ module Outbox
 
       def clone_url(repo) = "#{request.base_url}/#{repo.name}.git"
 
+      def config_clone_url = "#{request.base_url}/#{Config::NAME}.git"
+
       def status_label(status) = STATUS_LABELS.fetch(status, status.to_s)
 
       def short(sha) = sha ? sha[0, 10] : "—"
@@ -146,14 +148,9 @@ module Outbox
 
     get "/" do
       @repos = Repo.all.map { |r| [r, r.branches, hub.status(r)] }
+      @problems = Config.load.problems
       @refresh = @repos.any? { |_, _, status| status.busy? }
       erb :index
-    end
-
-    post "/repos" do
-      repo = Repo.create(params[:name].to_s.strip, params[:upstream].to_s.strip)
-      hub.fetch(repo)
-      redirect repo_url(repo)
     end
 
     get "/repos/:name" do
@@ -168,13 +165,6 @@ module Outbox
       repo = Repo.find!(params[:name])
       hub.fetch(repo)
       redirect(params[:back] || repo_url(repo))
-    end
-
-    post "/repos/:name/destroy" do
-      repo = Repo.find!(params[:name])
-      raise GitError, "#{repo.name} is busy; wait for it to finish" if hub.status(repo).busy?
-      hub.remove(repo)
-      redirect "/"
     end
 
     # Raw patches, as the browser fetches them for the diff viewer and as

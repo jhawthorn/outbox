@@ -1,46 +1,45 @@
 <h1>Repositories</h1>
 
-<% if @repos.empty? %>
-  <p class="empty">No repositories yet. Add one below, then point a clone at it with
-  <code>git remote add outbox <%= h request.base_url %>/&lt;name&gt;.git</code>.</p>
-<% else %>
-  <table>
-    <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
-    <tbody>
-    <% @repos.each do |repo, branches, status| %>
-      <% pending = branches.select(&:pending?) %>
-      <tr>
-        <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
-        <td class="muted"><%= h repo.upstream_url %></td>
-        <td>
-          <% if status.running? %>
-            <span class="badge busy"><%= h job_label(status) %></span>
-            <div class="progress muted"><%= h status.progress %></div>
-          <% elsif status.busy? %>
-            <span class="badge busy">queued</span>
-          <% elsif status.last && !status.last.ok? %>
-            <span class="badge failed"><%= h status.last.job %> failed</span>
-          <% elsif pending.empty? %>
-            <span class="muted">nothing</span>
-          <% else %>
-            <% pending.each do |b| %>
-              <a href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
-              <span class="badge <%= b.status %>"><%= status_label(b.status) %></span><br>
-            <% end %>
-          <% end %>
-        </td>
-        <td><code><%= h clone_url(repo) %></code></td>
-      </tr>
-    <% end %>
-    </tbody>
-  </table>
+<% @problems.each do |problem| %>
+  <div class="panel danger"><span class="badge failed">config</span> <%= h problem %></div>
 <% end %>
 
-<details class="add" <%= "open" if @repos.empty? %>>
-  <summary>Add a repository</summary>
-  <form method="post" action="/repos">
-    <input type="text" name="name" placeholder="name (e.g. myapp)" required pattern="[A-Za-z0-9][A-Za-z0-9._-]*">
-    <input type="text" name="upstream" placeholder="upstream URL (git@github.com:you/myapp.git)" required size="50">
-    <button type="submit" class="primary">Add</button>
-  </form>
+<table>
+  <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
+  <tbody>
+  <% @repos.each do |repo, branches, status| %>
+    <% pending = branches.select(&:pending?) %>
+    <tr>
+      <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
+      <td class="muted"><%= repo.config? ? "the outbox's own configuration" : h(repo.upstream_url) %></td>
+      <td>
+        <% if status.running? %>
+          <span class="badge busy"><%= h job_label(status) %></span>
+          <div class="progress muted"><%= h status.progress %></div>
+        <% elsif status.busy? %>
+          <span class="badge busy">queued</span>
+        <% elsif status.last && !status.last.ok? %>
+          <span class="badge failed"><%= h status.last.job %> failed</span>
+        <% elsif pending.empty? %>
+          <span class="muted">nothing</span>
+        <% else %>
+          <% pending.each do |b| %>
+            <a href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
+            <span class="badge <%= b.status %>"><%= status_label(b.status) %></span><br>
+          <% end %>
+        <% end %>
+      </td>
+      <td><code><%= h clone_url(repo) %></code></td>
+    </tr>
+  <% end %>
+  </tbody>
+</table>
+
+<details class="add" <%= "open" if @repos.none? { |repo, _, _| !repo.config? } %>>
+  <summary>Adding a repository</summary>
+  <p class="muted">The list above comes from <code><%= h Outbox::Config::FILE %></code> in
+  <code><%= h config_clone_url %></code>. Clone it, add a section, push to a branch, and
+  approve the change here like any other.</p>
+  <pre><code>[repo "myapp"]
+    upstream = git@github.com:you/myapp.git</code></pre>
 </details>

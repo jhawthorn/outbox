@@ -12,6 +12,9 @@ services:
     volumes:
       - outbox-repos:/data/repos
       - outbox-keys:/data/keys
+      # The approved configuration. Not in repos/, so the daemon cannot
+      # serve it; only approving a change to _config writes to it.
+      - outbox-config:/data/config.git
     # Starts after the daemon: this container's entrypoint fixes the shared
     # volume's ownership, and podman resets it when the daemon container starts.
     depends_on:
@@ -41,3 +44,4 @@ networks:
 volumes:
   outbox-repos:
   outbox-keys:
+  outbox-config:
