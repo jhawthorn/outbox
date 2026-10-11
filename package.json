@@ -1,0 +1,15 @@
+{
+  "name": "outbox-assets",
+  "private": true,
+  "description": "Browser bundle for the diff viewer. `rake assets` builds it into public/diffs (gitignored).",
+  "scripts": {
+    "build": "esbuild assets/diffs.js --bundle --format=esm --splitting --minify --outdir=public/diffs --log-level=warning"
+  },
+  "devDependencies": {
+    "@pierre/diffs": "^1.5.2",
+    "esbuild": "^0.28.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

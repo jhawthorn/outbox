@@ -1,0 +1,8 @@
+# Git daemon for agents. No outbox code; just git serving the repos volume.
+FROM docker.io/library/alpine:3.21
+RUN apk add --no-cache git-daemon
+# Same uid as the outbox user in the main image.
+USER 1000:1000
+EXPOSE 9418
+CMD ["git", "daemon", "--base-path=/data/repos", "--export-all", "--enable=receive-pack", \
+     "--reuseaddr", "--informative-errors", "--listen=0.0.0.0", "--port=9418"]

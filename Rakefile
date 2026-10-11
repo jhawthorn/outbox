@@ -16,4 +16,11 @@ Rake::TestTask.new(:smoke) do |t|
   t.warning = false
 end
 
+# Rebuild the committed browser bundle (public/diffs) after changing assets/
+# or bumping a JS dependency. Needs pnpm; nothing else does.
+task :assets do
+  sh "pnpm", "install", "--frozen-lockfile"
+  sh "pnpm", "build"
+end
+
 task default: %i[test smoke]

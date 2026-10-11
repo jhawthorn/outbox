@@ -77,5 +77,5 @@
   <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
 <% else %>
   <h2>Files changed (<%= @patch.files.size %>)</h2>
-  <%= render_patch(@patch) %>
+  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name)) %>
 <% end %>

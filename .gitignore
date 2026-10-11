@@ -1,2 +1,4 @@
 /data
 /.env
+/node_modules
+/public/diffs

@@ -2,11 +2,15 @@
 
 module Outbox
   # Parses unified diff output from git into files, hunks and lines so the
-  # UI can render it structurally: per-file sections, line numbers, and a
-  # summary. Only what git diff -p produces is handled; this is not a
-  # general patch parser.
+  # UI can render the summary (paths, status, counts) and flag hidden
+  # characters. The diff body itself is rendered in the browser from the raw
+  # patch. Only what git diff -p produces is handled; this is not a general
+  # patch parser.
   module Diff
-    MAX_LINES_PER_FILE = 3000
+    # Characters that render as nothing, or reorder what follows them, can
+    # hide content from a reviewer. Zero-width, soft hyphen, BOM, bidi
+    # controls, and C0 controls other than tab.
+    INVISIBLE_RE = /[​-‏‪-‮⁠-⁤⁦-⁩﻿­\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
 
     # The raw output of one git diff plus its short stat, with the parsed
     # form computed on demand.
@@ -28,7 +32,7 @@ module Outbox
     end
 
     class File
-      attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary, :truncated
+      attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary
       attr_reader :hunks
 
       def initialize(old_path, new_path)
@@ -36,17 +40,20 @@ module Outbox
         @new_path = new_path
         @status = :modified
         @binary = false
-        @truncated = false
         @hunks = []
       end
 
       def path = new_path || old_path
       def binary? = binary
-      def truncated? = truncated
       def renamed? = status == :renamed
       def line_count = hunks.sum { |h| h.lines.size }
       def additions = hunks.sum(&:additions)
       def deletions = hunks.sum(&:deletions)
+
+      # Lines whose text contains characters a reviewer cannot see.
+      def hidden_lines
+        @hidden_lines ||= hunks.flat_map(&:lines).select(&:hidden?)
+      end
     end
 
     class Hunk
@@ -75,11 +82,16 @@ module Outbox
       def del?  = kind == :del
       def ctx?  = kind == :ctx
       def note? = kind == :note
+      def hidden? = !note? && INVISIBLE_RE.match?(text)
+
+      # How the line is labelled to a reader: by its number in the new file,
+      # or in the old one for deletions.
+      def label = del? ? "−#{old_no}" : (add? ? "+#{new_no}" : new_no.to_s)
     end
 
     HUNK_RE = /\A@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
-    def self.parse(text, max_lines_per_file: MAX_LINES_PER_FILE)
+    def self.parse(text)
       files = []
       file = nil
       hunk = nil
@@ -92,22 +104,14 @@ module Outbox
           hunk = nil
           next
         end
-        next if file.nil? || file.truncated?
+        next if file.nil?
 
         if (m = HUNK_RE.match(line))
-          if file.line_count >= max_lines_per_file
-            file.truncated = true
-            next
-          end
           hunk = Hunk.new(line)
           file.hunks << hunk
           old_no = m[1].to_i
           new_no = m[2].to_i
         elsif hunk
-          if file.line_count >= max_lines_per_file
-            file.truncated = true
-            next
-          end
           case line[0]
           when "+"
             hunk.lines << Line.new(:add, nil, new_no, line[1..])

@@ -80,8 +80,23 @@ class SmokeTest < Minitest::Test
 
     page = get("/repos/demo/branches/main").body
     assert_includes page, "Say hello to the world"
-    assert_includes page, '<span class="mark">+</span>hello world'
-    assert_includes page, '<span class="mark">−</span>hello'
+    assert_includes page, 'data-patch-url="/repos/demo/branches/main.patch"'
+    patch = get("/repos/demo/branches/main.patch")
+    assert_match(%r{\Atext/plain}, patch["content-type"])
+    assert_includes patch.body, "+hello world\n"
+    assert_includes patch.body, "-hello\n"
+    # The viewer bundle and one of its lazily loaded chunks are served, when
+    # built. It is not committed, so a fresh checkout passes without it.
+    js = get("/diffs/diffs.js")
+    if js.code == "200"
+      assert_includes page, '<script type="module" src="/diffs/diffs.js"></script>'
+      assert_match(%r{\Atext/javascript}, js["content-type"])
+      chunk = js.body[%r{\./(chunk-[A-Z0-9]+\.js)}, 1]
+      assert chunk, "diffs.js should import a chunk"
+      assert_equal "200", get("/diffs/#{chunk}").code
+    else
+      assert_includes page, "The diff viewer is not built."
+    end
 
     post("/repos/demo/branches/main/approve")
     wait_until("approve to reach upstream") { upstream_sha(@upstream, "main") == pushed }
@@ -99,7 +114,7 @@ class SmokeTest < Minitest::Test
     page = get("/repos/demo/branches/feature/thing").body
     assert_includes page, "new branch"
     assert_includes page, "Add a thing"
-    assert_includes page, '<span class="mark">+</span>a thing'
+    assert_includes get("/repos/demo/branches/feature/thing.patch").body, "+a thing\n"
 
     post("/repos/demo/branches/feature/thing/discard")
     # The branch row goes away; the "discarded ... feature/thing" result line stays.

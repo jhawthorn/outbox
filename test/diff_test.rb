@@ -188,15 +188,12 @@ class DiffTest < Minitest::Test
     assert_equal "f", f.old_path
   end
 
-  def test_per_file_truncation
-    body = (1..10).map { |i| "+line #{i}" }.join("\n")
-    text = "diff --git a/big b/big\n--- a/big\n+++ b/big\n@@ -0,0 +1,10 @@\n#{body}\n" \
-           "diff --git a/small b/small\n--- a/small\n+++ b/small\n@@ -1 +1 @@\n-a\n+b\n"
-    big, small = Diff.parse(text, max_lines_per_file: 4)
-    assert big.truncated?
-    assert_equal 4, big.line_count
-    refute small.truncated?
-    assert_equal 2, small.line_count
+  def test_hidden_characters_are_flagged_per_line
+    text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n" \
+           " plain\n-safe​gone\n+new‮line\n+fine\n\\ No newline at end of file\n"
+    f = Diff.parse(text).first
+    assert_equal ["−2", "+2"], f.hidden_lines.map(&:label)
+    assert_empty Diff.parse(MODIFIED).first.hidden_lines
   end
 
   def test_empty_and_garbage_input

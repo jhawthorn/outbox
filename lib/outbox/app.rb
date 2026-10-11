@@ -5,6 +5,11 @@ require "sinatra/base"
 module Outbox
   class App < Sinatra::Base
     set :views, File.expand_path("../../views", __dir__)
+    # Holds the diff viewer bundle, built by `rake assets`. Not committed;
+    # pages say so when it is missing.
+    PUBLIC_DIR = File.expand_path("../../public", __dir__)
+    DIFFS_BUNDLE = File.join(PUBLIC_DIR, "diffs/diffs.js")
+    set :public_folder, PUBLIC_DIR
     set :show_exceptions, false
     set :raise_errors, false
     set :logging, false
@@ -20,14 +25,12 @@ module Outbox
     helpers do
       def h(text) = Rack::Utils.escape_html(text.to_s)
 
-      # Characters that render as nothing, or reorder what follows them, can
-      # hide content from a reviewer. Zero-width, soft hyphen, BOM, bidi
-      # controls, and C0 controls other than tab are shown as their code point.
-      INVISIBLE_RE = /[​-‏‪-‮⁠-⁤⁦-⁩﻿­\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
-
-      # Escape for HTML and make invisible characters visible.
+      # Escape for HTML and make invisible characters visible as their code
+      # point. Used for text the server renders: paths, subjects, messages.
+      # Diff bodies are rendered in the browser; files containing such
+      # characters get a badge instead (Diff::File#hidden_lines).
       def hv(text)
-        h(text).gsub(INVISIBLE_RE) do |c|
+        h(text).gsub(Diff::INVISIBLE_RE) do |c|
           %(<span class="invis" title="hidden character">U+#{c.ord.to_s(16).upcase.rjust(4, "0")}</span>)
         end
       end
@@ -95,8 +98,31 @@ module Outbox
         end
       end
 
-      def render_patch(patch)
-        erb :_patch, layout: false, locals: { patch: patch }
+      # Renders the summary and one placeholder per file; the browser fetches
+      # patch_url and draws the diffs (assets/diffs.js).
+      def render_patch(patch, patch_url)
+        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url }
+      end
+
+      def diffs_built? = File.exist?(DIFFS_BUNDLE)
+
+      def branch_patch_url(repo, branch) = "#{branch_url(repo, branch)}.patch"
+
+      def commit_patch_url(repo, branch, sha) = "#{branch_url(repo, branch)}/commits/#{sha}.patch"
+
+      # The commit must be part of what is staged on the branch; anything
+      # else in the repo (upstream history, other branches) is not shown.
+      # Returns the commit list and the commit's index in it, newest first.
+      def staged_commit!(repo, branch, sha)
+        list = repo.commits(branch, limit: 1000)
+        index = list.index { |c| c.sha == sha }
+        raise NotFound, "that commit is not part of what is staged on #{branch.name}" unless index
+        [list, index]
+      end
+
+      def send_patch(patch)
+        content_type "text/plain", charset: "utf-8"
+        patch.text
       end
     end
 
@@ -151,14 +177,28 @@ module Outbox
       redirect "/"
     end
 
+    # Raw patches, as the browser fetches them for the diff viewer and as
+    # `git apply` wants them. Defined before the page routes: the splat and
+    # :sha would otherwise swallow the ".patch".
+    get "/repos/:name/branches/*/commits/:sha.patch" do
+      repo = Repo.find!(params[:name])
+      branch = repo.branch(params[:splat].first)
+      staged_commit!(repo, branch, params[:sha])
+      send_patch(repo.commit_diff(params[:sha]))
+    end
+
+    get "/repos/:name/branches/*.patch" do
+      repo = Repo.find!(params[:name])
+      branch = repo.branch(params[:splat].first)
+      send_patch(repo.diff(branch))
+    end
+
     # Must be defined before the branch route, whose splat would otherwise
     # swallow "/commits/<sha>".
     get "/repos/:name/branches/*/commits/:sha" do
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
-      list = @repo.commits(@branch, limit: 1000)
-      index = list.index { |c| c.sha == params[:sha] }
-      raise NotFound, "that commit is not part of what is staged on #{@branch.name}" unless index
+      list, index = staged_commit!(@repo, @branch, params[:sha])
       @commit = @repo.commit_detail(params[:sha])
       @patch = @repo.commit_diff(params[:sha])
       # list is newest first; present as oldest = 1 of N.

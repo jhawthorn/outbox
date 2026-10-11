@@ -40,7 +40,7 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/nope").status
   end
 
-  def test_branch_page_renders_structured_diff
+  def test_branch_page_renders_summary_and_diff_placeholders
     stage_commit("lib/a.rb", "x = 1\ny = 2\n", "Add a")
     body = get("/repos/demo/branches/main")
 
@@ -50,10 +50,60 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, 'class="badge added"'
     assert_includes body, "+2</span>"
     assert_includes body, "1 file changed"
-    # Numbered rows, not a blob.
-    assert_match(%r{<tr class="add">\s*<td class="no"></td>\s*<td class="no">1</td>}, body)
-    assert_includes body, "x = 1"
-    refute_includes body, 'pre class="diff"'
+    # The diff body is drawn in the browser from the raw patch.
+    assert_includes body, 'data-patch-url="/repos/demo/branches/main.patch"'
+    assert_includes body, '<details class="file" id="f0" open>'
+    assert_includes body, '<div class="diff" data-diff-file="lib/a.rb">'
+    refute_includes body, "x = 1"
+  end
+
+  def test_raw_patch_for_branch_and_commit
+    first = stage_commit("a.txt", "a\n", "First")
+    stage_commit("b.txt", "b\n", "Second")
+
+    res = @request.get("/repos/demo/branches/main.patch")
+    assert_equal 200, res.status
+    assert_equal "text/plain;charset=utf-8", res["content-type"]
+    assert_includes res.body, "diff --git a/a.txt b/a.txt"
+    assert_includes res.body, "diff --git a/b.txt b/b.txt"
+    assert_includes res.body, "+a\n"
+
+    res = @request.get("/repos/demo/branches/main/commits/#{first}.patch")
+    assert_equal 200, res.status
+    assert_includes res.body, "+a\n"
+    refute_includes res.body, "b.txt", "only this commit's changes"
+
+    assert_equal 404, @request.get("/repos/demo/branches/nope.patch").status
+    assert_equal 404, @request.get("/repos/demo/branches/main/commits/#{rev(@upstream, "main")}.patch").status
+  end
+
+  def test_raw_patch_with_slash_in_branch_name
+    git("checkout", "--quiet", "-b", "feature/x", chdir: @stage)
+    sha = stage_commit("x.txt", "x\n", "Add x", branch: "feature/x")
+    assert_includes get("/repos/demo/branches/feature/x.patch"), "+x\n"
+    assert_includes get("/repos/demo/branches/feature/x/commits/#{sha}.patch"), "+x\n"
+    assert_includes get("/repos/demo/branches/feature/x"), 'data-patch-url="/repos/demo/branches/feature/x.patch"'
+  end
+
+  def test_synced_branch_has_an_empty_patch
+    res = @request.get("/repos/demo/branches/main.patch")
+    assert_equal 200, res.status
+    assert_equal "", res.body
+  end
+
+  # public/diffs is build output and not committed, so either state is valid.
+  def test_bundle_is_served_or_its_absence_explained
+    stage_commit("a.txt", "a\n", "A")
+    body = get("/repos/demo/branches/main")
+    res = @request.get("/diffs/diffs.js")
+    if res.status == 200
+      assert_match(%r{\Atext/javascript}, res["content-type"])
+      assert_includes body, '<script type="module" src="/diffs/diffs.js"></script>'
+      refute_includes body, "The diff viewer is not built."
+    else
+      assert_includes body, "The diff viewer is not built."
+      refute_includes body, "/diffs/diffs.js\""
+    end
   end
 
   def test_branch_page_links_each_commit
@@ -109,9 +159,12 @@ class AppTest < OutboxTest::RepoCase
 
     body = get("/repos/demo/branches/main")
     assert_includes body, '<span class="invis" title="hidden character">U+202E</span>'
-    assert_includes body, 'safe<span class="invis" title="hidden character">U+200B</span>hidden'
-    refute_includes body, "​"
     refute_includes body, "‮"
+    # Diff bodies are not in the page; the file is badged instead.
+    assert_includes body, '<a href="#f0">a.txt</a>'
+    assert_includes body, '<span class="badge hidden">hidden characters</span>'
+    assert_includes body, 'title="Zero-width, bidi or control characters on lines +1">hidden characters on 1 line</span>'
+    refute_includes body, "​"
   end
 
   def test_commit_page_refuses_commits_outside_the_staged_range
@@ -135,7 +188,8 @@ class AppTest < OutboxTest::RepoCase
 
     body = get("/repos/empty/branches/main/commits/#{sha}")
     assert_includes body, "root commit"
-    assert_includes body, "first"
+    assert_includes body, '<a href="#f0">f.txt</a>'
+    assert_includes get("/repos/empty/branches/main/commits/#{sha}.patch"), "+first\n"
   end
 
   def test_branch_with_slash_in_commit_route

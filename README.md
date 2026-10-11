@@ -13,7 +13,14 @@ or discards (staged branch is reset). Nothing reaches upstream without approval.
   A branch is pending when they differ. States: ready, new, deleted, diverged, synced.
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name`,
-  `/repos/:name/branches/*`, plus POST `approve`, `discard`, `fetch`, `destroy`.
+  `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
+  plus POST `approve`, `discard`, `fetch`, `destroy`.
+- `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
+  lines with hidden characters. The diff body itself is drawn in the browser.
+- `assets/diffs.js` — the diff viewer: [@pierre/diffs](https://diffs.com) (Shiki
+  highlighting), fetching the `.patch` URL and rendering each file. `rake assets` bundles
+  it with esbuild into `public/diffs/` (gitignored; needs pnpm). Without it the pages
+  still work, with a notice and a link to the raw patch instead of rendered diffs.
 - `lib/outbox/git.rb` — git wrapper. Arguments as arrays, never a shell. Subprocesses get
   a minimal environment (`unsetenv_others`), not the server's.
 - `lib/outbox/repo_actor.rb` — one Ractor per repo; the only thing that writes to it.
@@ -72,6 +79,7 @@ Upstream is fetched when a repo is added, once per repo at boot, and when you cl
 
 ```sh
 bundle install
+bundle exec rake assets                     # diff viewer bundle; needs pnpm
 OUTBOX_PASSWORD=... bundle exec puma -p 8080 config.ru   # data in ./data
 bundle exec ruby test/smoke_test.rb         # end-to-end, uses a temp dir and a random port
 ```
@@ -101,7 +109,10 @@ Things discussed and deliberately left.
   attachment point in one call and would be more accurate when there is a single boundary.
 - **Commit limits disagree.** The branch page lists up to 200 commits; the commit page
   validates against 1000. Past 200 the two views do not match.
-- **Two diff truncation mechanisms**, a byte cap on the whole patch and a line cap per
-  file, that overlap and report separately.
+- **Diff viewer build.** `public/diffs` is about 12 MB across ~400 files, nearly all of
+  it Shiki grammars and themes loaded on demand per language, which is why it is built
+  rather than committed. The container image does not build it yet, so it ships without
+  rendered diffs until a Node stage is added. Trimming to a fixed language set would need
+  a custom Shiki bundle aliased in at build time.
 - **Merge commits** get a "merge" badge in the commit list. GitHub does not badge them;
   it shows the parents on the commit page instead. Undecided.

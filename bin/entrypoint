@@ -1,0 +1,7 @@
+#!/bin/sh
+# Container entrypoint. Named volumes are created root-owned and may be
+# initialised by another container, so fix the two mountpoints' ownership
+# (not recursively; outbox owns everything it creates) and drop to outbox.
+set -e
+chown outbox:outbox /data/repos /data/keys
+exec setpriv --reuid=outbox --regid=outbox --init-groups "$@"

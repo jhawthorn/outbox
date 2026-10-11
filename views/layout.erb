@@ -74,17 +74,12 @@
   details.file > summary { cursor: pointer; padding: 8px 12px; background: var(--meta-bg);
                            display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   details.file > summary code { border: 0; background: none; padding: 0; font-weight: 600; }
-  table.hunks { width: 100%; border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                font-size: 12.5px; line-height: 1.45; table-layout: fixed; }
-  table.hunks td { padding: 0; border: 0; vertical-align: top; }
-  table.hunks td.no { width: 48px; text-align: right; padding-right: 8px; color: var(--muted);
-                      user-select: none; border-right: 1px solid var(--line); }
-  table.hunks td.code { white-space: pre-wrap; word-break: break-all; padding-left: 8px; }
-  table.hunks .mark { display: inline-block; width: 1ch; margin-right: 6px; user-select: none; }
-  table.hunks tr.add  td { background: var(--add-bg); }
-  table.hunks tr.del  td { background: var(--del-bg); }
-  table.hunks tr.hunk td { background: var(--hunk-bg); color: var(--muted); padding-top: 4px; padding-bottom: 4px; }
-  table.hunks tr.note td { color: var(--muted); font-style: italic; }
+  .badge.hidden { color: #fff; background: var(--bad); border-color: var(--bad); }
+  /* Diff bodies are drawn by the browser bundle; until it runs, or if it
+     cannot, the placeholder shows its text. */
+  details.file .diff { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  details.file .diff:empty { min-height: 40px; }
+  details.file .diff > noscript, details.file .diff > a { padding: 8px 12px; font: 14px/1.5 system-ui, sans-serif; }
   pre.message { background: var(--meta-bg); border: 1px solid var(--line); border-radius: 8px;
                 padding: 12px 16px; white-space: pre-wrap; margin: 0 0 16px; }
   details.more { display: inline; }
