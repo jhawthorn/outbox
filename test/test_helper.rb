@@ -82,7 +82,6 @@ module OutboxTest
       @upstream, @up_work = make_upstream("upstream")
       @repo = Outbox::Repo.create("demo", @upstream)
       @repo.fetch!
-      @repo.set_default_head!
       @stage = File.join(@dir, "stage")
       git("clone", "--quiet", @repo.path, @stage)
     end

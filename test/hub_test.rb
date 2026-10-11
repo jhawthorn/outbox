@@ -41,12 +41,11 @@ class HubTest < OutboxTest::RepoCase
     assert_equal sha, rev(@repo.path, "refs/heads/main")
   end
 
-  def test_fetch_fixes_head_on_a_fresh_repo
+  def test_fetch_sets_head_on_a_fresh_repo
     repo = Outbox::Repo.create("fresh", @upstream)
-    refute repo.head_valid?
+    refute ref_exists?(repo.path, "HEAD")
     @hub.fetch(repo)
     wait_idle(repo)
-    assert repo.head_valid?
     assert_equal "refs/heads/main", repo.git("symbolic-ref", "HEAD").strip
   end
 

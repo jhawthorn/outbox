@@ -12,7 +12,6 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal "true", @repo.git("config", "http.receivepack").strip
     assert_equal "+refs/heads/*:refs/remotes/upstream/*", @repo.git("config", "remote.upstream.fetch").strip
     assert_equal "refs/heads/main", @repo.git("symbolic-ref", "HEAD").strip
-    assert @repo.head_valid?
     assert_equal [%w[main synced]], @repo.branches.map { |b| [b.name, b.status.to_s] }
   end
 
@@ -145,12 +144,34 @@ class RepoTest < OutboxTest::RepoCase
     refute_includes patch.text, "README", "diff must be against the fork point, not the empty tree"
   end
 
+  def test_head_follows_upstream_default_branch_not_the_init_name
+    bare = File.join(@dir, "trunk.git")
+    work = File.join(@dir, "trunk-work")
+    git("init", "--quiet", "--bare", "-b", "trunk", bare)
+    git("init", "--quiet", "-b", "trunk", work)
+    git("remote", "add", "origin", bare, chdir: work)
+    commit(work, "README", "old\n", "ancient")
+    push(work, "trunk:master")
+    commit(work, "README", "new\n", "current")
+    push(work, "trunk")
+
+    repo = Repo.create("trunk", bare)
+    init_default = repo.git("symbolic-ref", "HEAD").strip
+    assert_includes ["refs/heads/master", "refs/heads/main"], init_default
+    repo.fetch!
+    assert_equal "refs/heads/trunk", repo.git("symbolic-ref", "HEAD").strip
+    assert_equal %w[master trunk], repo.branches.map(&:name)
+
+    git("symbolic-ref", "HEAD", "refs/heads/master", chdir: bare)
+    repo.fetch!
+    assert_equal "refs/heads/master", repo.git("symbolic-ref", "HEAD").strip
+  end
+
   def test_new_branch_on_empty_upstream_diffs_against_empty_tree
     bare = File.join(@dir, "empty.git")
     git("init", "--quiet", "--bare", "-b", "main", bare)
     repo = Repo.create("empty", bare)
     repo.fetch!
-    repo.set_default_head!
     assert_empty repo.branches
 
     work = File.join(@dir, "empty-work")

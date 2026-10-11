@@ -10,7 +10,6 @@ require_relative "../lib/outbox/repo"
 def fetch_with_progress(repo)
   repo.fetch! { |line| $stderr.print "\r\e[K#{line}" }
   $stderr.puts
-  repo.set_default_head! unless repo.head_valid?
 end
 
 def usage

@@ -35,7 +35,6 @@ module Outbox
       case job
       when :fetch
         repo.fetch!(&progress)
-        repo.set_default_head! unless repo.head_valid?
         "fetched upstream"
       when :approve
         branch, force, expected = args

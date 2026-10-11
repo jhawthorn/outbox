@@ -245,7 +245,8 @@ module Outbox
 
     # Fetch upstream. Branches with nothing staged follow upstream; branches
     # with staged changes are left alone (they show up as diverged if upstream
-    # moved underneath them). Yields git's progress lines if a block is given.
+    # moved underneath them). HEAD follows upstream's default branch. Yields
+    # git's progress lines if a block is given.
     def fetch!(&progress)
       install_hook
       before = upstream_refs
@@ -267,25 +268,22 @@ module Outbox
         next unless staged[branch] == before[branch]
         git("update-ref", "-m", "outbox: follow upstream", "-d", "refs/heads/#{branch}", staged[branch])
       end
+
+      follow_upstream_head! unless after.empty?
     end
 
-    # True when HEAD points at a branch that exists. A freshly created repo's
-    # HEAD points at a branch that may not exist upstream, which makes clones
-    # from the outbox warn and check out nothing.
-    def head_valid?
-      git("rev-parse", "--verify", "--quiet", "HEAD")
-      true
-    rescue GitError
-      false
-    end
-
-    def set_default_head!
+    # Point HEAD at the staged copy of whatever upstream's HEAD names, so the
+    # outbox has the same default branch as the repo it mirrors. This is the
+    # branch new clones check out and the base new branches are diffed
+    # against. `git init` already gave HEAD a name, and upstream may well
+    # have an old branch by that name too, so HEAD cannot be trusted just
+    # because it resolves: ask upstream every time, and follow it if the
+    # default branch changes.
+    def follow_upstream_head!
       git("remote", "set-head", "upstream", "--auto")
       target = git("symbolic-ref", "refs/remotes/upstream/HEAD").strip
       branch = target.delete_prefix("refs/remotes/upstream/")
       git("symbolic-ref", "HEAD", "refs/heads/#{branch}")
-    rescue GitError
-      # Empty upstream, or one that does not advertise HEAD. Leave the default.
     end
 
     # --- review -------------------------------------------------------------
