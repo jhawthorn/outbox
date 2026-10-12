@@ -142,6 +142,8 @@ module Outbox
 
     get "/" do
       @repos = Repo.all.map { |r| [r, r.branches, hub.status(r)] }
+      # Repos with something to review first, then the rest, by name within each.
+      @repos = @repos.sort_by { |r, branches, _| [branches.any?(&:pending?) ? 0 : 1, r.name] }
       @problems = Config.load.problems
       # Fetches of https upstreams fail without the token; say so up front
       # rather than once per repo.

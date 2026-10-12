@@ -10,12 +10,10 @@
 <% end %>
 
 <% unless @repos.empty? %>
-  <% busy = @repos.count { |_, _, status| status.busy? } %>
   <div class="toolbar">
-    <% if busy.positive? %><span class="muted"><%= pluralize(busy, "repository", "repositories") %> working</span><% end %>
     <span class="spacer"></span>
     <form class="inline" method="post" action="/fetch">
-      <button type="submit" <%= "disabled" if busy == @repos.size %>>Fetch all upstreams</button>
+      <button type="submit" <%= "disabled" if @repos.all? { |_, _, status| status.busy? } %>>Fetch all upstreams</button>
     </form>
   </div>
 <% end %>
@@ -36,8 +34,6 @@
           <span class="badge busy">queued</span>
         <% elsif status.last && !status.last.ok? %>
           <span class="badge failed"><%= h status.last.job %> failed</span>
-        <% elsif pending.empty? %>
-          <span class="muted">nothing</span>
         <% else %>
           <% pending.each do |b| %>
             <a href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>

@@ -29,6 +29,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/")
     assert_includes body, ">demo<"
     assert_includes body, "ready"
+    assert_operator body.index(">demo<"), :<, body.index(">_config<"), "pending repos sort first"
     assert_includes body, "http://example.org/demo.git"
     assert_includes body, ">_config<"
     assert_includes body, "http://example.org/_config.git"
