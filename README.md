@@ -67,7 +67,9 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `bin/outbox` — CLI for the same operations, synchronous, in its own process.
 
 Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverged
-branches need an explicit force.
+branches need an explicit force. A branch's diff runs from upstream's current tip to the
+staged tip, so for a diverged branch it is exactly what the force push changes there: an
+amended commit shows as the amendment, and anything only upstream has shows as removed.
 
 ## Upstream auth
 

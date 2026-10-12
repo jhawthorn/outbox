@@ -238,7 +238,35 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal ["Upstream change"], @repo.outgoing_commits("main").map(&:subject)
 
     patch = @repo.diff("main")
-    assert_equal ["staged.txt"], patch.files.map(&:path), "diff shows only what the staged branch adds since the fork point"
+    assert_equal ["staged.txt", "up.txt"], patch.files.map(&:path).sort
+    by_path = patch.files.to_h { |f| [f.path, f.status] }
+    assert_equal :added, by_path["staged.txt"]
+    assert_equal :deleted, by_path["up.txt"], "force-pushing drops upstream's change; the diff must say so"
+  end
+
+  def test_amended_branch_diffs_against_upstream_tip
+    commit(@stage, "a.txt", "a\n", "Add a")
+    commit(@stage, "b.txt", "b\n", "Add b")
+    push(@stage, "main")
+    @repo.approve!("main")
+    assert_equal :synced, status_of
+
+    # Fix a typo in the tip commit and force-push the rewritten history.
+    File.write(File.join(@stage, "b.txt"), "b fixed\n")
+    git("add", "b.txt", chdir: @stage)
+    git("commit", "--quiet", "--amend", "--no-edit", chdir: @stage)
+    push(@stage, "main", force: true)
+
+    b = @repo.branch("main")
+    assert_equal :diverged, b.status
+    assert_equal ["Add b"], @repo.commits("main").map(&:subject)
+    assert_equal ["Add b"], @repo.outgoing_commits("main").map(&:subject)
+
+    patch = @repo.diff("main")
+    assert_equal ["b.txt"], patch.files.map(&:path), "only the amendment, not the whole rewritten branch"
+    assert_includes patch.text, "-b\n"
+    assert_includes patch.text, "+b fixed\n"
+    refute_includes patch.text, "a.txt"
   end
 
   # --- commits ------------------------------------------------------------

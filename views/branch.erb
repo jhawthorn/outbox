@@ -77,5 +77,8 @@
   <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
 <% else %>
   <h2>Files changed (<%= @patch.files.size %>)</h2>
+  <% if @branch.status == :diverged %>
+    <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>
+  <% end %>
   <%= render_patch(@patch, branch_patch_url(@repo, @branch.name)) %>
 <% end %>

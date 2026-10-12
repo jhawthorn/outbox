@@ -361,7 +361,9 @@ module Outbox
       end
     end
 
-    # Everything approving this branch would change on upstream, as one patch.
+    # Everything approving this branch would change on upstream, as one
+    # patch: from what upstream has now to the staged tip. For a new branch,
+    # from where it forked off the default branch.
     def diff(branch, max_bytes: MAX_PATCH_BYTES)
       b = resolve(branch)
       from, to = diff_endpoints(b)
@@ -442,8 +444,13 @@ module Outbox
     def diff_endpoints(b)
       case b.status
       when :ready, :diverged
-        # Three-dot: only what the staged branch adds since it forked from upstream.
-        [git("merge-base", b.upstream, b.staged).strip, b.staged]
+        # Upstream's tip to ours: what approving puts there. When ready,
+        # upstream is an ancestor and this is just the staged commits. When
+        # diverged, approving force-pushes over upstream's tip, so an amended
+        # commit shows as the amendment and anything only upstream has shows
+        # as removed. Diffing from the merge-base would show the whole
+        # rewritten branch instead.
+        [b.upstream, b.staged]
       when :new
         [nearest_upstream_base(b.staged), b.staged]
       else
