@@ -339,14 +339,18 @@ module Outbox
       log(limit, *incoming_revs(b))
     end
 
+    # How many commits #commits would list without its limit.
+    def commit_count(branch)
+      count(*incoming_revs(resolve(branch)))
+    end
+
     # Commits on upstream that approving would remove (diverged or deleted).
     def outgoing_commits(branch, limit: 200)
-      b = resolve(branch)
-      case b.status
-      when :deleted  then log(limit, "refs/remotes/upstream/#{b.name}", "--not", "--branches")
-      when :diverged then log(limit, "refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}")
-      else []
-      end
+      log(limit, *outgoing_revs(resolve(branch)))
+    end
+
+    def outgoing_commit_count(branch)
+      count(*outgoing_revs(resolve(branch)))
     end
 
     # Everything approving this branch would change on upstream, as one
@@ -416,6 +420,18 @@ module Outbox
       when :ready, :diverged then ["refs/remotes/upstream/#{b.name}..refs/heads/#{b.name}"]
       else nil
       end
+    end
+
+    def outgoing_revs(b)
+      case b.status
+      when :deleted  then ["refs/remotes/upstream/#{b.name}", "--not", "--branches"]
+      when :diverged then ["refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}"]
+      end
+    end
+
+    def count(*revs)
+      return 0 if revs.compact.empty?
+      git("rev-list", "--count", *revs).to_i
     end
 
     # Commits are NUL-separated because the full message is included and

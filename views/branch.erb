@@ -40,7 +40,7 @@
 <% end %>
 
 <% unless @outgoing.empty? %>
-  <h2>Dropped from upstream (<%= @outgoing.size %>)</h2>
+  <h2>Dropped from upstream (<%= commit_total(@outgoing.size, @outgoing_count) %>)</h2>
   <div class="panel danger">
     <% @outgoing.each do |c| %>
       <div class="commit"><code><%= c.short %></code> <span class="subject"><%= hv c.subject %></span>
@@ -56,7 +56,7 @@
 <% end %>
 
 <% unless @commits.empty? %>
-  <h2>Commits (<%= @commits.size %>)</h2>
+  <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
   <% @commits.each do |c| %>
     <div class="commit">
       <code><%= c.short %></code>

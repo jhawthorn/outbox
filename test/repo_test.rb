@@ -147,6 +147,9 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal %w[Second First], @repo.commits("main").map(&:subject)
     assert_equal [second, first], @repo.commits("main").map(&:sha)
     assert_empty @repo.outgoing_commits("main")
+    assert_equal 2, @repo.commit_count("main")
+    assert_equal 1, @repo.commits("main", limit: 1).size
+    assert_equal 0, @repo.outgoing_commit_count("main")
 
     patch = @repo.diff("main")
     assert_includes patch.stat, "2 files changed"

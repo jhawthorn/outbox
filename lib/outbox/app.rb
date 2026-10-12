@@ -74,6 +74,9 @@ module Outbox
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end
 
+      # "N", or "latest N of M" when the list was cut off at its limit.
+      def commit_total(shown, total) = shown < total ? "latest #{shown} of #{total}" : total.to_s
+
       def commit_url(repo, branch, commit) = "#{branch_url(repo, branch)}/commits/#{commit.sha}"
 
       def identity_line(c)
@@ -208,6 +211,8 @@ module Outbox
       @branch = @repo.branch(params[:splat].first)
       @commits = @repo.commits(@branch)
       @outgoing = @repo.outgoing_commits(@branch)
+      @commit_count = @repo.commit_count(@branch)
+      @outgoing_count = @repo.outgoing_commit_count(@branch)
       @patch = @repo.diff(@branch)
       erb :branch
     end
