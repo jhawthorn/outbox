@@ -30,7 +30,6 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, ">demo<"
     assert_includes body, "ready"
     assert_operator body.index(">demo<"), :<, body.index(">_config<"), "pending repos sort first"
-    assert_includes body, "http://example.org/demo.git"
     assert_includes body, ">_config<"
     assert_includes body, "http://example.org/_config.git"
     assert_includes body, "Adding a repository"
@@ -64,6 +63,12 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "&quot;-bad&quot; is not a valid repository name"
     assert_includes body, "_config is reserved"
     assert_includes body, "ok has no upstream"
+  end
+
+  def test_index_leaves_upstream_and_clone_url_to_the_repo_page
+    body = get("/")
+    refute_includes body, @upstream
+    refute_includes body, "Clone URL"
   end
 
   def test_repo_page_shows_branches

@@ -19,13 +19,12 @@
 <% end %>
 
 <table>
-  <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
+  <thead><tr><th>Repository</th><th>Pending</th></tr></thead>
   <tbody>
   <% @repos.each do |repo, branches, status| %>
     <% pending = branches.select(&:pending?) %>
     <tr>
       <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
-      <td class="muted"><%= repo.config? ? "the outbox's own configuration" : h(repo.upstream_url) %></td>
       <td>
         <% if status.running? %>
           <span class="badge busy"><%= h job_label(status) %></span>
@@ -41,7 +40,6 @@
           <% end %>
         <% end %>
       </td>
-      <td><code><%= h clone_url(repo) %></code></td>
     </tr>
   <% end %>
   </tbody>
