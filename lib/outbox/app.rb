@@ -70,12 +70,6 @@ module Outbox
 
       def pluralize(n, singular, plural = "#{singular}s") = "#{n} #{n == 1 ? singular : plural}"
 
-      # Deep link to the deploy keys page when the upstream is on GitHub.
-      def github_keys_url(upstream)
-        m = upstream.match(%r{github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?\z})
-        m && "https://github.com/#{m[1]}/#{m[2]}/settings/keys"
-      end
-
       def duration(seconds)
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end
@@ -149,6 +143,9 @@ module Outbox
     get "/" do
       @repos = Repo.all.map { |r| [r, r.branches, hub.status(r)] }
       @problems = Config.load.problems
+      # Fetches of https upstreams fail without the token; say so up front
+      # rather than once per repo.
+      @needs_token = Repo.upstream_token.nil? && @repos.any? { |r, _, _| !r.config? && r.remote_upstream? }
       @refresh = @repos.any? { |_, _, status| status.busy? }
       erb :index
     end

@@ -1,7 +1,9 @@
 services:
   # Web UI, plus git over HTTP. Everything requires OUTBOX_PASSWORD unless
   # OUTBOX_GIT_AUTH=none, which leaves the git endpoint open for agents on
-  # the network (and to anything else on it).
+  # the network (and to anything else on it). OUTBOX_UPSTREAM_TOKEN
+  # authenticates fetches and pushes to https upstreams; only this service
+  # gets it, never the daemon that agents talk to.
   outbox:
     build: .
     ports:
@@ -9,9 +11,9 @@ services:
     environment:
       OUTBOX_PASSWORD: ${OUTBOX_PASSWORD:?set OUTBOX_PASSWORD in .env}
       OUTBOX_GIT_AUTH: ${OUTBOX_GIT_AUTH:-password}
+      OUTBOX_UPSTREAM_TOKEN: ${OUTBOX_UPSTREAM_TOKEN:-}
     volumes:
       - outbox-repos:/data/repos
-      - outbox-keys:/data/keys
       # The approved configuration. Not in repos/, so the daemon cannot
       # serve it; only approving a change to _config writes to it.
       - outbox-config:/data/config.git
@@ -43,5 +45,4 @@ networks:
 
 volumes:
   outbox-repos:
-  outbox-keys:
   outbox-config:

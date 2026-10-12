@@ -14,19 +14,6 @@
   </form>
 </div>
 
-<% unless @repo.config? %>
-<details class="add" style="margin:0 0 16px" <%= "open" if @status.last && !@status.last.ok? && @status.last.job != :discard %>>
-  <summary>Deploy key for pushing to upstream</summary>
-  <% if @repo.public_key %>
-    <p class="muted" style="margin:8px 0">Add as a deploy key with write access<% if (url = github_keys_url(@repo.upstream_url)) %>:
-      <a href="<%= h url %>" target="_blank" rel="noopener"><%= h url %></a><% end %></p>
-    <pre style="white-space:pre-wrap;word-break:break-all;margin:0"><%= h @repo.public_key %></pre>
-  <% else %>
-    <p class="muted" style="margin:8px 0">No deploy key (ssh-keygen unavailable).</p>
-  <% end %>
-</details>
-<% end %>
-
 <% if @status.running? %>
   <div class="panel">
     <span class="badge busy">working</span>

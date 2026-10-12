@@ -199,7 +199,7 @@ class HubTest < OutboxTest::RepoCase
 
     work = File.join(@dir, "config-work")
     git("clone", "--quiet", config.path, work)
-    File.write(File.join(work, "outbox.conf"), "[repo \"bad\"]\n\tupstream = x\n")
+    File.write(File.join(work, "outbox.conf"), "[repo \"bad\"]\n\tupstream = #{@upstream}\n")
     git("commit", "--quiet", "-am", "Break it", chdir: work)
     push(work, "main")
     # A directory that is not a repo, where the staging repo would go, is

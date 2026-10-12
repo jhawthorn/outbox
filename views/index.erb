@@ -4,16 +4,15 @@
   <div class="panel danger"><span class="badge failed">config</span> <%= h problem %></div>
 <% end %>
 
+<% if @needs_token %>
+  <div class="panel danger"><span class="badge failed">no token</span>
+    <code>OUTBOX_UPSTREAM_TOKEN</code> is not set. Fetching and pushing https upstreams will fail until the server has one.</div>
+<% end %>
+
 <% unless @repos.empty? %>
   <% busy = @repos.count { |_, _, status| status.busy? } %>
   <div class="toolbar">
-    <span class="muted">
-      <% if busy.positive? %>
-        <%= pluralize(busy, "repository", "repositories") %> working
-      <% else %>
-        Upstreams are only fetched on request
-      <% end %>
-    </span>
+    <% if busy.positive? %><span class="muted"><%= pluralize(busy, "repository", "repositories") %> working</span><% end %>
     <span class="spacer"></span>
     <form class="inline" method="post" action="/fetch">
       <button type="submit" <%= "disabled" if busy == @repos.size %>>Fetch all upstreams</button>
@@ -58,5 +57,5 @@
   <code><%= h config_clone_url %></code>. Clone it, add a section, push to a branch, and
   approve the change here like any other.</p>
   <pre><code>[repo "myapp"]
-    upstream = git@github.com:you/myapp.git</code></pre>
+    upstream = https://github.com/you/myapp.git</code></pre>
 </details>

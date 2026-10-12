@@ -65,22 +65,33 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "ok has no upstream"
   end
 
-  def test_repo_page_shows_branches_and_deploy_key
+  def test_repo_page_shows_branches
     body = get("/repos/demo")
     assert_includes body, "in sync"
-    assert_includes body, "ssh-ed25519 "
+    assert_includes body, @upstream
     assert_includes body, "Fetch upstream"
     refute_includes body, "Remove"
     assert_equal 404, @request.get("/repos/nope").status
     assert_equal 404, @request.post("/repos/demo/destroy").status
   end
 
-  def test_config_repo_page_has_no_deploy_key
+  def test_config_repo_page
     Outbox::Config.staging.fetch!
     body = get("/repos/_config")
     assert_includes body, "the outbox's own configuration"
-    refute_includes body, "Deploy key"
     assert_includes body, "in sync"
+  end
+
+  # Only an https upstream needs the token; the test repos are local paths.
+  def test_index_warns_when_an_https_upstream_has_no_token
+    saved = ENV.delete("OUTBOX_UPSTREAM_TOKEN")
+    refute_includes get("/"), "OUTBOX_UPSTREAM_TOKEN"
+    Outbox::Repo.create("gh", "https://github.com/x/y.git")
+    assert_includes get("/"), "OUTBOX_UPSTREAM_TOKEN"
+    ENV["OUTBOX_UPSTREAM_TOKEN"] = "ghp_test"
+    refute_includes get("/"), "OUTBOX_UPSTREAM_TOKEN"
+  ensure
+    saved ? ENV["OUTBOX_UPSTREAM_TOKEN"] = saved : ENV.delete("OUTBOX_UPSTREAM_TOKEN")
   end
 
   def test_config_change_is_reviewed_like_any_other

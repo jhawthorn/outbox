@@ -56,15 +56,11 @@ begin
     Outbox::Config.add(*args)
     Outbox::Config.apply!.each do |repo|
       puts "added #{repo.name}"
-      if repo.public_key
-        puts "deploy key (add to the upstream with write access):"
-        puts repo.public_key
-      end
       begin
         fetch_with_progress(repo)
       rescue Outbox::GitError => e
         warn "first fetch failed: #{e.message}"
-        warn "once the upstream accepts the key, run: outbox fetch #{repo.name}"
+        warn "check the URL and OUTBOX_UPSTREAM_TOKEN, then run: outbox fetch #{repo.name}"
       end
     end
   when "remove"

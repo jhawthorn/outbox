@@ -51,10 +51,16 @@ class SmokeTest < Minitest::Test
     CLEANUPS.delete(@cleanup)
   end
 
-  def boot_server
-    @port = free_port
+  # The port is kept across restarts so upstream URLs that point back at
+  # this server stay valid. token: what the server gets as
+  # OUTBOX_UPSTREAM_TOKEN; the password, so the server can fetch from its
+  # own https endpoint, or nil for none.
+  def boot_server(token: PASSWORD)
+    @port ||= free_port
+    env = { "OUTBOX_DATA" => @data, "OUTBOX_PASSWORD" => PASSWORD, "RACK_ENV" => "test", "RUBYOPT" => "-W0" }
+    env["OUTBOX_UPSTREAM_TOKEN"] = token if token
     @server = spawn(
-      { "OUTBOX_DATA" => @data, "OUTBOX_PASSWORD" => PASSWORD, "RACK_ENV" => "test", "RUBYOPT" => "-W0" },
+      env,
       "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{@port}", "config.ru",
       chdir: ROOT, out: @log, err: @log,
     )
@@ -193,14 +199,31 @@ class SmokeTest < Minitest::Test
     refute File.exist?(File.join(@dir, "noauth", "README"))
   end
 
-  def test_deploy_key_is_per_repo
-    page = get("/repos/demo").body
-    assert_includes page, "ssh-ed25519 "
-    assert_includes page, "outbox deploy key: demo"
+  # An https upstream that wants credentials: this server's own
+  # password-protected git endpoint stands in for GitHub. The fetch only
+  # succeeds if git got the token through askpass.
+  def test_https_upstream_is_authenticated_with_the_token
+    add_repo("mirror", "http://127.0.0.1:#{@port}/demo.git")
+    assert_includes get("/repos/mirror").body, "in sync"
+    refute_includes get("/").body, "OUTBOX_UPSTREAM_TOKEN"
 
-    key = File.join(@data, "keys", "demo")
-    assert File.exist?(key)
-    assert_equal 0o600, File.stat(key).mode & 0o777
+    stop_server
+    boot_server(token: nil)
+    assert_includes get("/").body, "<code>OUTBOX_UPSTREAM_TOKEN</code> is not set"
+    post("/repos/mirror/fetch")
+    wait_until("fetch to fail without a token") { get("/repos/mirror").body.include?("fetch failed") }
+    assert_match(/401|Authentication|could not read Username/, get("/repos/mirror").body)
+  end
+
+  def test_ssh_upstreams_are_refused
+    clone = clone_from_outbox("_config")
+    sh("git", "config", "-f", File.join(clone, "outbox.conf"), "repo.sshy.upstream", "git@github.com:x/y.git")
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Add sshy")
+    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
+    post("/repos/_config/branches/main/approve")
+    wait_until("approval") { get("/repos/_config").body.include?("in sync") }
+    assert_includes get("/").body, "sshy: upstream git@github.com:x/y.git must be an https URL"
+    assert_equal "404", get("/repos/sshy").code
   end
 
   def test_removing_from_config_leaves_the_staging_repo_alone
@@ -286,9 +309,13 @@ class SmokeTest < Minitest::Test
     post("/repos/_config/branches/main/approve")
     wait_until("initial fetch of #{name}") do
       res = get("/repos/#{name}")
+      flunk "initial fetch of #{name} failed:\n#{failure_message(res.body)}" if res.body.include?("fetch failed")
       res.code == "200" && res.body.include?("fetched upstream")
     end
   end
+
+  # The failed job's message, as the repo page shows it.
+  def failure_message(page) = page[%r{<pre[^>]*>(.*?)</pre>}m, 1].to_s.strip
 
   def clone_from_outbox(name)
     clone = File.join(@dir, "clone-#{name}-#{rand(1_000_000)}")

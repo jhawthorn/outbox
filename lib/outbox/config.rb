@@ -10,7 +10,7 @@ module Outbox
   # file, outbox.conf, in git's own config syntax:
   #
   #   [repo "rails"]
-  #       upstream = git@github.com:rails/rails.git
+  #       upstream = https://github.com/rails/rails.git
   #
   # That repo is never served. What is served is a staging repo for it,
   # _config.git, whose upstream is the approved copy. Proposing a change is a
@@ -34,10 +34,12 @@ module Outbox
       # Repositories the outbox holds pushes for. One section each:
       #
       #   [repo "rails"]
-      #       upstream = git@github.com:rails/rails.git
+      #       upstream = https://github.com/rails/rails.git
       #
-      # Pushes to <outbox>/rails.git are then held for review and, once
-      # approved, sent to the upstream. To change this file, clone
+      # Upstreams are https URLs (the server's OUTBOX_UPSTREAM_TOKEN
+      # authenticates them) or local paths. Pushes to <outbox>/rails.git
+      # are then held for review and, once approved, sent to the upstream.
+      # To change this file, clone
       # <outbox>/_config.git, commit to a branch, push it; the change is
       # reviewed and approved like any other.
     CONF
@@ -84,6 +86,8 @@ module Outbox
           problems << "#{NAME} is reserved for the configuration itself"
         elsif value.to_s.strip.empty?
           problems << "#{name} has no upstream"
+        elsif (problem = Repo.upstream_url_problem(value))
+          problems << "#{name}: #{problem}"
         else
           repos[name] = value.strip
         end
@@ -121,7 +125,9 @@ module Outbox
     def self.add(name, upstream, root = Repo.root)
       raise ArgumentError, "invalid repository name #{name.inspect}" unless name.to_s.match?(Repo::NAME_RE)
       raise ArgumentError, "#{NAME} is reserved" if name == NAME
-      raise ArgumentError, "upstream URL is required" if upstream.to_s.strip.empty?
+      if (problem = Repo.upstream_url_problem(upstream))
+        raise ArgumentError, problem
+      end
       edit(root, message: "Add #{name}") do |file|
         Git.run("config", "-f", file, "repo.#{name}.upstream", upstream.strip)
       end

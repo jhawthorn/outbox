@@ -30,7 +30,6 @@ class CliTest < OutboxTest::RepoCase
     other, = make_upstream("other")
     out = outbox!("add", "other", other)
     assert_includes out, "added other"
-    assert_match(/deploy key.*\nssh-ed25519 /, out)
     assert_equal({ "other" => other }, Outbox::Config.load.repos)
     repo = Outbox::Repo.find!("other")
     assert_equal %w[main], repo.branches.map(&:name)
@@ -44,8 +43,8 @@ class CliTest < OutboxTest::RepoCase
     assert_includes err, "reserved"
   end
 
-  # The upstream will not accept the new key until it is added there, so
-  # the first fetch is expected to fail; the repo is still added.
+  # A wrong URL or a missing token makes the first fetch fail; the repo is
+  # still added, and the fix is a fetch later.
   def test_add_survives_a_failed_first_fetch
     out, err, status = outbox("add", "unreachable", File.join(@dir, "nonexistent.git"))
     assert status.success?, err

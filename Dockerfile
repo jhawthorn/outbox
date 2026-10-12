@@ -9,12 +9,12 @@ RUN bundle config set --local without test \
 
 FROM docker.io/library/ruby:4.0-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 # Fixed uid so the git daemon container (a stock git image sharing the repos
 # volume) can run as the same user.
 RUN groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home outbox \
- && mkdir -p /data/repos /data/keys /data/config.git && chown -R outbox:outbox /data
+ && mkdir -p /data/repos /data/config.git && chown -R outbox:outbox /data
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --chown=outbox:outbox . .

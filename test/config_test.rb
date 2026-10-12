@@ -69,8 +69,9 @@ class ConfigTest < OutboxTest::RepoCase
       CONF
     end
     config = Config.load
-    assert_equal({ "rails" => "git@github.com:rails/rails.git", "a.b" => "https://example.com/a.git" }, config.repos)
+    assert_equal({ "a.b" => "https://example.com/a.git" }, config.repos)
     assert_equal [
+      "rails: upstream git@github.com:rails/rails.git must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path",
       "\"-x\" is not a valid repository name",
       "_config is reserved for the configuration itself",
       "empty has no upstream",
@@ -97,15 +98,16 @@ class ConfigTest < OutboxTest::RepoCase
     assert_raises(ArgumentError) { Config.add("bad name", other) }
     assert_raises(ArgumentError) { Config.add("_config", other) }
     assert_raises(ArgumentError) { Config.add("x", " ") }
+    err = assert_raises(ArgumentError) { Config.add("x", "git@github.com:x/y.git") }
+    assert_includes err.message, "must be an https URL"
+    assert_equal %w[demo other], Config.load.repos.keys
   end
 
   def test_remove_drops_the_entry_and_destroys_the_staging_repo
     Config.add("demo", @upstream)
-    key = @repo.deploy_key_path
     Config.remove("demo")
     assert_empty Config.load.repos
     refute File.exist?(@repo.path)
-    refute File.exist?(key)
     assert_equal "hello\n", git("show", "main:README", chdir: @upstream), "upstream untouched"
 
     # Also for a repo that was never configured, and never for _config.

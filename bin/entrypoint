@@ -3,5 +3,5 @@
 # initialised by another container, so fix the mountpoints' ownership
 # (not recursively; outbox owns everything it creates) and drop to outbox.
 set -e
-chown outbox:outbox /data/repos /data/keys /data/config.git
+chown outbox:outbox /data/repos /data/config.git
 exec setpriv --reuid=outbox --regid=outbox --init-groups "$@"

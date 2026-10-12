@@ -80,9 +80,25 @@ module Outbox
 
     def self.root = ENV.fetch("OUTBOX_DATA", DEFAULT_ROOT)
     def self.repos_dir(root = self.root) = File.join(root, "repos")
-    # Deploy keys and known_hosts live outside repos/ so a git-only process
-    # (git daemon for agents) can be given repos/ alone.
-    def self.keys_dir(root = self.root) = File.join(root, "keys")
+
+    # The one credential for every https upstream, from the server's
+    # environment. nil when unset or blank. Read here in the main Ractor and
+    # handed to repo actors, like the data root.
+    def self.upstream_token
+      token = ENV["OUTBOX_UPSTREAM_TOKEN"].to_s.strip
+      token.empty? ? nil : token
+    end
+
+    # Upstreams are https URLs, authenticated with the token, or local
+    # paths. Anything else (ssh, git://) is refused: there is nothing here
+    # to authenticate it with, and a failed fetch later would be harder to
+    # read than a message now. Returns the problem, or nil.
+    def self.upstream_url_problem(url)
+      url = url.to_s.strip
+      return "upstream URL is required" if url.empty?
+      return nil if url.match?(%r{\Ahttps?://}i) || url.match?(%r{\A(/|\./|\.\./|file://)})
+      "upstream #{url} must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path"
+    end
 
     UPDATE_HOOK = File.expand_path("hooks/update", __dir__).freeze
 
@@ -102,7 +118,9 @@ module Outbox
 
     def self.create(name, upstream_url, root: self.root)
       raise ArgumentError, "invalid repository name #{name.inspect}" unless name.to_s.match?(NAME_RE)
-      raise ArgumentError, "upstream URL is required" if upstream_url.to_s.strip.empty?
+      if (problem = upstream_url_problem(upstream_url))
+        raise ArgumentError, problem
+      end
       repo = new(name, root: root)
       raise ArgumentError, "repository #{name} already exists" if File.exist?(repo.path)
 
@@ -119,7 +137,6 @@ module Outbox
         repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
         repo.git("config", "remote.upstream.tagOpt", "--no-tags")
         repo.install_hook
-        repo.generate_deploy_key
       rescue StandardError
         FileUtils.rm_rf(repo.path)
         raise
@@ -129,70 +146,41 @@ module Outbox
       repo
     end
 
-    def initialize(name, root: self.class.root)
+    def initialize(name, root: self.class.root, upstream_token: self.class.upstream_token)
       @name = name
       @root = root
+      @upstream_token = upstream_token
       @path = File.join(self.class.repos_dir(root), "#{name}.git")
     end
 
     # The staging repo for the outbox's own configuration (Outbox::Config).
     def config? = name == Config::NAME
 
-    def git(*args, input: nil)
-      Git.run(*args, chdir: path, input: input, extra: git_env)
+    # extra: environment for this one command; remote_env for the ones that
+    # talk to upstream, nothing for the rest.
+    def git(*args, input: nil, extra: {})
+      Git.run(*args, chdir: path, input: input, extra: extra)
     end
 
     # --- upstream credentials ----------------------------------------------
-    #
-    # Each repo gets its own SSH keypair, generated here and never leaving
-    # the data directory. The public half is added to the upstream as a
-    # deploy key with write access, so a key can only ever touch one repo.
-    # Nothing from the host's ~/.ssh is involved.
 
-    def deploy_key_path = File.join(self.class.keys_dir(@root), name)
+    # Git runs GIT_ASKPASS directly, no shell, with the prompt as its one
+    # argument, and the program answers with the token from this
+    # environment. Only fetch and push get it: the commands that read the
+    # local repo never talk to upstream.
+    ASKPASS = File.expand_path("../../bin/outbox-askpass", __dir__).freeze
 
-    def public_key
-      File.read("#{deploy_key_path}.pub").strip
-    rescue Errno::ENOENT
-      nil
-    end
-
-    def generate_deploy_key
-      FileUtils.mkdir_p(self.class.keys_dir(@root), mode: 0o700)
-      # A key left behind by a repo that no longer exists would make
-      # ssh-keygen stop and ask; it is useless without its repo.
-      FileUtils.rm_f([deploy_key_path, "#{deploy_key_path}.pub"])
-      out, err, status = Open3.capture3(
-        { "PATH" => ENV["PATH"] },
-        "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "outbox deploy key: #{name}", "-f", deploy_key_path,
-        unsetenv_others: true,
-      )
-      raise GitError, "ssh-keygen: #{err.strip}" unless status.success?
-      out
-    rescue Errno::ENOENT
-      # No ssh-keygen on this machine. Pushes fall back to whatever SSH the
-      # environment provides, and the UI says so.
-      nil
-    end
-
-    # When a deploy key exists, every git command for this repo uses it and
-    # nothing else. GIT_SSH (unlike GIT_SSH_COMMAND) is executed directly by
-    # git without a shell; the wrapper reads the key path from the
-    # environment and execs ssh with separate arguments.
-    SSH_WRAPPER = File.expand_path("../../bin/outbox-ssh", __dir__).freeze
-
-    def git_env
-      return {} unless File.exist?(deploy_key_path)
-      {
-        "GIT_SSH" => SSH_WRAPPER,
-        "OUTBOX_SSH_KEY" => deploy_key_path,
-        "OUTBOX_KNOWN_HOSTS" => File.join(self.class.keys_dir(@root), "known_hosts"),
-      }
+    def remote_env
+      return {} unless @upstream_token
+      { "GIT_ASKPASS" => ASKPASS, "OUTBOX_UPSTREAM_TOKEN" => @upstream_token }
     end
 
     def upstream_url
       git("config", "remote.upstream.url").strip
     end
+
+    # Whether fetching and pushing need the token.
+    def remote_upstream? = upstream_url.match?(%r{\Ahttps?://}i)
 
     # The URL is a copy of what the configuration says (Config.apply! keeps
     # it current); git needs it here to fetch and push.
@@ -202,7 +190,6 @@ module Outbox
 
     def destroy!
       FileUtils.rm_rf(path)
-      FileUtils.rm_f([deploy_key_path, "#{deploy_key_path}.pub"])
     end
 
     # Pushes may only update refs/heads/*. Enforced by git itself via the
@@ -264,9 +251,9 @@ module Outbox
       install_hook
       before = upstream_refs
       if progress
-        Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: git_env, &progress)
+        Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: remote_env, &progress)
       else
-        git("fetch", "--prune", "--quiet", "upstream")
+        git("fetch", "--prune", "--quiet", "upstream", extra: remote_env)
       end
       after = upstream_refs
       staged = staged_refs
@@ -293,7 +280,8 @@ module Outbox
     # because it resolves: ask upstream every time, and follow it if the
     # default branch changes.
     def follow_upstream_head!
-      git("remote", "set-head", "upstream", "--auto")
+      # Asks upstream which branch HEAD names, so it needs the credentials.
+      git("remote", "set-head", "upstream", "--auto", extra: remote_env)
       target = git("symbolic-ref", "refs/remotes/upstream/HEAD").strip
       branch = target.delete_prefix("refs/remotes/upstream/")
       git("symbolic-ref", "HEAD", "refs/heads/#{branch}")
@@ -313,13 +301,13 @@ module Outbox
         raise GitError, "#{name} is already in sync with upstream"
       when :diverged
         raise GitError, "#{name} has diverged from upstream; approving requires force" unless force
-        git("push", "--quiet", "upstream", "--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
       when :deleted
-        git("push", "--quiet", "upstream", "--force-with-lease=#{ref}:#{b.upstream}", ":#{ref}")
+        push("--force-with-lease=#{ref}:#{b.upstream}", ":#{ref}")
       when :new
-        git("push", "--quiet", "upstream", "--force-with-lease=#{ref}:", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:", "#{ref}:#{ref}")
       when :ready
-        git("push", "--quiet", "upstream", "--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
       end
       # git push updates the remote-tracking ref itself, but be explicit.
       if b.staged
@@ -390,6 +378,8 @@ module Outbox
     private
 
     def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)
+
+    def push(*args) = git("push", "--quiet", "upstream", *args, extra: remote_env)
 
     def check_expected!(b, expected)
       return if expected.nil?

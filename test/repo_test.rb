@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "rbconfig"
 
 class RepoTest < OutboxTest::RepoCase
   Repo = Outbox::Repo
@@ -15,26 +16,18 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal [%w[main synced]], @repo.branches.map { |b| [b.name, b.status.to_s] }
   end
 
-  def test_create_generates_a_private_deploy_key_outside_the_repo
-    assert_match(/\Assh-ed25519 \S+ outbox deploy key: demo\z/, @repo.public_key)
-    assert_equal 0o600, File.stat(@repo.deploy_key_path).mode & 0o777
-    assert_equal File.join(ENV["OUTBOX_DATA"], "keys", "demo"), @repo.deploy_key_path
-    refute Dir.glob(File.join(@repo.path, "**", "*")).any? { |f| f.include?("deploy_key") }
-  end
+  def test_upstream_must_be_https_or_a_local_path
+    err = assert_raises(ArgumentError) { Repo.create("sshy", "git@github.com:x/y.git") }
+    assert_includes err.message, "must be an https URL"
+    assert_raises(ArgumentError) { Repo.create("sshy", "ssh://git@github.com/x/y.git") }
+    assert_raises(ArgumentError) { Repo.create("sshy", "git://github.com/x/y.git") }
+    assert_raises(ArgumentError) { Repo.create("sshy", "relative/path.git") }
+    refute File.exist?(File.join(Repo.repos_dir, "sshy.git"))
 
-  def test_create_replaces_a_stale_deploy_key
-    old = @repo.public_key
-    FileUtils.rm_rf(@repo.path)
-    repo = Repo.create("demo", @upstream)
-    refute_equal old, repo.public_key
-    assert_match(/\Assh-ed25519 /, repo.public_key)
-  end
-
-  def test_destroy_removes_the_deploy_key
-    key = @repo.deploy_key_path
-    @repo.destroy!
-    refute File.exist?(key)
-    refute File.exist?("#{key}.pub")
+    gh = Repo.create("gh", "https://github.com/x/y.git")
+    assert gh.remote_upstream?
+    refute @repo.remote_upstream?, "a local path needs no token"
+    refute Outbox::Config.staging.remote_upstream?
   end
 
   def test_only_branches_can_be_pushed
@@ -97,16 +90,43 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal other, @repo.upstream_url
   end
 
-  def test_git_env_uses_the_deploy_key_through_the_wrapper
-    env = @repo.git_env
-    assert_equal Repo::SSH_WRAPPER, env["GIT_SSH"]
-    assert_equal @repo.deploy_key_path, env["OUTBOX_SSH_KEY"]
-    assert_equal File.join(ENV["OUTBOX_DATA"], "keys", "known_hosts"), env["OUTBOX_KNOWN_HOSTS"]
-    assert File.executable?(Repo::SSH_WRAPPER)
-    refute env.key?("GIT_SSH_COMMAND")
+  def test_remote_env_hands_the_token_to_askpass
+    assert_equal({}, Repo.new("demo", upstream_token: nil).remote_env)
+    env = Repo.new("demo", upstream_token: "ghp_test").remote_env
+    assert_equal Repo::ASKPASS, env["GIT_ASKPASS"]
+    assert_equal "ghp_test", env["OUTBOX_UPSTREAM_TOKEN"]
+    assert File.executable?(Repo::ASKPASS)
+  end
 
-    File.delete(@repo.deploy_key_path)
-    assert_equal({}, @repo.git_env)
+  def test_upstream_token_comes_from_the_environment
+    saved = ENV.delete("OUTBOX_UPSTREAM_TOKEN")
+    assert_nil Repo.upstream_token
+    ENV["OUTBOX_UPSTREAM_TOKEN"] = "  "
+    assert_nil Repo.upstream_token, "blank counts as unset"
+    ENV["OUTBOX_UPSTREAM_TOKEN"] = "ghp_test"
+    assert_equal "ghp_test", Repo.upstream_token
+    assert_equal "ghp_test", Repo.new("demo").remote_env["OUTBOX_UPSTREAM_TOKEN"]
+  ensure
+    saved ? ENV["OUTBOX_UPSTREAM_TOKEN"] = saved : ENV.delete("OUTBOX_UPSTREAM_TOKEN")
+  end
+
+  # The program git runs for credentials: username, then token, from the
+  # environment it was given.
+  def test_askpass_answers_from_the_environment
+    env = { "OUTBOX_UPSTREAM_TOKEN" => "ghp_test", "PATH" => ENV["PATH"] }
+    out, _, status = Open3.capture3(env, RbConfig.ruby, Repo::ASKPASS, "Username for 'https://github.com': ", unsetenv_others: true)
+    assert status.success?
+    assert_equal "x-access-token\n", out
+    out, _, status = Open3.capture3(env, RbConfig.ruby, Repo::ASKPASS, "Password for 'https://x-access-token@github.com': ", unsetenv_others: true)
+    assert status.success?
+    assert_equal "ghp_test\n", out
+
+    _, err, status = Open3.capture3({ "PATH" => ENV["PATH"] }, RbConfig.ruby, Repo::ASKPASS, "Password for 'https://github.com': ", unsetenv_others: true)
+    refute status.success?
+    assert_includes err, "OUTBOX_UPSTREAM_TOKEN is not set"
+    _, err, status = Open3.capture3(env, RbConfig.ruby, Repo::ASKPASS, "Something else: ", unsetenv_others: true)
+    refute status.success?
+    assert_includes err, "unexpected prompt"
   end
 
   # --- branch states ------------------------------------------------------

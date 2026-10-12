@@ -1,0 +1,23 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Run by git as $GIT_ASKPASS (directly, no shell) with the prompt as its one
+# argument, whenever an https upstream asks for credentials. The token comes
+# from the environment git was given, rather than from a command-line
+# argument that would show in `ps`. Any username goes with a GitHub token;
+# x-access-token is the conventional one.
+token = ENV["OUTBOX_UPSTREAM_TOKEN"].to_s
+prompt = ARGV[0].to_s
+
+if token.empty?
+  warn "outbox-askpass: OUTBOX_UPSTREAM_TOKEN is not set"
+  exit 1
+end
+
+case prompt
+when /\AUsername/ then puts "x-access-token"
+when /\APassword/ then puts token
+else
+  warn "outbox-askpass: unexpected prompt #{prompt.inspect}"
+  exit 1
+end

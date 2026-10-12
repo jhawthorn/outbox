@@ -12,10 +12,10 @@ module Outbox
   # inheriting the server's.
   module Git
     # The only variables from the server's environment that git may see.
-    # Deliberately no GIT_SSH_COMMAND or SSH_AUTH_SOCK: a repo's SSH setup
-    # comes from its own deploy key (Repo#git_env), never from the host.
-    # HOME is needed by ssh, but git's global config is disabled below so
-    # nothing in ~/.gitconfig applies.
+    # Nothing that could authenticate: the upstream token is handed to the
+    # fetch and push commands alone (Repo#remote_env), never inherited.
+    # Git's global config is disabled below, so nothing in ~/.gitconfig
+    # applies even though HOME is passed.
     PASSTHROUGH = %w[PATH HOME].freeze
 
     def self.env
@@ -29,7 +29,7 @@ module Outbox
       base
     end
 
-    # extra: additional variables for this one invocation (a repo's SSH setup).
+    # extra: additional variables for this one invocation (upstream credentials).
     def self.run(*args, chdir: nil, input: nil, extra: {})
       opts = { stdin_data: input || "", unsetenv_others: true }
       opts[:chdir] = chdir if chdir

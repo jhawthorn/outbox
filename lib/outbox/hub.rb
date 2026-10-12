@@ -104,18 +104,20 @@ module Outbox
 
     def enqueue(repo, message)
       @mutex.synchronize do
-        actor = @actors[repo.name] ||= RepoActor.spawn(repo.name, Repo.root, @events)
+        actor = @actors[repo.name] ||= spawn_actor(repo.name)
         begin
           actor.send(message)
         rescue Ractor::ClosedError
           # The actor died. Replace it and retry once.
-          actor = @actors[repo.name] = RepoActor.spawn(repo.name, Repo.root, @events)
+          actor = @actors[repo.name] = spawn_actor(repo.name)
           actor.send(message)
         end
         s = @status[repo.name] || Status.new
         @status[repo.name] = s.with(queued: s.queued + 1)
       end
     end
+
+    def spawn_actor(name) = RepoActor.spawn(name, Repo.root, Repo.upstream_token, @events)
 
     def drain
       loop do

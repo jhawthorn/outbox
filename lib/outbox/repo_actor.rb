@@ -10,12 +10,14 @@ module Outbox
   #          [name, :progress, line]
   #          [name, :finished, job, branch, ok, message]
   module RepoActor
-    def self.spawn(name, root, events)
-      Ractor.new(name, root, events) { |n, r, e| Outbox::RepoActor.run(n, r, e) }
+    # root and token come from the main Ractor rather than being read from
+    # ENV in here.
+    def self.spawn(name, root, token, events)
+      Ractor.new(name, root, token, events) { |n, r, t, e| Outbox::RepoActor.run(n, r, t, e) }
     end
 
-    def self.run(name, root, events)
-      repo = Repo.new(name, root: root)
+    def self.run(name, root, token, events)
+      repo = Repo.new(name, root: root, upstream_token: token)
       loop do
         job, *args = Ractor.receive
         break if job == :stop
