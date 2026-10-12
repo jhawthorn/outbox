@@ -4,6 +4,23 @@
   <div class="panel danger"><span class="badge failed">config</span> <%= h problem %></div>
 <% end %>
 
+<% unless @repos.empty? %>
+  <% busy = @repos.count { |_, _, status| status.busy? } %>
+  <div class="toolbar">
+    <span class="muted">
+      <% if busy.positive? %>
+        <%= pluralize(busy, "repository", "repositories") %> working
+      <% else %>
+        Upstreams are only fetched on request
+      <% end %>
+    </span>
+    <span class="spacer"></span>
+    <form class="inline" method="post" action="/fetch">
+      <button type="submit" <%= "disabled" if busy == @repos.size %>>Fetch all upstreams</button>
+    </form>
+  </div>
+<% end %>
+
 <table>
   <thead><tr><th>Repository</th><th>Upstream</th><th>Pending</th><th>Clone URL</th></tr></thead>
   <tbody>

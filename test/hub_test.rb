@@ -111,6 +111,23 @@ class HubTest < OutboxTest::RepoCase
     assert_equal staged, rev(@upstream, "main")
   end
 
+  def test_fetch_all_skips_repos_that_are_already_busy
+    other_upstream, = make_upstream("other")
+    other = Outbox::Repo.create("other", other_upstream)
+    @hub.fetch(@repo)
+    queued_before = @hub.status(@repo).queued
+
+    fetched = @hub.fetch_all
+    assert_includes fetched.map(&:name), "other"
+    refute_includes fetched.map(&:name), "demo", "demo already has a fetch in flight"
+    assert_equal queued_before, @hub.status(@repo).queued
+
+    wait_idle(other)
+    wait_idle
+    assert @hub.status(other).last.ok?
+    assert_equal :fetch, @hub.status(other).last.job
+  end
+
   def test_repos_have_independent_actors
     other_upstream, = make_upstream("other")
     other = Outbox::Repo.create("other", other_upstream)

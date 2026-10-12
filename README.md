@@ -112,7 +112,8 @@ HTTPS upstreams work too if the URL carries a token.
 ## Fetching
 
 Upstream is fetched when a repo's entry is approved, once per repo at boot, and when you
-click "Fetch upstream". Never on a timer.
+click "Fetch upstream" on a repo page or "Fetch all upstreams" on the index. Never on a
+timer.
 
 ## Run
 

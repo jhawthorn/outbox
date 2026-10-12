@@ -153,6 +153,11 @@ module Outbox
       erb :index
     end
 
+    post "/fetch" do
+      hub.fetch_all
+      redirect "/"
+    end
+
     get "/repos/:name" do
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)

@@ -76,6 +76,14 @@ module Outbox
     end
 
     def fetch(repo) = enqueue(repo, [:fetch])
+
+    # Fetch every repository that is not already working. A busy repo has a
+    # fetch of its own in flight or queued behind something that will leave
+    # it fetched anyway, so another would only lengthen its queue. Returns
+    # the repos a fetch was queued for.
+    def fetch_all
+      Repo.all.reject { |repo| status(repo).busy? }.each { |repo| fetch(repo) }
+    end
     def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
     def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
 

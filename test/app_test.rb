@@ -33,8 +33,26 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, ">_config<"
     assert_includes body, "http://example.org/_config.git"
     assert_includes body, "Adding a repository"
-    refute_includes body, "<form", "repositories are added through _config, not a form"
+    refute_includes body, 'action="/repos"', "repositories are added through _config, not a form"
     assert_equal 404, @request.post("/repos", params: { "name" => "x", "upstream" => "y" }).status
+  end
+
+  def test_fetch_all_queues_a_fetch_on_every_repo
+    sha = upstream_commit
+    assert_includes get("/"), 'action="/fetch"'
+
+    res = @request.post("/fetch")
+    assert_equal 303, res.status
+    assert_equal "http://example.org/", res["location"]
+
+    repos = Outbox::Repo.all
+    assert_equal %w[_config demo], repos.map(&:name)
+    repos.each do |repo|
+      wait_until("#{repo.name} to finish fetching") { !Outbox.hub.status(repo).busy? }
+      assert_equal :fetch, Outbox.hub.status(repo).last.job
+      assert Outbox.hub.status(repo).last.ok?, Outbox.hub.status(repo).last.message
+    end
+    assert_equal sha, rev(@repo.path, "refs/heads/main")
   end
 
   def test_index_reports_configuration_problems
