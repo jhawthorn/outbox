@@ -87,7 +87,7 @@ class SmokeTest < Minitest::Test
     refute_equal pushed, upstream_sha(@upstream, "main"), "push must not reach upstream before approval"
 
     page = get("/repos/demo").body
-    assert_includes page, "ready"
+    assert_includes page, %(class="badge ready")
     assert_includes page, "1 commit to push"
 
     page = get("/repos/demo/branches/main").body
@@ -147,7 +147,7 @@ class SmokeTest < Minitest::Test
     moved = upstream_sha(@upstream, "main")
 
     post("/repos/demo/fetch")
-    wait_until("fetch to notice divergence") { get("/repos/demo/branches/main").body.include?("diverged") }
+    wait_until("fetch to notice divergence") { get("/repos/demo/branches/main").body.include?(%(class="badge diverged")) }
     page = get("/repos/demo/branches/main").body
     assert_includes page, "Upstream change"
     assert_includes page, "Force approve"
@@ -179,7 +179,7 @@ class SmokeTest < Minitest::Test
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Change other")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
 
-    assert_includes get("/repos/other").body, "ready"
+    assert_includes get("/repos/other").body, %(class="badge ready")
     assert_includes get("/repos/demo").body, "in sync"
 
     post("/repos/other/branches/main/approve")
@@ -255,7 +255,7 @@ class SmokeTest < Minitest::Test
     wait_until("_config to be fetched") { get("/repos/_config").body.include?("in sync") }
     assert File.exist?(File.join(@data, "repos", "demo.git"))
     page = get("/repos/demo").body
-    assert_includes page, "ready"
+    assert_includes page, %(class="badge ready")
     assert_includes page, "1 commit to push"
     assert_includes get("/repos/demo/branches/main").body, "Staged before upgrade"
     assert_equal staged, sh("git", "--git-dir", File.join(@data, "repos", "demo.git"), "rev-parse", "refs/heads/main").strip
