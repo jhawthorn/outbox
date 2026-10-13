@@ -128,8 +128,21 @@ class AppTest < OutboxTest::RepoCase
     # The diff body is drawn in the browser from the raw patch.
     assert_includes body, 'data-patch-url="/repos/demo/branches/main.patch"'
     assert_includes body, '<details class="file" id="f0" open>'
-    assert_includes body, '<div class="diff" data-diff-file="lib/a.rb">'
+    assert_match %r{<div class="diff" data-diff-file="lib/a.rb" data-new-blob="[0-9a-f]{40}">}, body
+    refute_includes body, "data-old-blob"
+    assert_includes body, 'data-blob-url="/repos/demo/blobs"'
     refute_includes body, "x = 1"
+  end
+
+  def test_blob_route_serves_file_contents_by_blob_id
+    stage_commit("lib/a.rb", "x = 1\ny = 2\n", "Add a")
+    id = get("/repos/demo/branches/main")[/data-new-blob="([0-9a-f]{40})"/, 1]
+
+    res = @request.get("/repos/demo/blobs/#{id}")
+    assert_equal 200, res.status
+    assert_equal "x = 1\ny = 2\n", res.body
+    assert_equal 404, @request.get("/repos/demo/blobs/#{"0" * 40}").status
+    assert_equal 404, @request.get("/repos/demo/blobs/HEAD").status
   end
 
   def test_raw_patch_for_branch_and_commit

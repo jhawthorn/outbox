@@ -191,6 +191,14 @@ module Outbox
       redirect(params[:back] || repo_url(repo))
     end
 
+    # File contents by blob id, which the diff viewer loads to expand the
+    # unchanged lines between hunks.
+    get "/repos/:name/blobs/:id" do
+      content_type "text/plain", charset: "utf-8"
+      headers "Cache-Control" => "private, max-age=31536000, immutable"
+      Repo.find!(params[:name]).blob(params[:id])
+    end
+
     # Raw patches, as the browser fetches them for the diff viewer and as
     # `git apply` wants them. Defined before the page routes: the splat and
     # :sha would otherwise swallow the ".patch".

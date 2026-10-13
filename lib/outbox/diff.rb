@@ -32,7 +32,7 @@ module Outbox
     end
 
     class File
-      attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary
+      attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary, :old_blob, :new_blob
       attr_reader :hunks
 
       def initialize(old_path, new_path)
@@ -146,6 +146,9 @@ module Outbox
       when /\Acopy to (.*)/            then file.new_path = unquote($1)
       when /\A--- (.*)/                then file.old_path = strip_prefix(unquote($1), "a/")
       when /\A\+\+\+ (.*)/             then file.new_path = strip_prefix(unquote($1), "b/")
+      when /\Aindex ([0-9a-f]{40,64})\.\.([0-9a-f]{40,64})/
+        file.old_blob = $1 unless $1.match?(/\A0+\z/)
+        file.new_blob = $2 unless $2.match?(/\A0+\z/)
       when /\ABinary files /           then file.binary = true
       end
     end

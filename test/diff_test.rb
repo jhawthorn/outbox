@@ -39,6 +39,15 @@ class DiffTest < Minitest::Test
     assert_equal "@@ -20,3 +21,3 @@ class Thing", f.hunks[1].header
   end
 
+  def test_full_index_line_gives_blob_ids_except_for_added_and_deleted_sides
+    a, b = "a" * 40, "b" * 40
+    files = Diff.parse("diff --git a/x b/x\nindex #{a}..#{b} 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-1\n+2\n" \
+                       "diff --git a/y b/y\nnew file mode 100644\nindex #{"0" * 40}..#{b}\n--- /dev/null\n+++ b/y\n@@ -0,0 +1 @@\n+2\n")
+    assert_equal [a, b], [files[0].old_blob, files[0].new_blob]
+    assert_nil files[1].old_blob
+    assert_equal b, files[1].new_blob
+  end
+
   def test_line_numbers_track_old_and_new_sides
     hunk = Diff.parse(MODIFIED).first.hunks.first
     rows = hunk.lines.map { |l| [l.kind, l.old_no, l.new_no, l.text] }

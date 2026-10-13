@@ -396,6 +396,19 @@ module Outbox
 
     MAX_PATCH_BYTES = 2_000_000
 
+    # One file's contents by blob id, for expanding the unchanged lines
+    # around a hunk. Blob ids come from the index lines of a patch.
+    def blob(id)
+      raise NotFound, "not a blob id: #{id.inspect}" unless id.match?(/\A[0-9a-f]{40,64}\z/)
+      raise NotFound, "no blob #{id}" unless git("cat-file", "-t", id).strip == "blob"
+      raise NotFound, "blob #{id} is too large to show" if git("cat-file", "-s", id).to_i > MAX_BLOB_BYTES
+      git("cat-file", "blob", id).scrub
+    rescue GitError
+      raise NotFound, "no blob #{id}"
+    end
+
+    MAX_BLOB_BYTES = 5_000_000
+
     private
 
     def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)
@@ -483,7 +496,7 @@ module Outbox
 
     def patch(from, to, max_bytes)
       stat = git("diff", "--shortstat", "-M", from, to).strip
-      text = git("diff", "-M", from, to)
+      text = git("diff", "-M", "--full-index", from, to)
       truncated = false
       if text.bytesize > max_bytes
         text = text.byteslice(0, max_bytes)

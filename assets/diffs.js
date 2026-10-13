@@ -19,7 +19,17 @@ const OPTIONS = {
   diffStyle: "unified",
   overflow: "wrap",
   disableFileHeader: true,
+  // Clickable separators between hunks that reveal the unchanged lines.
+  hunkSeparators: "line-info",
+  expansionLineCount: 20,
+  collapsedContextThreshold: 3,
 };
+
+async function fetchBlob(root, id) {
+  const res = await fetch(`${root.dataset.blobUrl}/${id}`, { headers: { accept: "text/plain" } });
+  if (!res.ok) throw new Error(`file request failed with status ${res.status}`);
+  return res.text();
+}
 
 function workerPool() {
   if (typeof Worker === "undefined") return undefined;
@@ -59,7 +69,20 @@ async function mount(root) {
       return;
     }
     el.textContent = "";
-    new VirtualizedFileDiff(OPTIONS, virtualizer, undefined, pool).render({ fileDiff, containerWrapper: el });
+    // Patches only carry a few lines of context. The full files are fetched
+    // by blob id the first time a separator is clicked.
+    const { oldBlob, newBlob } = el.dataset;
+    const options = { ...OPTIONS };
+    if (oldBlob && newBlob) {
+      options.loadDiffFiles = async (diff) => {
+        const [oldContents, newContents] = await Promise.all([fetchBlob(root, oldBlob), fetchBlob(root, newBlob)]);
+        return {
+          oldFile: { name: diff.prevName ?? diff.name, contents: oldContents },
+          newFile: { name: diff.name, contents: newContents },
+        };
+      };
+    }
+    new VirtualizedFileDiff(options, virtualizer, undefined, pool).render({ fileDiff, containerWrapper: el });
   });
 }
 
