@@ -207,34 +207,43 @@ module Outbox
     STAGED_PREFIX = "refs/heads/"
     UPSTREAM_PREFIX = "refs/remotes/upstream/"
 
-    def staged_refs = all_refs.first
-    def upstream_refs = all_refs.last
+    def staged_refs = all_refs[0]
+    def upstream_refs = all_refs[1]
 
     # Both ref namespaces in one git call. Returns [staged, upstream], each
-    # a hash of branch name to sha.
+    # a hash of branch name to sha. The third element is a hash of branch
+    # name to the commit time of its tip (staged if there is one, else
+    # upstream's), as an integer.
     def all_refs
       staged = {}
       upstream = {}
-      out = git("for-each-ref", "--format=%(refname) %(objectname)", STAGED_PREFIX.chomp("/"), UPSTREAM_PREFIX.chomp("/"))
+      times = {}
+      out = git("for-each-ref", "--format=%(refname) %(objectname) %(committerdate:unix)", STAGED_PREFIX.chomp("/"), UPSTREAM_PREFIX.chomp("/"))
       out.each_line do |line|
-        ref, sha = line.split
+        ref, sha, time = line.split
         if ref.start_with?(STAGED_PREFIX)
-          staged[ref.delete_prefix(STAGED_PREFIX)] = sha
+          name = ref.delete_prefix(STAGED_PREFIX)
+          staged[name] = sha
+          times[name] = time.to_i
         elsif ref.start_with?(UPSTREAM_PREFIX)
           name = ref.delete_prefix(UPSTREAM_PREFIX)
-          upstream[name] = sha unless name == "HEAD"
+          next if name == "HEAD"
+          upstream[name] = sha
+          times[name] ||= time.to_i
         end
       end
-      [staged, upstream]
+      [staged, upstream, times]
     end
 
+    # Most recently committed first, ties by name.
     def branches
-      staged, upstream = all_refs
-      (staged.keys | upstream.keys).sort.map { |n| branch_info(n, staged[n], upstream[n]) }
+      staged, upstream, times = all_refs
+      names = (staged.keys | upstream.keys).sort_by { |n| [-times[n], n] }
+      names.map { |n| branch_info(n, staged[n], upstream[n]) }
     end
 
     def branch(name)
-      staged, upstream = all_refs
+      staged, upstream, = all_refs
       raise NotFound, "no branch named #{name.inspect}" if staged[name].nil? && upstream[name].nil?
       branch_info(name, staged[name], upstream[name])
     end

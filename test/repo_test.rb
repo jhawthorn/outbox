@@ -379,7 +379,20 @@ class RepoTest < OutboxTest::RepoCase
     sha = add_upstream_branch("nb")
     assert_equal sha, rev(@repo.path, "refs/heads/nb")
     assert_equal :synced, status_of("nb")
-    assert_equal %w[main nb], @repo.branches.map(&:name)
+    assert_equal %w[main nb], @repo.branches.map(&:name).sort
+  end
+
+  def test_branches_are_sorted_by_tip_time_newest_first
+    tree = rev(@repo.path, "refs/heads/main^{tree}")
+    { "alpha" => 1_000_000_000, "beta" => 1_500_000_000, "gamma" => 1_200_000_000 }.each do |name, time|
+      env = OutboxTest::GIT_ENV.merge("GIT_COMMITTER_DATE" => "#{time} +0000", "GIT_AUTHOR_DATE" => "#{time} +0000")
+      sha, err, st = Open3.capture3(env, "git", "commit-tree", tree, "-m", name, chdir: @repo.path)
+      assert st.success?, err
+      git("update-ref", "refs/heads/#{name}", sha.strip, chdir: @repo.path)
+    end
+    names = @repo.branches.map(&:name)
+    assert_equal %w[beta gamma alpha], names.reject { |n| n == "main" }
+    assert_operator names.index("main"), :<, names.index("beta") unless names.first == "main"
   end
 
   def test_fetch_prunes_branch_deleted_upstream_when_untouched
