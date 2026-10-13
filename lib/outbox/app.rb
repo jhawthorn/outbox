@@ -70,6 +70,16 @@ module Outbox
 
       def pluralize(n, singular, plural = "#{singular}s") = "#{n} #{n == 1 ? singular : plural}"
 
+      def time_ago(time)
+        seconds = [Time.now - time, 0].max.to_i
+        case seconds
+        when 0...60       then "just now"
+        when 60...3600    then "#{pluralize(seconds / 60, "minute")} ago"
+        when 3600...86400 then "#{pluralize(seconds / 3600, "hour")} ago"
+        else                   "#{pluralize(seconds / 86400, "day")} ago"
+        end
+      end
+
       def duration(seconds)
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end

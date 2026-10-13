@@ -18,32 +18,40 @@
   </div>
 <% end %>
 
-<table>
-  <thead><tr><th>Repository</th><th>Pending</th></tr></thead>
-  <tbody>
-  <% @repos.each do |repo, branches, status, _| %>
-    <% pending = branches.select(&:pending?) %>
-    <tr>
-      <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
-      <td>
-        <% if status.running? %>
-          <span class="badge busy"><%= h job_label(status) %></span>
-          <div class="progress muted"><%= h status.progress %></div>
-        <% elsif status.busy? %>
-          <span class="badge busy">queued</span>
-        <% elsif status.last && !status.last.ok? %>
-          <span class="badge failed"><%= h status.last.job %> failed</span>
-        <% else %>
-          <% pending.each do |b| %>
-            <a href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
-            <span class="badge <%= b.status %>"><%= status_label(b.status) %></span><br>
-          <% end %>
-        <% end %>
-      </td>
-    </tr>
-  <% end %>
-  </tbody>
-</table>
+<% pending_count = @repos.sum { |_, branches, _, _| branches.count(&:pending?) } %>
+<p class="muted"><%= @repos.empty? ? "No repositories yet." : "#{pluralize(pending_count, "branch")} awaiting review across #{pluralize(@repos.size, "repository", "repositories")}." %></p>
+
+<ul class="repos">
+<% @repos.each do |repo, branches, status, pushed| %>
+  <% pending = branches.select(&:pending?) %>
+  <li class="repo <%= "pending" if pending.any? %>">
+    <div class="repo-head">
+      <a class="repo-name" href="<%= repo_url(repo) %>"><%= h repo.name %></a>
+      <% if pushed %><span class="muted" title="<%= h pushed.utc.strftime("%Y-%m-%d %H:%M UTC") %>">pushed <%= time_ago(pushed) %></span><% end %>
+    </div>
+    <% if status.running? %>
+      <div><span class="badge busy"><%= h job_label(status) %></span></div>
+      <div class="progress muted"><%= h status.progress %></div>
+    <% elsif status.busy? %>
+      <div><span class="badge busy">queued</span></div>
+    <% elsif status.last && !status.last.ok? %>
+      <div><span class="badge failed"><%= h status.last.job %> failed</span></div>
+    <% elsif pending.empty? %>
+      <div class="muted">Nothing to review</div>
+    <% else %>
+      <ul class="branches">
+      <% pending.each do |b| %>
+        <li>
+          <span class="badge <%= b.status %>"><%= status_label(b.status) %></span>
+          <a class="branch-name" href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
+          <span class="muted"><%= h summary(b) %></span>
+        </li>
+      <% end %>
+      </ul>
+    <% end %>
+  </li>
+<% end %>
+</ul>
 
 <details class="add" <%= "open" if @repos.none? { |repo, _, _, _| !repo.config? } %>>
   <summary>Adding a repository</summary>
