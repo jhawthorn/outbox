@@ -129,6 +129,12 @@ module Outbox
         [list, index]
       end
 
+      # The sha the reviewer saw, "" for a deleted branch. Required: a
+      # request without it would approve whatever happens to be staged.
+      def expected_sha!
+        params[:expected] or raise ArgumentError, "missing expected: the staged sha that was reviewed"
+      end
+
       def send_patch(patch)
         content_type "text/plain", charset: "utf-8"
         patch.text
@@ -229,19 +235,19 @@ module Outbox
     end
 
     # Approve and discard are queued on the repo's actor. The outcome shows
-    # up on the repo page as the last result. Both carry the sha the
+    # up on the repo page as the last result. Both must carry the sha the
     # reviewer saw, so a push that lands in between is refused, not approved.
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.approve(repo, branch.name, force: params[:force] == "1", expected: params[:expected])
+      hub.approve(repo, branch.name, force: params[:force] == "1", expected: expected_sha!)
       redirect repo_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.discard(repo, branch.name, expected: params[:expected])
+      hub.discard(repo, branch.name, expected: expected_sha!)
       redirect repo_url(repo)
     end
   end

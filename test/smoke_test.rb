@@ -110,7 +110,7 @@ class SmokeTest < Minitest::Test
       assert_includes page, "The diff viewer is not built."
     end
 
-    post("/repos/demo/branches/main/approve")
+    post_reviewed("/repos/demo/branches/main", "approve")
     wait_until("approve to reach upstream") { upstream_sha(@upstream, "main") == pushed }
     assert_includes get("/repos/demo").body, "in sync"
   end
@@ -128,7 +128,7 @@ class SmokeTest < Minitest::Test
     assert_includes page, "Add a thing"
     assert_includes get("/repos/demo/branches/feature/thing.patch").body, "+a thing\n"
 
-    post("/repos/demo/branches/feature/thing/discard")
+    post_reviewed("/repos/demo/branches/feature/thing", "discard")
     # The branch row goes away; the "discarded ... feature/thing" result line stays.
     wait_until("discard") { !get("/repos/demo").body.include?("/branches/feature/thing") }
     assert_equal "", sh("git", "--git-dir", @upstream, "branch", "--list", "feature/thing").strip
@@ -152,11 +152,11 @@ class SmokeTest < Minitest::Test
     assert_includes page, "Upstream change"
     assert_includes page, "Force approve"
 
-    post("/repos/demo/branches/main/approve")
+    post_reviewed("/repos/demo/branches/main", "approve")
     wait_until("approve to be refused") { get("/repos/demo").body.include?("approve failed") }
     assert_equal moved, upstream_sha(@upstream, "main"), "non-forced approve must not touch upstream"
 
-    post("/repos/demo/branches/main/approve", "force" => "1")
+    post_reviewed("/repos/demo/branches/main", "approve", "force" => "1")
     wait_until("forced approve") { upstream_sha(@upstream, "main") == staged }
   end
 
@@ -182,7 +182,7 @@ class SmokeTest < Minitest::Test
     assert_includes get("/repos/other").body, %(class="badge ready")
     assert_includes get("/repos/demo").body, "in sync"
 
-    post("/repos/other/branches/main/approve")
+    post_reviewed("/repos/other/branches/main", "approve")
     wait_until("approve other") { get("/repos/other").body.include?("in sync") }
     assert_equal "hello\n", read_upstream_file(@upstream, "README"), "demo upstream untouched"
   end
@@ -220,7 +220,7 @@ class SmokeTest < Minitest::Test
     sh("git", "config", "-f", File.join(clone, "outbox.conf"), "repo.sshy.upstream", "git@github.com:x/y.git")
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Add sshy")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
-    post("/repos/_config/branches/main/approve")
+    post_reviewed("/repos/_config/branches/main", "approve")
     wait_until("approval") { get("/repos/_config").body.include?("in sync") }
     assert_includes get("/").body, "sshy: upstream git@github.com:x/y.git must be an https URL"
     assert_equal "404", get("/repos/sshy").code
@@ -231,7 +231,7 @@ class SmokeTest < Minitest::Test
     sh("git", "config", "-f", File.join(clone, "outbox.conf"), "--remove-section", "repo.demo")
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Remove demo")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
-    post("/repos/_config/branches/main/approve")
+    post_reviewed("/repos/_config/branches/main", "approve")
     wait_until("approval") { get("/repos/_config").body.include?("in sync") }
     assert_equal "200", get("/repos/demo").code
     assert File.exist?(File.join(@data, "repos", "demo.git"))
@@ -306,7 +306,7 @@ class SmokeTest < Minitest::Test
     assert_includes get("/repos/_config/branches/main.patch").body, "+[repo \"#{name}\"]"
     assert_equal "404", get("/repos/#{name}").code, "nothing exists before approval"
 
-    post("/repos/_config/branches/main/approve")
+    post_reviewed("/repos/_config/branches/main", "approve")
     wait_until("initial fetch of #{name}") do
       res = get("/repos/#{name}")
       flunk "initial fetch of #{name} failed:\n#{failure_message(res.body)}" if res.body.include?("fetch failed")
@@ -348,6 +348,14 @@ class SmokeTest < Minitest::Test
     req.basic_auth("outbox", PASSWORD)
     req.set_form_data(form)
     Net::HTTP.start("127.0.0.1", @port) { |http| http.request(req) }
+  end
+
+  # Approve or discard the way the buttons do, carrying the staged sha.
+  def post_reviewed(branch_path, action, form = {})
+    name = branch_path[%r{\A/repos/([^/]+)/}, 1]
+    branch = branch_path.delete_prefix("/repos/#{name}/branches/")
+    staged = sh("git", "--git-dir", File.join(@data, "repos", "#{name}.git"), "rev-parse", "refs/heads/#{branch}").strip
+    post("#{branch_path}/#{action}", form.merge("expected" => staged))
   end
 
   def free_port

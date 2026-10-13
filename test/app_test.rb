@@ -277,16 +277,27 @@ class AppTest < OutboxTest::RepoCase
 
   def test_approve_and_discard_enqueue_and_redirect
     staged = stage_commit
-    res = @request.post("/repos/demo/branches/main/approve")
+    res = @request.post("/repos/demo/branches/main/approve", params: { expected: staged })
     assert_equal 303, res.status
     assert_equal "http://example.org/repos/demo", res["location"]
     wait_until("approve") { !Outbox.hub.status(@repo).busy? }
     assert_equal staged, rev(@upstream, "main")
 
     stage_commit("z.txt", "z\n", "Z")
-    res = @request.post("/repos/demo/branches/main/discard")
+    res = @request.post("/repos/demo/branches/main/discard", params: { expected: rev(@stage, "main") })
     assert_equal 303, res.status
     wait_until("discard") { !Outbox.hub.status(@repo).busy? }
     assert_equal :synced, status_of
+  end
+
+  def test_approve_and_discard_require_expected_sha
+    staged = stage_commit
+    %w[approve discard].each do |action|
+      res = @request.post("/repos/demo/branches/main/#{action}")
+      assert_equal 422, res.status
+      assert_includes res.body, "missing expected"
+    end
+    refute_equal staged, rev(@upstream, "main")
+    assert_equal :ready, status_of
   end
 end

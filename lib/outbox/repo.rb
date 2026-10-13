@@ -309,13 +309,13 @@ module Outbox
         raise GitError, "#{name} is already in sync with upstream"
       when :diverged
         raise GitError, "#{name} has diverged from upstream; approving requires force" unless force
-        push("--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:#{b.upstream}", "#{b.staged}:#{ref}")
       when :deleted
         push("--force-with-lease=#{ref}:#{b.upstream}", ":#{ref}")
       when :new
-        push("--force-with-lease=#{ref}:", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:", "#{b.staged}:#{ref}")
       when :ready
-        push("--force-with-lease=#{ref}:#{b.upstream}", "#{ref}:#{ref}")
+        push("--force-with-lease=#{ref}:#{b.upstream}", "#{b.staged}:#{ref}")
       end
       # git push updates the remote-tracking ref itself, but be explicit.
       if b.staged
@@ -330,7 +330,7 @@ module Outbox
       b = branch(name)
       check_expected!(b, expected)
       if b.upstream
-        git("update-ref", "-m", "outbox: discard", "refs/heads/#{name}", b.upstream)
+        git("update-ref", "-m", "outbox: discard", "refs/heads/#{name}", b.upstream, b.staged.to_s)
       else
         git("update-ref", "-m", "outbox: discard", "-d", "refs/heads/#{name}", b.staged)
       end
