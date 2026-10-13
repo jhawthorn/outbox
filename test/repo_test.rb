@@ -347,6 +347,16 @@ class RepoTest < OutboxTest::RepoCase
     assert_raises(Outbox::NotFound) { @repo.commits("nope") }
   end
 
+  def test_last_push_at_counts_pushes_but_not_fetches
+    upstream_commit
+    @repo.fetch!
+    assert_nil @repo.last_push_at, "following upstream is not a push"
+    before = Time.now.to_i
+    git("checkout", "-q", "-b", "feature", chdir: @stage)
+    stage_commit(branch: "feature")
+    assert_operator @repo.last_push_at.to_i, :>=, before - 1
+  end
+
   # --- fetch reconciliation -----------------------------------------------
 
   def test_fetch_fast_forwards_untouched_branch

@@ -13,7 +13,7 @@
   <div class="toolbar">
     <span class="spacer"></span>
     <form class="inline" method="post" action="/fetch">
-      <button type="submit" <%= "disabled" if @repos.all? { |_, _, status| status.busy? } %>>Fetch all upstreams</button>
+      <button type="submit" <%= "disabled" if @repos.all? { |_, _, status, _| status.busy? } %>>Fetch all upstreams</button>
     </form>
   </div>
 <% end %>
@@ -21,7 +21,7 @@
 <table>
   <thead><tr><th>Repository</th><th>Pending</th></tr></thead>
   <tbody>
-  <% @repos.each do |repo, branches, status| %>
+  <% @repos.each do |repo, branches, status, _| %>
     <% pending = branches.select(&:pending?) %>
     <tr>
       <td><a href="<%= repo_url(repo) %>"><%= h repo.name %></a></td>
@@ -45,7 +45,7 @@
   </tbody>
 </table>
 
-<details class="add" <%= "open" if @repos.none? { |repo, _, _| !repo.config? } %>>
+<details class="add" <%= "open" if @repos.none? { |repo, _, _, _| !repo.config? } %>>
   <summary>Adding a repository</summary>
   <p class="muted">The list above comes from <code><%= h Outbox::Config::FILE %></code> in
   <code><%= h config_clone_url %></code>. Clone it, add a section, push to a branch, and

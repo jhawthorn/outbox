@@ -144,14 +144,15 @@ module Outbox
     end
 
     get "/" do
-      @repos = Repo.all.map { |r| [r, r.branches, hub.status(r)] }
-      # Repos with something to review first, then the rest, by name within each.
-      @repos = @repos.sort_by { |r, branches, _| [branches.any?(&:pending?) ? 0 : 1, r.name] }
+      @repos = Repo.all.map { |r| [r, r.branches, hub.status(r), r.last_push_at] }
+      # Repos with something to review first, then the rest; within each, the
+      # most recently pushed first, and never-pushed ones by name.
+      @repos = @repos.sort_by { |r, branches, _, pushed| [branches.any?(&:pending?) ? 0 : 1, pushed ? -pushed.to_i : 0, r.name] }
       @problems = Config.load.problems
       # Fetches of https upstreams fail without the token; say so up front
       # rather than once per repo.
-      @needs_token = Repo.upstream_token.nil? && @repos.any? { |r, _, _| !r.config? && r.remote_upstream? }
-      @refresh = @repos.any? { |_, _, status| status.busy? }
+      @needs_token = Repo.upstream_token.nil? && @repos.any? { |r, _, _, _| !r.config? && r.remote_upstream? }
+      @refresh = @repos.any? { |_, _, status, _| status.busy? }
       erb :index
     end
 

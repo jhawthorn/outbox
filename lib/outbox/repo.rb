@@ -241,6 +241,14 @@ module Outbox
 
     def pending_branches = branches.select(&:pending?)
 
+    # When something was last pushed to this outbox, or nil if nothing has
+    # been. Read from the staged branches' reflogs, where receive-pack logs
+    # "push"; fetches and approvals log their own messages and don't count.
+    def last_push_at
+      out = git("log", "-g", "--branches", "--grep-reflog=^push$", "-n", "1", "--format=%ct").strip
+      Time.at(out.to_i) unless out.empty?
+    end
+
     # --- sync with upstream -------------------------------------------------
 
     # Fetch upstream. Branches with nothing staged follow upstream; branches
