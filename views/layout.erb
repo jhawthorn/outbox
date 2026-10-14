@@ -84,9 +84,16 @@
   .badge.added   { color: var(--ok); }
   .badge.deleted { color: var(--bad); }
   .badge.renamed, .badge.copied { color: var(--accent); }
-  details.file { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; overflow: hidden; }
+  details.file { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; }
   details.file > summary { cursor: pointer; padding: 8px 12px; background: var(--meta-bg);
                            display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  details.file > summary { position: sticky; top: 0; z-index: 2; }
+  details.file { overflow: clip; }
+  .diff-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; }
+  .diff-controls .seg { display: inline-flex; }
+  .diff-controls .seg button:first-child { border-radius: 6px 0 0 6px; }
+  .diff-controls .seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+  .diff-controls button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
   details.file > summary code { border: 0; background: none; padding: 0; font-weight: 600; }
   .badge.hidden { color: #fff; background: var(--bad); border-color: var(--bad); }
   /* Diff bodies are drawn by the browser bundle; until it runs, or if it
