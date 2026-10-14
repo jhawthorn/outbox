@@ -24,6 +24,16 @@ class AppTest < OutboxTest::RepoCase
     res.body
   end
 
+  def test_installable_as_an_app
+    manifest = JSON.parse(get("/manifest.webmanifest"))
+    assert_equal "standalone", manifest["display"]
+    manifest["icons"].each { |icon| get(icon["src"]) }
+    assert_includes get("/sw.js"), "fetch"
+    assert_includes get("/offline"), "offline"
+    assert_includes get("/"), 'rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials"'
+    assert_equal 404, @request.get("/pwa/sw.js").status
+  end
+
   def test_index_lists_repos_and_pending_work
     stage_commit
     body = get("/")

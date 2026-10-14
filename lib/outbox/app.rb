@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "sinatra/base"
+require "json"
 
 module Outbox
   class App < Sinatra::Base
@@ -157,6 +158,49 @@ module Outbox
       status 500
       @message = env["sinatra.error"].message
       erb :error
+    end
+
+    PWA_DIR = File.expand_path("../../pwa", __dir__)
+    PWA_FILES = %w[icon-192.png icon-512.png icon-maskable-512.png apple-touch-icon.png].freeze
+
+    MANIFEST = JSON.generate(
+      name: "outbox",
+      short_name: "outbox",
+      description: "Review pushes before they go upstream",
+      id: "/",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      background_color: "#0d1117",
+      theme_color: "#0d1117",
+      icons: [
+        { src: "/pwa/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/pwa/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "/pwa/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      ],
+    ).freeze
+
+    get "/manifest.webmanifest" do
+      content_type "application/manifest+json"
+      MANIFEST
+    end
+
+    # Pages are live and behind a password, so the worker caches nothing but
+    # an offline page, shown when the network is unreachable.
+    get "/sw.js" do
+      content_type "text/javascript"
+      headers "Cache-Control" => "no-cache"
+      send_file File.join(PWA_DIR, "sw.js")
+    end
+
+    get "/offline" do
+      erb :offline
+    end
+
+    get "/pwa/:file" do
+      halt 404 unless PWA_FILES.include?(params[:file])
+      headers "Cache-Control" => "private, max-age=86400"
+      send_file File.join(PWA_DIR, params[:file])
     end
 
     get "/" do
