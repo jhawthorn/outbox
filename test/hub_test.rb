@@ -97,6 +97,19 @@ class HubTest < OutboxTest::RepoCase
     assert_equal staged, rev(@upstream, "main")
   end
 
+  def test_dismiss_clears_a_failed_result_only
+    @hub.approve(@repo, "nope")
+    wait_idle
+    refute @hub.status(@repo).last.ok?
+    @hub.dismiss(@repo)
+    assert_nil @hub.status(@repo).last
+
+    @hub.fetch(@repo)
+    wait_idle
+    @hub.dismiss(@repo)
+    assert @hub.status(@repo).last.ok?, "a success is not dismissed"
+  end
+
   def test_jobs_queue_in_order_on_one_actor
     staged = stage_commit
     @hub.fetch(@repo)

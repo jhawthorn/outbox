@@ -35,7 +35,11 @@
     <% elsif status.busy? %>
       <div><span class="badge busy">queued</span></div>
     <% elsif status.last && !status.last.ok? %>
-      <div><span class="badge failed"><%= h status.last.job %> failed</span></div>
+      <div><span class="badge failed"><%= h status.last.job %> failed</span>
+        <form class="inline" method="post" action="<%= repo_url(repo) %>/dismiss?back=/">
+          <button type="submit">Dismiss</button>
+        </form>
+      </div>
     <% elsif pending.empty? %>
       <div class="muted">Nothing to review</div>
     <% else %>

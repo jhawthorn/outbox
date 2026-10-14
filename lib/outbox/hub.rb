@@ -84,6 +84,15 @@ module Outbox
     def fetch_all
       Repo.all.reject { |repo| status(repo).busy? }.each { |repo| fetch(repo) }
     end
+    # Clear a failed result so its notice stops showing. A success is left
+    # alone: it is only the quiet "last did X" line.
+    def dismiss(repo)
+      @mutex.synchronize do
+        s = @status[repo.name]
+        @status[repo.name] = s.with(last: nil) if s&.last && !s.last.ok?
+      end
+    end
+
     def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
     def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
 

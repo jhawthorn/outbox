@@ -235,6 +235,12 @@ module Outbox
       redirect(params[:back] || repo_url(repo))
     end
 
+    post "/repos/:name/dismiss" do
+      repo = Repo.find!(params[:name])
+      hub.dismiss(repo)
+      redirect(params[:back] || repo_url(repo))
+    end
+
     # File contents by blob id, which the diff viewer loads to expand the
     # unchanged lines between hunks.
     get "/repos/:name/blobs/:id" do

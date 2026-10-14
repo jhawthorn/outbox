@@ -28,6 +28,9 @@
     <span class="badge failed"><%= h @status.last.job %> failed</span>
     <% if @status.last.branch %>on <code><%= h @status.last.branch %></code><% end %>
     <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @status.last.message %></pre>
+    <form class="inline" method="post" action="<%= repo_url(@repo) %>/dismiss">
+      <button type="submit">Dismiss</button>
+    </form>
   </div>
 <% elsif @status.last %>
   <p class="muted"><%= h @status.last.message %>.</p>
