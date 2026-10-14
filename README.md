@@ -154,10 +154,5 @@ Things discussed and deliberately left.
   attachment point in one call and would be more accurate when there is a single boundary.
 - **Commit limits disagree.** The branch page lists up to 200 commits; the commit page
   validates against 1000. Past 200 the two views do not match.
-- **Diff viewer build.** `public/diffs` is about 12 MB across ~400 files, nearly all of
-  it Shiki grammars and themes loaded on demand per language, which is why it is built
-  rather than committed. The container image does not build it yet, so it ships without
-  rendered diffs until a Node stage is added. Trimming to a fixed language set would need
-  a custom Shiki bundle aliased in at build time.
 - **Merge commits** get a "merge" badge in the commit list. GitHub does not badge them;
   it shows the parents on the commit page instead. Undecided.

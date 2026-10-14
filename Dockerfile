@@ -1,3 +1,11 @@
+FROM docker.io/library/node:24-slim AS assets
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY assets ./assets
+RUN pnpm build
+
 FROM docker.io/library/ruby:4.0-slim AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
@@ -18,6 +26,7 @@ RUN groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home 
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --chown=outbox:outbox . .
+COPY --from=assets --chown=outbox:outbox /app/public/diffs ./public/diffs
 
 ENV OUTBOX_DATA=/data \
     RACK_ENV=production \

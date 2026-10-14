@@ -6,6 +6,3 @@ docker-compose.yml
 Dockerfile*
 .env
 node_modules
-assets
-package.json
-pnpm-lock.yaml
