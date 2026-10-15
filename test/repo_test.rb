@@ -56,6 +56,12 @@ class RepoTest < OutboxTest::RepoCase
     assert File.executable?(File.join(@repo.path, "hooks", "update"))
   end
 
+  def test_fetch_builds_a_reachability_bitmap_for_clones
+    @repo.fetch!
+    assert_equal 1, Dir.glob(File.join(@repo.path, "objects", "pack", "*.bitmap")).size
+    assert File.exist?(File.join(@repo.path, "objects", "info", "commit-graph"))
+  end
+
   def test_create_validates_input_and_leaves_nothing_behind
     assert_raises(ArgumentError) { Repo.create("../x", @upstream) }
     assert_raises(ArgumentError) { Repo.create("", @upstream) }

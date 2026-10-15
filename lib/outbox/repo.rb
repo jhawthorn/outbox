@@ -287,6 +287,20 @@ module Outbox
       end
 
       follow_upstream_head! unless after.empty?
+      optimize_for_clones!
+    end
+
+    # Clients clone from this repo over the git daemon. Without a
+    # reachability bitmap, upload-pack walks every object on each clone;
+    # with one it mostly copies the pack. A fetch leaves the objects in
+    # whatever packs upstream sent, and gc --auto may be a long way off, so
+    # build the bitmap (and commit-graph) the first time it is missing.
+    # Later fetches only add small packs, which gc --auto folds in.
+    def optimize_for_clones!
+      return if Dir.glob(File.join(path, "objects", "pack", "*.bitmap")).any?
+      return if upstream_refs.empty?
+      git("repack", "-a", "-d", "--write-bitmap-index", "--quiet")
+      git("commit-graph", "write", "--reachable", "--changed-paths")
     end
 
     # Point HEAD at the staged copy of whatever upstream's HEAD names, so the
