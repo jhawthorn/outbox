@@ -18,6 +18,13 @@ module Outbox
     # applies even though HOME is passed.
     PASSTHROUGH = %w[PATH HOME].freeze
 
+    # Commands that talk to upstream can hang forever on a dead connection,
+    # and the repo would then show as working until the server restarts.
+    # run gives up after REMOTE_TIMEOUT seconds in all; stream, which
+    # reports progress, after IDLE_TIMEOUT seconds without any.
+    REMOTE_TIMEOUT = 30 * 60
+    IDLE_TIMEOUT = 5 * 60
+
     def self.env
       base = {
         "LANG" => "C.UTF-8",
@@ -30,27 +37,56 @@ module Outbox
     end
 
     # extra: additional variables for this one invocation (upstream credentials).
-    def self.run(*args, chdir: nil, input: nil, extra: {})
+    def self.run(*args, chdir: nil, input: nil, extra: {}, timeout: nil)
       opts = { stdin_data: input || "", unsetenv_others: true }
       opts[:chdir] = chdir if chdir
-      out, err, status = Open3.capture3(env.merge(extra), "git", *args, **opts)
+      out, err, status = timeout ? capture_within(timeout, env.merge(extra), args, opts) : Open3.capture3(env.merge(extra), "git", *args, **opts)
       raise GitError, failure_message(args, err, status) unless status.success?
       out.force_encoding(Encoding::UTF_8).scrub
+    end
+
+    # Open3.capture3 with a deadline: kills git if it is still running after
+    # timeout seconds.
+    def self.capture_within(timeout, env, args, opts)
+      stdin_data = opts.delete(:stdin_data)
+      Open3.popen3(env, "git", *args, **opts) do |stdin, stdout, stderr, wait|
+        writer = Thread.new { stdin.write(stdin_data) rescue nil; stdin.close rescue nil }
+        out = Thread.new { stdout.read }
+        err = Thread.new { stderr.read }
+        [writer, out, err].each { |t| t.report_on_exception = false }
+        unless wait.join(timeout)
+          kill(wait)
+          raise GitError, "git #{args.first}: timed out after #{timeout}s"
+        end
+        writer.join
+        [out.value, err.value, wait.value]
+      end
+    end
+
+    def self.kill(wait)
+      Process.kill("KILL", wait.pid)
+    rescue Errno::ESRCH
+      # Already exited.
     end
 
     # Like run, but yields each line git writes to stderr as it happens. Git
     # separates progress updates with \r, so those are yielded as lines too.
     # Used for long-running network operations so the UI can show progress.
-    def self.stream(*args, chdir: nil, extra: {})
+    def self.stream(*args, chdir: nil, extra: {}, idle_timeout: IDLE_TIMEOUT)
       opts = { unsetenv_others: true }
       opts[:chdir] = chdir if chdir
       Open3.popen3(env.merge(extra), "git", *args, **opts) do |stdin, stdout, stderr, wait|
         stdin.close
         reader = Thread.new { stdout.read }
+        reader.report_on_exception = false
         all = +""
         partial = +""
         loop do
           chunk = begin
+            unless stderr.wait_readable(idle_timeout)
+              kill(wait)
+              raise GitError, "git #{args.first}: no output for #{idle_timeout}s, gave up"
+            end
             stderr.readpartial(4096)
           rescue EOFError
             break

@@ -158,8 +158,8 @@ module Outbox
 
     # extra: environment for this one command; remote_env for the ones that
     # talk to upstream, nothing for the rest.
-    def git(*args, input: nil, extra: {})
-      Git.run(*args, chdir: path, input: input, extra: extra)
+    def git(*args, input: nil, extra: {}, timeout: nil)
+      Git.run(*args, chdir: path, input: input, extra: extra, timeout: timeout)
     end
 
     # --- upstream credentials ----------------------------------------------
@@ -270,7 +270,7 @@ module Outbox
       if progress
         Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: remote_env, &progress)
       else
-        git("fetch", "--prune", "--quiet", "upstream", extra: remote_env)
+        git("fetch", "--prune", "--quiet", "upstream", extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
       end
       after = upstream_refs
       staged = staged_refs
@@ -312,7 +312,7 @@ module Outbox
     # default branch changes.
     def follow_upstream_head!
       # Asks upstream which branch HEAD names, so it needs the credentials.
-      git("remote", "set-head", "upstream", "--auto", extra: remote_env)
+      git("remote", "set-head", "upstream", "--auto", extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
       target = git("symbolic-ref", "refs/remotes/upstream/HEAD").strip
       branch = target.delete_prefix("refs/remotes/upstream/")
       git("symbolic-ref", "HEAD", "refs/heads/#{branch}")
@@ -427,7 +427,7 @@ module Outbox
 
     def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)
 
-    def push(*args) = git("push", "--quiet", "upstream", *args, extra: remote_env)
+    def push(*args) = git("push", "--quiet", "upstream", *args, extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
 
     def check_expected!(b, expected)
       return if expected.nil?

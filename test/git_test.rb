@@ -13,6 +13,26 @@ class GitTest < Minitest::Test
     assert_match(/\Agit version /, Git.run("--version"))
   end
 
+  HANG = ["-c", "alias.hang=!sleep 30", "hang"].freeze
+
+  def test_run_gives_up_on_a_hung_command
+    started = Time.now
+    err = assert_raises(Outbox::GitError) { Git.run(*HANG, timeout: 0.3) }
+    assert_includes err.message, "timed out"
+    assert_operator Time.now - started, :<, 10
+  end
+
+  def test_run_with_a_timeout_still_returns_output_and_passes_input
+    assert_match(/\Agit version /, Git.run("--version", timeout: 10))
+  end
+
+  def test_stream_gives_up_when_git_goes_quiet
+    started = Time.now
+    err = assert_raises(Outbox::GitError) { Git.stream(*HANG, idle_timeout: 0.3) { } }
+    assert_includes err.message, "gave up"
+    assert_operator Time.now - started, :<, 10
+  end
+
   def test_run_raises_git_error_with_the_command_and_stderr
     Dir.mktmpdir do |dir|
       err = assert_raises(Outbox::GitError) { Git.run("rev-parse", "--verify", "HEAD", chdir: dir) }
