@@ -47,6 +47,19 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.post("/repos", params: { "name" => "x", "upstream" => "y" }).status
   end
 
+  def test_idle_pages_do_not_poll
+    refute_includes get("/"), "<main data-live"
+    refute_includes get("/repos/demo"), "<main data-live"
+  end
+
+  def test_pages_stop_polling_once_fetches_finish
+    @request.post("/fetch")
+    Outbox::Repo.all.each do |repo|
+      wait_until("#{repo.name} to finish") { !Outbox.hub.status(repo).busy? }
+    end
+    refute_includes get("/"), "<main data-live"
+  end
+
   def test_fetch_all_queues_a_fetch_on_every_repo
     sha = upstream_commit
     assert_includes get("/"), 'action="/fetch"'
