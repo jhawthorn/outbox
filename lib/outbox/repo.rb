@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require "fileutils"
+require "rbconfig"
+require "shellwords"
 
 module Outbox
   # A staging repository: a bare repo that clients push to. The real remote is
@@ -101,6 +103,8 @@ module Outbox
     end
 
     UPDATE_HOOK = File.expand_path("hooks/update", __dir__).freeze
+    VALIDATE_CONFIG = File.expand_path("hooks/validate_config", __dir__).freeze
+    RUBY = RbConfig.ruby.freeze
 
     def self.all(root = self.root)
       Dir.glob(File.join(repos_dir(root), "*.git")).sort.map { |p| new(File.basename(p, ".git"), root: root) }
@@ -196,9 +200,18 @@ module Outbox
     # update hook, so it holds for any server that runs receive-pack here.
     def install_hook
       target = File.join(path, "hooks", "update")
-      return if File.exist?(target) && File.read(target) == File.read(UPDATE_HOOK)
+      install_hook_file(target, File.read(UPDATE_HOOK))
+      # The configuration is code, in effect: refuse a push that would leave
+      # outbox.conf unreadable, rather than leave it for a reviewer to catch.
+      return unless config?
+      install_hook_file(File.join(path, "hooks", "pre-receive"),
+                        "#!/bin/sh\nexec #{RUBY.shellescape} #{VALIDATE_CONFIG.shellescape}\n")
+    end
+
+    def install_hook_file(target, content)
+      return if File.exist?(target) && File.read(target) == content
       FileUtils.mkdir_p(File.dirname(target))
-      FileUtils.cp(UPDATE_HOOK, target)
+      File.write(target, content)
       File.chmod(0o755, target)
     end
 

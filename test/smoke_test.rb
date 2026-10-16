@@ -215,14 +215,13 @@ class SmokeTest < Minitest::Test
     assert_match(/401|Authentication|could not read Username/, get("/repos/mirror").body)
   end
 
-  def test_ssh_upstreams_are_refused
+  def test_ssh_upstreams_are_refused_at_push
     clone = clone_from_outbox("_config")
     sh("git", "config", "-f", File.join(clone, "outbox.conf"), "repo.sshy.upstream", "git@github.com:x/y.git")
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Add sshy")
-    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
-    post_reviewed("/repos/_config/branches/main", "approve")
-    wait_until("approval") { get("/repos/_config").body.include?("in sync") }
-    assert_includes get("/").body, "sshy: upstream git@github.com:x/y.git must be an https URL"
+    _, err, status = Open3.capture3(GIT_ENV, "git", "-C", clone, "push", "--quiet", "origin", "main")
+    refute status.success?
+    assert_includes err, "sshy: upstream git@github.com:x/y.git must be an https URL"
     assert_equal "404", get("/repos/sshy").code
   end
 

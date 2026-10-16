@@ -78,6 +78,48 @@ class ConfigTest < OutboxTest::RepoCase
     ], config.problems
   end
 
+  def test_load_reports_a_section_without_an_upstream
+    Config.edit(message: "Typo") do |f|
+      File.write(f, "[repo \"typo\"]\n    upstrem = https://example.com/a.git\n")
+    end
+    assert_equal ["typo has no upstream"], Config.load.problems
+  end
+
+  def test_pushes_to_config_must_leave_a_valid_file
+    staging = Config.ensure!
+    staging.fetch!
+    clone = File.join(@dir, "config-clone")
+    git("clone", "--quiet", staging.path, clone)
+    push_conf = lambda do |text, branch: "main"|
+      File.write(File.join(clone, "outbox.conf"), text)
+      git("add", "outbox.conf", chdir: clone)
+      git("commit", "--quiet", "-m", "edit", chdir: clone)
+      Open3.capture3(OutboxTest::GIT_ENV, "git", "push", "origin", "HEAD:#{branch}", chdir: clone)
+    end
+
+    _, err, status = push_conf.call("[repo \"x\"\n  upstream = https://example.com/x.git\n")
+    refute status.success?
+    assert_includes err, "outbox.conf is not valid"
+
+    _, err, status = push_conf.call("[repo \"x\"]\n  upstream = git@github.com:x/y.git\n")
+    refute status.success?
+    assert_includes err, "x: upstream git@github.com:x/y.git must be an https URL"
+
+    _, err, status = push_conf.call("[repo \"x\"]\n  upstream = https://example.com/x.git\n[repo \"_config\"]\n  upstream = ../a\n", branch: "proposal")
+    refute status.success?
+    assert_includes err, "_config is reserved"
+    refute_includes git("branch", chdir: staging.path), "proposal"
+
+    _, err, status = push_conf.call("[repo \"x\"]\n  upstream = https://example.com/x.git\n")
+    assert status.success?, err
+    assert_equal rev(staging.path, "main"), git("rev-parse", "HEAD", chdir: clone).strip
+
+    # Removing a branch is not a configuration change.
+    _, err, status = Open3.capture3(OutboxTest::GIT_ENV, "git", "push", "origin", ":refs/heads/main", chdir: clone)
+    assert_includes err, "main" # may be refused for being current, but not by validation
+    refute_includes err, "not valid"
+  end
+
   def test_load_survives_a_missing_file
     Config.edit(message: "Delete it") { |f| File.delete(f) }
     config = Config.load
