@@ -212,7 +212,6 @@ module Outbox
       # Fetches of https upstreams fail without the token; say so up front
       # rather than once per repo.
       @needs_token = Repo.upstream_token.nil? && @repos.any? { |r, _, _, _| !r.config? && r.remote_upstream? }
-      @refresh = @repos.any? { |_, _, status, _| status.busy? }
       erb :index
     end
 
@@ -225,7 +224,6 @@ module Outbox
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)
       @branches = @repo.branches
-      @refresh = @status.busy?
       erb :repo
     end
 
