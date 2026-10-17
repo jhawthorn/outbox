@@ -1,0 +1,161 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# The server the browser tests run against. Playwright starts this as its
+# webServer (test/browser/playwright.config.js): it builds a data directory
+# in a temp dir with repositories in the states the tests look at, boots
+# puma on OUTBOX_TEST_PORT, and removes everything when it is stopped.
+#
+#   bundle exec ruby test/browser/server.rb      # what `rake browser` runs
+#
+# Repositories, each with a local bare upstream, except where noted:
+#
+#   review    two staged commits on main: several files, two hunks in one of
+#             them, a commit with a body. Read-only; the diff viewer tests.
+#   approve   one staged commit on main, for the approve test.
+#   discard   one staged commit on main, for the discard test.
+#   diverged  one staged commit on main and upstream moved underneath it.
+#   slow      upstream is an http stub in this process that answers 404
+#             after a delay, so a fetch can be watched running and failing.
+require "fileutils"
+require "open3"
+require "socket"
+require "tmpdir"
+
+ROOT = File.expand_path("../..", __dir__)
+require File.join(ROOT, "lib/outbox")
+
+PORT = ENV.fetch("OUTBOX_TEST_PORT", "48080")
+PASSWORD = ENV.fetch("OUTBOX_PASSWORD", "browser-test-password")
+STUB_DELAY = 2 # seconds before the slow upstream answers
+
+GIT_ENV = {
+  "GIT_AUTHOR_NAME" => "Test", "GIT_AUTHOR_EMAIL" => "test@example.com",
+  "GIT_COMMITTER_NAME" => "Test", "GIT_COMMITTER_EMAIL" => "test@example.com",
+  "GIT_CONFIG_GLOBAL" => "/dev/null", "GIT_CONFIG_SYSTEM" => "/dev/null",
+  "GIT_TERMINAL_PROMPT" => "0",
+}.freeze
+
+def git(*args, chdir: nil)
+  opts = chdir ? { chdir: chdir } : {}
+  out, err, status = Open3.capture3(GIT_ENV, "git", *args, **opts)
+  abort "git #{args.join(" ")} failed:\n#{err}" unless status.success?
+  out
+end
+
+def write(dir, file, content)
+  FileUtils.mkdir_p(File.dirname(File.join(dir, file)))
+  File.write(File.join(dir, file), content)
+end
+
+def commit(work, message, files)
+  files.each do |file, content|
+    content ? write(work, file, content) : File.delete(File.join(work, file))
+  end
+  git("add", "--all", chdir: work)
+  git("commit", "--quiet", "-m", message, chdir: work)
+end
+
+# A bare upstream with an initial commit, and the working clone it came from.
+def make_upstream(dir, name, files)
+  bare = File.join(dir, "#{name}-upstream.git")
+  work = File.join(dir, "#{name}-upstream-work")
+  git("init", "--quiet", "--bare", "-b", "main", bare)
+  git("init", "--quiet", "-b", "main", work)
+  git("remote", "add", "origin", bare, chdir: work)
+  commit(work, "Initial commit", files)
+  git("push", "--quiet", "origin", "main", chdir: work)
+  [bare, work]
+end
+
+# Add a repository the way `bin/outbox add` does, fetch it, and return a
+# working clone of the staging repo to push staged commits from.
+def add_repo(dir, name, upstream)
+  Outbox::Config.add(name, upstream)
+  Outbox::Config.apply!
+  repo = Outbox::Repo.find!(name)
+  repo.fetch!
+  work = File.join(dir, "#{name}-staged-work")
+  git("clone", "--quiet", repo.path, work)
+  work
+end
+
+def stage(work, message, files)
+  commit(work, message, files)
+  git("push", "--quiet", "origin", "main", chdir: work)
+end
+
+# An http server that answers every request with 404 after STUB_DELAY, so
+# git fetch is visibly running for a while and then fails.
+def start_stub
+  server = TCPServer.new("127.0.0.1", 0)
+  Thread.new do
+    loop do
+      client = server.accept
+      Thread.new(client) do |c|
+        loop { line = c.gets; break if line.nil? || line.strip.empty? } # request line and headers
+        sleep STUB_DELAY
+        c.write "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+      rescue IOError, SystemCallError
+        # the client gave up
+      ensure
+        c.close
+      end
+    end
+  end
+  server.addr[1]
+end
+
+def seed(dir)
+  long = (1..120).map { |i| "line #{i}\n" }.join
+
+  upstream, = make_upstream(dir, "review", "README" => "hello\n", "lib/long.rb" => long, "notes.md" => "notes\n")
+  work = add_repo(dir, "review", upstream)
+  changed = long.sub("line 10\n", "line ten\n").sub("line 100\n", "line one hundred\n")
+  stage(work, "Add greeting\n\nThe README now says hello to the world,\nand two lines of long.rb change.\n",
+        "README" => "hello world\n", "lib/long.rb" => changed)
+  stage(work, "Add thing", "lib/thing.rb" => "class Thing\nend\n", "notes.md" => nil)
+
+  upstream, = make_upstream(dir, "approve", "README" => "hello\n")
+  stage(add_repo(dir, "approve", upstream), "Approve me", "README" => "approved\n")
+
+  upstream, = make_upstream(dir, "discard", "README" => "hello\n")
+  stage(add_repo(dir, "discard", upstream), "Discard me", "README" => "discarded\n")
+
+  upstream, up_work = make_upstream(dir, "diverged", "README" => "hello\n")
+  stage(add_repo(dir, "diverged", upstream), "Staged change", "README" => "staged\n")
+  commit(up_work, "Upstream change", "other.txt" => "upstream\n")
+  git("push", "--quiet", "origin", "main", chdir: up_work)
+  Outbox::Repo.find!("diverged").fetch!
+
+  Outbox::Config.add("slow", "http://127.0.0.1:#{start_stub}/slow.git")
+  Outbox::Config.apply!
+end
+
+dir = Dir.mktmpdir("outbox-browser")
+ENV["OUTBOX_DATA"] = File.join(dir, "data")
+Outbox::Config.ensure!
+seed(dir)
+warn "outbox browser test server: data in #{dir}, http://127.0.0.1:#{PORT}/ (password #{PASSWORD})"
+
+env = {
+  "OUTBOX_DATA" => ENV["OUTBOX_DATA"],
+  "OUTBOX_PASSWORD" => PASSWORD,
+  "OUTBOX_UPSTREAM_TOKEN" => "browser-test-token",
+  "RACK_ENV" => "test",
+  "RUBYOPT" => "-W0",
+}
+server = spawn(env, "bundle", "exec", "puma", "-b", "tcp://127.0.0.1:#{PORT}", "config.ru", chdir: ROOT)
+
+stop = lambda do |signal|
+  Process.kill(signal, server)
+rescue Errno::ESRCH
+  # already gone
+end
+%w[INT TERM].each { |sig| trap(sig) { stop.call(sig) } }
+
+begin
+  Process.wait(server)
+ensure
+  FileUtils.rm_rf(dir)
+end

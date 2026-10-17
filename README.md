@@ -65,6 +65,9 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   into a per-repo Status that the UI reads. Reads (branches, diffs) bypass the actor.
   Applies the configuration at boot and after each approval on `_config`.
 - `bin/outbox` — CLI for the same operations, synchronous, in its own process.
+- `test/` — minitest unit tests, `smoke_test.rb` against a booted server, and `browser/`,
+  Playwright tests in Chromium for what only runs in the browser: the diff viewer, live
+  updates, confirm dialogs, the offline page.
 
 Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverged
 branches need an explicit force. A branch's diff runs from upstream's current tip to the
@@ -128,7 +131,13 @@ bin/outbox add myapp https://github.com/you/myapp.git    # or push to _config.gi
                                             # (in the container: podman compose exec -u outbox outbox bin/outbox add ...)
 bundle exec rake test                       # unit tests, git against temp dirs
 bundle exec rake smoke                      # end-to-end, uses a temp dir and a random port
+bundle exec rake browser                    # Playwright in Chromium; needs pnpm, builds the bundle
 ```
+
+The browser tests are `test/browser/*.spec.js`. Playwright starts `test/browser/server.rb`,
+which seeds repositories in each state the tests look at into a temp dir and boots puma on
+port 48080 (`OUTBOX_TEST_PORT` to change). `rake browser -- --headed` watches, `--ui` steps
+through; see `test/browser/playwright.config.js`.
 
 Container: put `OUTBOX_PASSWORD=...` and `OUTBOX_UPSTREAM_TOKEN=...` in `.env`, then
 `podman compose up -d --build` (or `docker compose`) and open port 8080 on this machine.

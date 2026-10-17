@@ -2,3 +2,4 @@
 /.env
 /node_modules
 /public/diffs
+/test/browser/test-results
