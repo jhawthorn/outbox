@@ -363,6 +363,18 @@ class RepoTest < OutboxTest::RepoCase
     assert_operator @repo.last_push_at.to_i, :>=, before - 1
   end
 
+  def test_branch_pushed_at_is_per_branch_and_ignores_follows
+    upstream_commit
+    @repo.fetch!
+    assert_nil @repo.branch_pushed_at("main"), "following upstream is not a push"
+    assert_nil @repo.branch_pushed_at("nope")
+    before = Time.now.to_i
+    git("checkout", "-q", "-b", "feature", chdir: @stage)
+    stage_commit(branch: "feature")
+    assert_operator @repo.branch_pushed_at("feature").to_i, :>=, before - 1
+    assert_nil @repo.branch_pushed_at("main")
+  end
+
   # --- fetch reconciliation -----------------------------------------------
 
   def test_fetch_fast_forwards_untouched_branch
