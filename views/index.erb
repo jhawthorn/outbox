@@ -19,7 +19,7 @@
 <% end %>
 
 <% pending_count = @repos.sum { |_, branches, _, _| branches.count(&:pending?) } %>
-<p class="muted"><%= @repos.empty? ? "No repositories yet." : "#{pluralize(pending_count, "branch")} awaiting review across #{pluralize(@repos.size, "repository", "repositories")}." %></p>
+<p class="muted"><%= @repos.empty? ? "No repositories yet." : "#{pluralize(pending_count, "branch", "branches")} awaiting review across #{pluralize(@repos.size, "repository", "repositories")}." %></p>
 
 <ul class="repos">
 <% @repos.each do |repo, branches, status, pushed| %>
