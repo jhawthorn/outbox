@@ -63,7 +63,7 @@ module Outbox
         case branch.status
         when :synced   then "nothing staged"
         when :ready    then "#{pluralize(branch.ahead, "commit")} to push"
-        when :new      then "#{pluralize(branch.ahead, "new commit")}, branch does not exist upstream"
+        when :new      then "#{pluralize(branch.ahead, "commit")} (new branch)"
         when :deleted  then "branch will be deleted upstream (#{pluralize(branch.behind, "commit")} only reachable from it)"
         when :diverged then "#{pluralize(branch.ahead, "commit")} to push; upstream has #{pluralize(branch.behind, "commit")} not in staged"
         end
