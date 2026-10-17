@@ -81,10 +81,6 @@ module Outbox
         end
       end
 
-      def pushed_label(time)
-        %(<span title="#{h time.utc.strftime("%Y-%m-%d %H:%M:%S UTC")}">pushed #{time_ago(time)}</span>)
-      end
-
       def duration(seconds)
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end
@@ -274,7 +270,6 @@ module Outbox
     get "/repos/:name/branches/*/commits/:sha" do
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
-      @pushed_at = @repo.branch_pushed_at(@branch.name)
       list, index = staged_commit!(@repo, @branch, params[:sha])
       @commit = @repo.commit_detail(params[:sha])
       @patch = @repo.commit_diff(params[:sha])

@@ -258,16 +258,6 @@ module Outbox
       Time.at(out.to_i) unless out.empty?
     end
 
-    # When this branch was last pushed to the outbox, or nil if it never has
-    # been (it only follows upstream). This is the time the server received
-    # the push, from the reflog, not a commit date, which the pusher controls.
-    def branch_pushed_at(name)
-      out = git("log", "-g", "-n", "1", "--grep-reflog=^push$", "--format=%ct", "refs/heads/#{name}").strip
-      Time.at(out.to_i) unless out.empty?
-    rescue GitError
-      nil
-    end
-
     # --- sync with upstream -------------------------------------------------
 
     # Fetch upstream. Branches with nothing staged follow upstream; branches
