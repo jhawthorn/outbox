@@ -24,10 +24,6 @@ approving it is what makes it real. Then the outbox creates a staging repo for e
 entry (and starts its first fetch) and re-points one whose upstream changed. Nothing is
 fetched from a proposed upstream until a human has approved it.
 
-A push to `_config` is checked by a `pre-receive` hook (`lib/outbox/hooks/validate_config`)
-and refused, with the reasons, if `outbox.conf` is unparsable or has an entry the outbox
-would not use: a bad name, a missing or unsupported upstream, or `_config` itself.
-
 Nothing is ever deleted by a configuration change. A staging repo whose entry is removed
 stays on disk and in the UI until the operator runs `bin/outbox remove <name>`, which is
 the only thing that deletes one. A staging repo that predates the configuration is in the

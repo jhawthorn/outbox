@@ -68,27 +68,18 @@ module Outbox
     # problems rather than raised: the fix is another change to the config,
     # which needs the UI to be up.
     def self.load(root = Repo.root)
-      begin
-        parse(Git.run("config", "--blob", "HEAD:#{FILE}", "--list", "-z", chdir: live_path(root)))
-      rescue GitError => e
-        new(repos: {}, problems: ["#{FILE} could not be read: #{e.message}"])
-      end
-    end
-
-    # Parse the output of `git config --list -z` for outbox.conf.
-    def self.parse(listing)
       repos = {}
       problems = []
-      seen = []
-      with_upstream = []
-      listing.split("\0").each do |entry|
+      begin
+        out = Git.run("config", "--blob", "HEAD:#{FILE}", "--list", "-z", chdir: live_path(root))
+      rescue GitError => e
+        return new(repos: repos, problems: ["#{FILE} could not be read: #{e.message}"])
+      end
+      out.split("\0").each do |entry|
         key, value = entry.split("\n", 2)
-        next unless key.start_with?("repo.")
-        name, var = key.delete_prefix("repo.").split(/\.(?=[^.]*\z)/, 2) # variable names have no dots
-        seen << name unless seen.include?(name)
-        next unless var == "upstream"
+        next unless key.start_with?("repo.") && key.end_with?(".upstream")
+        name = key.delete_prefix("repo.").delete_suffix(".upstream")
         next if name.empty?
-        with_upstream << name
         if !name.match?(Repo::NAME_RE)
           problems << "#{name.inspect} is not a valid repository name"
         elsif name == NAME
@@ -101,18 +92,7 @@ module Outbox
           repos[name] = value.strip
         end
       end
-      (seen - with_upstream).each { |name| problems << "#{name} has no upstream" }
       new(repos: repos, problems: problems)
-    end
-
-    # The problems with outbox.conf as of a commit, or [] if it is fine.
-    # Used by the _config repo's pre-receive hook, so a push that would leave
-    # the file unusable is refused instead of reaching review.
-    def self.problems_in(commit, env: {})
-      listing = Git.run("config", "--blob", "#{commit}:#{FILE}", "--list", "-z", chdir: Dir.pwd, extra: env)
-      parse(listing).problems
-    rescue GitError => e
-      ["#{FILE} could not be read: #{e.message}"]
     end
 
     # Create a staging repo for each configured entry that lacks one, and
