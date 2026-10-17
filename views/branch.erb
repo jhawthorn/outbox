@@ -5,7 +5,7 @@
 
 <div class="toolbar">
   <span><%= h summary(@branch) %></span>
-  <span class="muted">staged <code><%= short(@branch.staged) %></code> · upstream <code><%= short(@branch.upstream) %></code></span>
+  <span class="muted">staged <code><%= short(@branch.staged) %></code> · upstream <code><%= short(@branch.upstream) %></code> · <%= committed_label(@branch.time) %></span>
   <span class="spacer"></span>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">

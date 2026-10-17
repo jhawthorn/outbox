@@ -54,7 +54,7 @@
         <td><a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a></td>
         <td>
           <span class="badge <%= b.status %>"><%= status_label(b.status) %></span>
-          <div class="muted" style="font-size:13px"><%= h summary(b) %></div>
+          <div class="muted" style="font-size:13px"><%= h summary(b) %> · <%= committed_label(b.time) %></div>
         </td>
         <td><code><%= short(b.staged) %></code></td>
         <td><code><%= short(b.upstream) %></code></td>

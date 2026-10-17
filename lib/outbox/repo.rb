@@ -20,15 +20,17 @@ module Outbox
     NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/
 
     class Branch
-      attr_reader :name, :staged, :upstream, :status, :ahead, :behind
+      attr_reader :name, :staged, :upstream, :status, :ahead, :behind, :time
 
-      def initialize(name:, staged:, upstream:, status:, ahead:, behind:)
+      # time: committer date of the tip (staged if there is one, else upstream's).
+      def initialize(name:, staged:, upstream:, status:, ahead:, behind:, time:)
         @name = name
         @staged = staged
         @upstream = upstream
         @status = status
         @ahead = ahead
         @behind = behind
+        @time = time
       end
 
       def pending? = status != :synced
@@ -239,13 +241,13 @@ module Outbox
     def branches
       staged, upstream, times = all_refs
       names = (staged.keys | upstream.keys).sort_by { |n| [-times[n], n] }
-      names.map { |n| branch_info(n, staged[n], upstream[n]) }
+      names.map { |n| branch_info(n, staged[n], upstream[n], times[n]) }
     end
 
     def branch(name)
-      staged, upstream, = all_refs
+      staged, upstream, times = all_refs
       raise NotFound, "no branch named #{name.inspect}" if staged[name].nil? && upstream[name].nil?
-      branch_info(name, staged[name], upstream[name])
+      branch_info(name, staged[name], upstream[name], times[name])
     end
 
     def pending_branches = branches.select(&:pending?)
@@ -438,7 +440,7 @@ module Outbox
       raise GitError, "#{b.name} changed since you reviewed it (reviewed #{was}, now #{now}). Review it again."
     end
 
-    def branch_info(name, staged, upstream)
+    def branch_info(name, staged, upstream, time)
       status, ahead, behind =
         if upstream.nil?
           [:new, count("refs/heads/#{name}", "--not", "--remotes=upstream"), 0]
@@ -451,7 +453,7 @@ module Outbox
                               "refs/remotes/upstream/#{name}...refs/heads/#{name}").split.map(&:to_i)
           [behind.zero? ? :ready : :diverged, ahead, behind]
         end
-      Branch.new(name:, staged:, upstream:, status:, ahead:, behind:)
+      Branch.new(name:, staged:, upstream:, status:, ahead:, behind:, time: Time.at(time))
     end
 
     def count(*revs)

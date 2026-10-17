@@ -363,6 +363,14 @@ class RepoTest < OutboxTest::RepoCase
     assert_operator @repo.last_push_at.to_i, :>=, before - 1
   end
 
+  def test_branch_time_is_tip_committer_date
+    sha = upstream_commit
+    @repo.fetch!
+    expected = Time.at(@repo.git("log", "-1", "--format=%ct", sha).to_i)
+    assert_equal expected, @repo.branch("main").time
+    assert_equal expected, @repo.branches.first.time
+  end
+
   # --- fetch reconciliation -----------------------------------------------
 
   def test_fetch_fast_forwards_untouched_branch

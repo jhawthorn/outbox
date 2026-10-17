@@ -81,6 +81,10 @@ module Outbox
         end
       end
 
+      def committed_label(time)
+        %(<span title="#{h time.utc.strftime("%Y-%m-%d %H:%M:%S UTC")}">#{time_ago(time)}</span>)
+      end
+
       def duration(seconds)
         seconds < 60 ? "#{seconds}s" : "#{seconds / 60}m #{seconds % 60}s"
       end
