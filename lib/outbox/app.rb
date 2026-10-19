@@ -82,6 +82,18 @@ module Outbox
         end
       end
 
+      # Where the staged and upstream tips are, as "staged <sha> · upstream <sha>",
+      # saying in words which side is missing instead of showing a blank.
+      def tips_label(branch)
+        staged = %(staged <code>#{short(branch.staged)}</code>)
+        upstream = %(upstream <code>#{short(branch.upstream)}</code>)
+        case branch.status
+        when :new     then "#{staged} · not on upstream yet"
+        when :deleted then "deleted here · #{upstream}"
+        else               "#{staged} · #{upstream}"
+        end
+      end
+
       def committed_label(time)
         %(<span title="#{h time.utc.strftime("%Y-%m-%d %H:%M:%S UTC")}">#{time_ago(time)}</span>)
       end
@@ -338,6 +350,7 @@ module Outbox
       # Only drawn when the list reaches all the way down to it.
       @base = @repo.base(@branch) if @commits.size == @commit_count
       @outgoing_count = @repo.outgoing_commit_count(@branch)
+      @outgoing_stats = @repo.outgoing_commit_stats(@branch)
       @patch = @repo.diff(@branch)
       erb :branch
     end

@@ -1,20 +1,22 @@
 <% @title = "#{@repo.name} / #{@branch.name}" %>
-<p class="muted"><a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /</p>
-<h1><%= h @branch.name %>
-  <span class="badge <%= @branch.status %>"><%= status_label(@branch.status) %></span></h1>
-
-<div class="toolbar">
-  <span><%= h summary(@branch) %></span>
-  <span class="muted">staged <code><%= short(@branch.staged) %></code> · upstream <code><%= short(@branch.upstream) %></code> · <%= committed_label(@branch.time) %></span>
-  <span class="spacer"></span>
+<div class="page-head">
+  <h1><a class="crumb" href="<%= repo_url(@repo) %>"><%= h @repo.name %></a><span class="sep">/</span><%= h @branch.name %>
+    <span class="badge <%= @branch.status %>"><%= status_label(@branch.status) %></span></h1>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">
     <button type="submit">Fetch upstream</button>
   </form>
 </div>
 
-<% if @branch.pending? %>
-  <div class="panel <%= @branch.needs_force? ? "warn" : "" %>">
+<div class="panel review <%= @branch.status %><%= " warn" if @branch.needs_force? %>">
+  <div class="state">
+    <div class="summary"><%= h summary(@branch) %></div>
+    <div class="detail muted"><%= tips_label(@branch) %> · last commit <%= committed_label(@branch.time) %></div>
+    <% if @branch.needs_force? %>
+      <div class="note">Upstream has moved. Approving overwrites it.</div>
+    <% end %>
+  </div>
+  <% if @branch.pending? %>
     <div class="actions">
       <% if @branch.needs_force? %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
@@ -23,7 +25,12 @@
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
           <button type="submit" class="warn">Force approve</button>
         </form>
-        <span class="muted">Upstream has moved. Approving overwrites it.</span>
+      <% elsif @branch.status == :deleted %>
+        <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
+              onsubmit="return confirm('Delete <%= h @branch.name %> from upstream?')">
+          <input type="hidden" name="expected" value="<%= @branch.staged %>">
+          <button type="submit" class="danger">Approve and delete from upstream</button>
+        </form>
       <% else %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
@@ -36,21 +43,15 @@
         <button type="submit" class="danger">Discard</button>
       </form>
     </div>
-  </div>
-<% end %>
+  <% end %>
+</div>
 
 <% unless @outgoing.empty? %>
   <h2>Dropped from upstream (<%= commit_total(@outgoing.size, @outgoing_count) %>)</h2>
-  <div class="panel danger">
-    <% @outgoing.each do |c| %>
-      <div class="commit"><code><%= c.short %></code> <span class="subject"><%= hv c.subject %></span>
-        <% if c.body? %>
-          <details class="more">
-            <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
-            <pre class="message"><%= hv c.body %></pre>
-          </details>
-        <% end %>
-        <div class="who"><%= identity_line(c) %></div></div>
+  <p class="muted">Upstream has these and the staged branch does not. Approving removes them from upstream.</p>
+  <div class="history dropped">
+    <% change_shares(@outgoing, @outgoing_stats).each do |c, before, share| %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @outgoing_stats, before: before, share: share, url: nil, whole: "dropped change" } %>
     <% end %>
   </div>
 <% end %>
@@ -59,30 +60,7 @@
   <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
   <div class="history">
     <% change_shares(@commits, @stats).each do |c, before, share| %>
-      <% added, deleted = @stats.fetch(c.sha, [0, 0]) %>
-      <div class="commit">
-        <div class="rail"></div>
-        <div class="title">
-          <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= hv c.subject %></a>
-          <% if c.body? %>
-            <details class="more">
-              <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
-              <pre class="message"><%= hv c.body %></pre>
-            </details>
-          <% end %>
-          <% if c.merge? %><span class="badge merge">merge</span><% end %>
-        </div>
-        <div class="meta">
-          <div class="line"><code class="hash"><%= c.short %></code><span class="name"><%= identity(c.author, c.author_email) %></span><span class="when"><%= when_label(c.date) %></span></div>
-          <% if (line = committer_line(c)) %>
-            <div class="line committer"><span></span><span class="name"><%= line[0] %></span><span class="when"><%= line[1] %></span></div>
-          <% end %>
-        </div>
-        <div class="size" title="<%= added %> added, <%= deleted %> deleted. The bar shows how much of the branch's change this commit is, after everything before it.">
-          <div class="bar"><i class="before" style="width: <%= "%.1f" % before %>%"></i><i class="share" style="width: <%= "%.1f" % [share, 1.2].max %>%"></i></div>
-          <span class="count add">+<%= added %></span> <span class="count del">−<%= deleted %></span>
-        </div>
-      </div>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), whole: "branch's change" } %>
     <% end %>
     <% if @base %>
       <div class="commit base">
@@ -98,9 +76,7 @@
   </div>
 <% end %>
 
-<% if @patch.empty? %>
-  <% if @branch.status == :synced %><p class="empty">Nothing staged on this branch.</p><% end %>
-<% else %>
+<% unless @patch.empty? %>
   <h2>Files changed (<%= @patch.files.size %>)</h2>
   <% if @branch.status == :diverged %>
     <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>

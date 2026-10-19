@@ -410,20 +410,12 @@ module Outbox
     # Lines added and deleted by each of the first limit incoming commits,
     # as { sha => [added, deleted] }. Binary files count as nothing.
     def commit_stats(branch, limit: 200)
-      revs = incoming_revs(resolve(branch))
-      return {} if revs.nil?
-      stats = {}
-      git("log", "-n", limit.to_s, "--format=%x00%H", "--numstat", *revs).split("\0").reject(&:empty?).each do |record|
-        sha, *lines = record.lines
-        added = deleted = 0
-        lines.each do |line|
-          a, d = line.split("\t", 3)
-          added += a.to_i
-          deleted += d.to_i
-        end
-        stats[sha.strip] = [added, deleted]
-      end
-      stats
+      stats(limit, *incoming_revs(resolve(branch)))
+    end
+
+    # The same for the outgoing commits (#outgoing_commits).
+    def outgoing_commit_stats(branch, limit: 200)
+      stats(limit, *outgoing_revs(resolve(branch)))
     end
 
     # Commits on upstream that approving would remove (diverged or deleted).
@@ -505,10 +497,6 @@ module Outbox
       Branch.new(name:, staged:, upstream:, status:, ahead:, behind:, time: Time.at(time))
     end
 
-    def count(*revs)
-      git("rev-list", "--count", *revs).to_i
-    end
-
     def incoming_revs(b)
       case b.status
       when :new then ["refs/heads/#{b.name}", "--not", "--remotes=upstream"]
@@ -522,6 +510,23 @@ module Outbox
       when :deleted  then ["refs/remotes/upstream/#{b.name}", "--not", "--branches"]
       when :diverged then ["refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}"]
       end
+    end
+
+    # { sha => [added, deleted] } for the first limit commits in revs.
+    def stats(limit, *revs)
+      return {} if revs.compact.empty?
+      stats = {}
+      git("log", "-n", limit.to_s, "--format=%x00%H", "--numstat", *revs).split("\0").reject(&:empty?).each do |record|
+        sha, *lines = record.lines
+        added = deleted = 0
+        lines.each do |line|
+          a, d = line.split("\t", 3)
+          added += a.to_i
+          deleted += d.to_i
+        end
+        stats[sha.strip] = [added, deleted]
+      end
+      stats
     end
 
     def count(*revs)

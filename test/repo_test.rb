@@ -609,6 +609,14 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal({}, @repo.commit_stats("main"))
   end
 
+  def test_outgoing_commit_stats_cover_what_approving_would_drop
+    stage_commit
+    assert_equal({}, @repo.outgoing_commit_stats("main"), "nothing is dropped while upstream has not moved")
+    sha = upstream_commit("up.txt", "one\ntwo\n")
+    @repo.fetch!
+    assert_equal({ sha => [2, 0] }, @repo.outgoing_commit_stats("main"))
+  end
+
   # --- discard ------------------------------------------------------------
 
   def test_discard_resets_staged_branch_to_upstream

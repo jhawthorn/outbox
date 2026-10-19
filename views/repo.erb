@@ -1,5 +1,10 @@
 <% @title = @repo.name %>
-<h1><%= h @repo.name %></h1>
+<div class="page-head">
+  <h1><%= h @repo.name %></h1>
+  <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
+    <button type="submit" <%= "disabled" if @status.busy? %>>Fetch upstream</button>
+  </form>
+</div>
 
 <div class="toolbar">
   <% if @repo.config? %>
@@ -8,10 +13,6 @@
     <span class="muted">upstream <code><%= h @repo.upstream_url %></code></span>
   <% end %>
   <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
-  <span class="spacer"></span>
-  <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
-    <button type="submit" <%= "disabled" if @status.busy? %>>Fetch upstream</button>
-  </form>
 </div>
 
 <% if @status.running? %>

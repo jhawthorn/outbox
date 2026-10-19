@@ -261,6 +261,29 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, '<span class="count add">+1</span> <span class="count del">−0</span>'
   end
 
+  def test_branch_page_draws_dropped_upstream_commits_like_the_staged_ones
+    stage_commit
+    upstream_commit("up.txt", "one\ntwo\n")
+    @repo.fetch!
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "Dropped from upstream (1)"
+    assert_includes body, "Upstream has moved. Approving overwrites it."
+    assert_match(%r{<div class="history dropped">.*<span class="subject">Upstream change</span>.*\+2</span> <span class="count del">−0</span>.*</div>\s*<h2>Commits}m, body)
+    assert_includes body, "Force approve"
+    refute_includes body, "Approve and push to upstream"
+  end
+
+  def test_deleted_branch_page_offers_to_delete_it_from_upstream
+    add_upstream_branch("extra")
+    git("push", "--quiet", "origin", ":extra", chdir: @stage)
+    body = get("/repos/demo/branches/extra")
+    assert_includes body, "deleted here · upstream <code>"
+    assert_includes body, "Approve and delete from upstream"
+    assert_includes body, "confirm('Delete extra from upstream?')"
+    refute_includes body, "Approve and push to upstream"
+    assert_includes body, "Dropped from upstream (1)"
+  end
+
   def test_branch_page_shows_times_with_their_offsets_and_the_committer_only_when_it_differs
     identity = { "GIT_COMMITTER_NAME" => "Test", "GIT_COMMITTER_EMAIL" => "test@example.com" }
     commit_at = lambda do |message, author_date, committer_date, extra = {}|

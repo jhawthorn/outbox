@@ -1,0 +1,30 @@
+<%# One row of a commit list (.history): title, hash/author/time, size bar. %>
+<%# url is nil for commits that have no page of their own. %>
+<% added, deleted = stats.fetch(c.sha, [0, 0]) %>
+<div class="commit">
+  <div class="rail"></div>
+  <div class="title">
+    <% if url %>
+      <a class="subject" href="<%= url %>"><%= hv c.subject %></a>
+    <% else %>
+      <span class="subject"><%= hv c.subject %></span>
+    <% end %>
+    <% if c.body? %>
+      <details class="more">
+        <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
+        <pre class="message"><%= hv c.body %></pre>
+      </details>
+    <% end %>
+    <% if c.merge? %><span class="badge merge">merge</span><% end %>
+  </div>
+  <div class="meta">
+    <div class="line"><code class="hash"><%= c.short %></code><span class="name"><%= identity(c.author, c.author_email) %></span><span class="when"><%= when_label(c.date) %></span></div>
+    <% if (line = committer_line(c)) %>
+      <div class="line committer"><span></span><span class="name"><%= line[0] %></span><span class="when"><%= line[1] %></span></div>
+    <% end %>
+  </div>
+  <div class="size" title="<%= added %> added, <%= deleted %> deleted. The bar shows how much of the <%= whole %> this commit is, after everything before it.">
+    <div class="bar"><i class="before" style="width: <%= "%.1f" % before %>%"></i><i class="share" style="width: <%= "%.1f" % [share, 1.2].max %>%"></i></div>
+    <span class="count add">+<%= added %></span> <span class="count del">−<%= deleted %></span>
+  </div>
+</div>

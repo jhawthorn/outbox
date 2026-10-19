@@ -30,7 +30,7 @@ function answerConfirm(page, answer) {
 test("approve pushes the branch and the repo page updates in place", async ({ page }) => {
   await page.goto("/repos/approve/branches/main");
   await expect(page.locator("h1 .badge")).toHaveText("ready");
-  await expect(page.locator(".toolbar")).toContainText("1 commit to push");
+  await expect(page.locator(".review")).toContainText("1 commit to push");
   await page.getByRole("button", { name: "Approve and push to upstream" }).click();
 
   await expect(page).toHaveURL("/repos/approve");
@@ -70,10 +70,11 @@ test("a diverged branch needs a confirmed force approve", async ({ page }) => {
 
   await expect(page).toHaveURL("/repos/diverged/branches/main");
   await expect(page.locator("h1 .badge")).toHaveText("diverged");
-  await expect(page.locator(".toolbar")).toContainText("1 commit to push; upstream has 1 commit not in staged");
+  await expect(page.locator(".review")).toContainText("1 commit to push; upstream has 1 commit not in staged");
   await expect(page.locator(".panel.warn")).toContainText("Upstream has moved. Approving overwrites it.");
   await expect(page.locator("h2", { hasText: "Dropped from upstream (1)" })).toBeVisible();
-  await expect(page.locator(".panel.danger .commit .subject")).toHaveText("Upstream change");
+  await expect(page.locator(".history.dropped .commit .subject")).toHaveText("Upstream change");
+  await expect(page.locator(".history.dropped .count.add")).toHaveText("+1");
   await expect(page.getByRole("button", { name: "Approve and push to upstream" })).toHaveCount(0);
 
   const force = page.getByRole("button", { name: "Force approve" });
