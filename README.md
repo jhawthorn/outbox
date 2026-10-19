@@ -50,7 +50,8 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name`,
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
-  plus POST `approve`, `discard`, `fetch`.
+  plus POST `approve`, `discard`, `fetch`, and `/events`, which keeps pages current
+  (below).
 - `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
   lines with hidden characters. The diff body itself is drawn in the browser.
 - `assets/diffs.js` — the diff viewer: [@pierre/diffs](https://diffs.com) (Shiki
@@ -63,7 +64,12 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   Jobs (fetch, approve, discard) arrive on its port; it reports progress and results.
 - `lib/outbox/hub.rb` — main-Ractor side: spawns actors, queues jobs, folds their events
   into a per-repo Status that the UI reads. Reads (branches, diffs) bypass the actor.
-  Applies the configuration at boot and after each approval on `_config`.
+  Applies the configuration at boot and after each approval on `_config`. Tells open
+  pages about every change, through the notifier.
+- `lib/outbox/notifier.rb` — the `/events` stream: holds every open page's connection
+  and writes to them all from one thread.
+- `lib/outbox/push_watcher.rb` — notices pushes, which land through the git daemon in
+  another container, by the mark each repo's `post-receive` hook leaves.
 - `bin/outbox` — CLI for the same operations, synchronous, in its own process.
 - `test/` — minitest unit tests, `smoke_test.rb` against a booted server, and `browser/`,
   Playwright tests in Chromium for what only runs in the browser: the diff viewer, live
@@ -73,6 +79,40 @@ Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverg
 branches need an explicit force. A branch's diff runs from upstream's current tip to the
 staged tip, so for a diverged branch it is exactly what the force push changes there: an
 amended commit shows as the amendment, and anything only upstream has shows as removed.
+
+## Live pages
+
+Pages follow what happens without a reload: a push landing, a job queued, running and
+finishing, an approval made in another tab. Each page opens `GET /events`, a stream of
+server-sent events, each naming a repository and saying whether its refs may have moved
+(`refs`: a push, a finished job) or only its job status changed (`status`). The index
+cares about every repository, a repository's pages about their own. On an event the page
+fetches itself again.
+
+The index and a repository's page swap in the new content. A branch page, and a commit
+page, do not: what gets approved must be what was reviewed, so a page never changes under
+the reader. When the branch has moved, or the page is gone, a notice says so and offers a
+reload, and the page's approve and discard buttons are disabled. (The server would refuse
+them anyway if the staged sha moved: each carries the sha the page showed.)
+
+Every event has an id counting up from the server's start, pages are drawn with the id
+they reflect, and a stream opens by saying the latest. A page that missed something while
+it had no stream (still loading, in a hidden tab, reconnecting after a restart) sees the
+difference and fetches itself once. A hidden tab closes its stream, since a browser allows
+only a few connections to one host over HTTP/1.1, and opens it again when shown.
+
+The server knows of its own jobs. Pushes are another matter: agents push to the git
+daemon, a separate container, and the only trace of a push in this process is on the
+shared volume. Each staging repo has a `post-receive` hook (installed with the `update`
+hook, on creation and on every fetch) that touches `outbox-pushed` in the repo, and the
+`PushWatcher` stats that file in every repo once a second.
+
+The stream holds no puma thread. `/events` answers with a Rack 3 streaming body; puma
+writes the headers, hands it the socket and moves on, and the notifier's one thread writes
+every event to every socket, a burst (git's progress lines) collapsed to one per repository
+and kind, with a comment every 15 seconds when quiet. A socket that will not take a write
+is dropped rather than waited on; its browser reconnects. Behind a proxy the stream must
+not be buffered (`X-Accel-Buffering: no` is sent for nginx).
 
 ## Upstream auth
 

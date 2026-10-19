@@ -115,6 +115,44 @@ class SmokeTest < Minitest::Test
     assert_includes get("/repos/demo").body, "in sync"
   end
 
+  # What the pages listen to: GET /events stays open and names each
+  # repository that changes, here one a push arrived at. Pushed straight
+  # into the repo, as the git daemon in the other container would, so it is
+  # the hook that tells the server, not the HTTP endpoint.
+  def test_a_push_is_announced_on_the_event_stream
+    chunks = Thread::Queue.new
+    reader = open_stream(chunks)
+    assert_equal "text/event-stream;charset=utf-8", chunks.pop(timeout: 10)
+    assert_match(/event: hello\n/, chunks.pop(timeout: 10))
+
+    clone = clone_from_outbox("demo")
+    write(clone, "README", "announced\n")
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Announce me")
+    sh("git", "-C", clone, "push", "--quiet", File.join(@data, "repos", "demo.git"), "main")
+
+    received = +""
+    wait_until("the push to be announced") do
+      received << chunks.pop(timeout: 0.1).to_s
+      received.include?("event: refs\ndata: demo\n\n")
+    end
+  ensure
+    reader&.kill
+  end
+
+  # Open streams hold no puma thread: more of them than it has threads, and
+  # pages are still served.
+  def test_streams_do_not_hold_server_threads
+    queues = Array.new(12) { Thread::Queue.new }
+    readers = queues.map { |chunks| open_stream(chunks) }
+    queues.each do |chunks|
+      assert_equal "text/event-stream;charset=utf-8", chunks.pop(timeout: 10)
+      assert_match(/event: hello\n/, chunks.pop(timeout: 10))
+    end
+    assert_includes get("/repos/demo").body, "demo"
+  ensure
+    readers&.each(&:kill)
+  end
+
   def test_new_branch_with_slash_and_discard
     clone = clone_from_outbox("demo")
     sh("git", "-C", clone, "checkout", "--quiet", "-b", "feature/thing")
@@ -270,6 +308,21 @@ class SmokeTest < Minitest::Test
   private
 
   # Git takes the password from the URL; fine for a test, not for real use.
+  # GET /events on a thread of its own, pushing the content type and then
+  # each chunk read onto chunks.
+  def open_stream(chunks)
+    Thread.new do
+      Net::HTTP.start("127.0.0.1", @port) do |http|
+        req = Net::HTTP::Get.new("/events")
+        req.basic_auth("outbox", PASSWORD)
+        http.request(req) do |res|
+          chunks << res["content-type"]
+          res.read_body { |chunk| chunks << chunk }
+        end
+      end
+    end
+  end
+
   def outbox_url(name) = "http://outbox:#{PASSWORD}@127.0.0.1:#{@port}/#{name}.git"
 
   def make_upstream(name)

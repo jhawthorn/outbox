@@ -50,10 +50,20 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal :ready, status_of
   end
 
-  def test_fetch_installs_the_hook_on_older_repos
-    File.delete(File.join(@repo.path, "hooks", "update"))
+  def test_fetch_installs_the_hooks_on_older_repos
+    %w[update post-receive].each { |hook| File.delete(File.join(@repo.path, "hooks", hook)) }
     @repo.fetch!
-    assert File.executable?(File.join(@repo.path, "hooks", "update"))
+    %w[update post-receive].each { |hook| assert File.executable?(File.join(@repo.path, "hooks", hook)), hook }
+  end
+
+  def test_a_push_marks_when_it_landed
+    assert_nil @repo.pushed_at, "fetches are not pushes"
+    stage_commit
+    first = @repo.pushed_at
+    assert_kind_of Time, first
+    sleep 0.01
+    stage_commit("again.txt", "again\n", "Again")
+    assert_operator @repo.pushed_at, :>, first
   end
 
   def test_fetch_builds_a_reachability_bitmap_for_clones

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "socket"
 
 class HubTest < OutboxTest::RepoCase
   def setup
@@ -238,6 +239,56 @@ class HubTest < OutboxTest::RepoCase
     wait_idle
     assert @hub.status(@repo).last.ok?
     refute_same actor, @hub.instance_variable_get(:@actors).fetch("demo")
+  end
+
+  # The browser's end of a stream, once its hello has arrived.
+  def subscribe
+    server, client = UNIXSocket.pair
+    @hub.subscribe(server)
+    read_until(client, /event: hello\n.*\n\n/)
+    client
+  end
+
+  def read_until(client, pattern, timeout: 5)
+    buffer = +""
+    deadline = Time.now + timeout
+    until buffer.match?(pattern)
+      left = deadline - Time.now
+      flunk "timed out waiting for #{pattern.inspect}; got #{buffer.inspect}" if left <= 0
+      next unless IO.select([client], nil, nil, left)
+      chunk = client.read_nonblock(4096, exception: false)
+      flunk "stream closed; got #{buffer.inspect}" if chunk.nil?
+      buffer << chunk unless chunk == :wait_readable
+    end
+    buffer
+  end
+
+  def test_a_job_is_announced_as_it_runs_and_when_it_finishes
+    client = subscribe
+    @hub.fetch(@repo)
+    out = read_until(client, /event: refs\ndata: demo\n\n/)
+    assert_operator out.index("event: status\ndata: demo\n\n"), :<, out.index("event: refs\ndata: demo\n\n")
+    wait_idle
+  end
+
+  def test_a_push_is_announced
+    client = subscribe
+    stage_commit
+    read_until(client, /event: refs\ndata: demo\n\n/)
+  end
+
+  def test_a_dismissal_is_announced
+    @hub.approve(@repo, "nope", expected: "")
+    wait_idle
+    client = subscribe
+    @hub.dismiss(@repo)
+    read_until(client, /event: status\ndata: demo\n\n/)
+  end
+
+  def test_seq_counts_what_has_gone_out
+    before = @hub.seq
+    @hub.dismiss(@repo)
+    wait_until("the dismissal to go out") { @hub.seq == before + 1 }
   end
 
   def test_shutdown_stops_every_actor

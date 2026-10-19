@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require "rack"
+require "socket"
 
 # The Sinatra pages, driven through Rack directly (no server). The Hub is
 # real, so approve and discard go through actors.
@@ -47,17 +48,53 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.post("/repos", params: { "name" => "x", "upstream" => "y" }).status
   end
 
-  def test_idle_pages_do_not_poll
-    refute_includes get("/"), "<main data-live"
-    refute_includes get("/repos/demo"), "<main data-live"
+  # Pages that follow changes carry what they need to: the index nothing
+  # but the seq, a repository's pages its name, a branch's and a commit's
+  # the tips the page was drawn from. Error and offline pages do not.
+  def test_pages_are_live
+    sha = stage_commit
+    branch = @repo.branch("main")
+    seq = Outbox.hub.seq
+    assert_includes get("/"), %(<main data-live data-seq="#{seq}">)
+    assert_includes get("/repos/demo"), %(<main data-live data-seq="#{seq}" data-repo="demo">)
+    live = %(<main data-live data-seq="#{seq}" data-repo="demo" data-tips="#{branch.staged} #{branch.upstream}">)
+    assert_includes get("/repos/demo/branches/main"), live
+    assert_includes get("/repos/demo/branches/main/commits/#{sha}"), live
+    assert_includes get("/offline"), "<main>"
+    assert_includes @request.get("/repos/demo/branches/nope").body, "<main>"
   end
 
-  def test_pages_stop_polling_once_fetches_finish
-    @request.post("/fetch")
-    Outbox::Repo.all.each do |repo|
-      wait_until("#{repo.name} to finish") { !Outbox.hub.status(repo).busy? }
+  # The seq a page records is what has gone out to pages before it was
+  # drawn, so a page drawn after a change has a later one.
+  def test_a_page_drawn_after_a_change_has_a_later_seq
+    before = Outbox.hub.seq
+    Outbox.hub.fetch(@repo)
+    wait_until("the fetch to be announced") { Outbox.hub.seq > before }
+    assert_includes get("/"), %(<main data-live data-seq="#{Outbox.hub.seq}">)
+  end
+
+  # /events hands its socket to the hub and returns: the stream is written
+  # from the Notifier's thread, not this one.
+  def test_events_stream_names_the_repository_that_changed
+    status, headers, body = Outbox::App.call(Rack::MockRequest.env_for("/events"))
+    assert_equal 200, status
+    assert_equal "text/event-stream;charset=utf-8", headers["content-type"]
+    assert_equal "no-cache", headers["cache-control"]
+    refute headers.key?("content-length")
+    refute_respond_to body, :each, "a streaming body, so puma hands over the socket"
+
+    server, client = UNIXSocket.pair
+    body.call(server)
+    Outbox.hub.fetch(@repo)
+    received = +""
+    wait_until("the fetch to be announced") do
+      received << client.read_nonblock(4096, exception: false).to_s if IO.select([client], nil, nil, 0.05)
+      received.include?("event: refs\ndata: demo\n\n")
     end
-    refute_includes get("/"), "<main data-live"
+    assert_match(/\Aretry: \d+\nevent: hello\ndata: \d+\n\n/, received)
+    assert_includes received, "event: status\ndata: demo\n\n"
+  ensure
+    client&.close
   end
 
   def test_fetch_all_queues_a_fetch_on_every_repo

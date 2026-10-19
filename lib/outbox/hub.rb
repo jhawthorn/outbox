@@ -3,7 +3,9 @@
 module Outbox
   # Lives in the main Ractor. Owns one RepoActor per repository, sends them
   # jobs, and keeps a per-repo Status built from the events they emit. The
-  # web layer only ever talks to this.
+  # web layer only ever talks to this. Every change it makes or sees, its
+  # own jobs and pushes the PushWatcher notices, goes out to open pages
+  # through the Notifier.
   class Hub
     class Result
       attr_reader :job, :branch, :ok, :message, :finished_at
@@ -50,6 +52,8 @@ module Outbox
       @drain = Thread.new { drain }
       @drain.name = "outbox-events"
       @drain.report_on_exception = true
+      @notifier = Notifier.new
+      @watcher = PushWatcher.new { |name| @notifier.publish(name, :refs) }
     end
 
     # Boot: make sure the configuration repos exist, bring repos/ in line
@@ -75,6 +79,14 @@ module Outbox
       @mutex.synchronize { @status[repo.name] || Status.new }
     end
 
+    # Hand over a client's socket, headers already sent, to be told of every
+    # change as server-sent events.
+    def subscribe(io) = @notifier.subscribe(io)
+
+    # How many changes have gone out to pages. A page rendered now reflects
+    # this many (or more).
+    def seq = @notifier.seq
+
     def fetch(repo) = enqueue(repo, [:fetch])
 
     # Fetch every repository that is not already working. A busy repo has a
@@ -91,13 +103,16 @@ module Outbox
         s = @status[repo.name]
         @status[repo.name] = s.with(last: nil) if s&.last && !s.last.ok?
       end
+      @notifier.publish(repo.name, :status)
     end
 
     def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
     def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
 
-    # Stop every actor and the event thread. Jobs still queued are dropped.
+    # Stop every actor, the event thread, the watcher and the notifier. Jobs
+    # still queued are dropped.
     def shutdown
+      @watcher.stop
       actors = @mutex.synchronize { @actors.values.tap { @actors.clear } }
       actors.each do |actor|
         actor.send([:stop])
@@ -107,6 +122,7 @@ module Outbox
       end
       @drain.kill
       @drain.join
+      @notifier.stop
     end
 
     private
@@ -124,6 +140,7 @@ module Outbox
         s = @status[repo.name] || Status.new
         @status[repo.name] = s.with(queued: s.queued + 1)
       end
+      @notifier.publish(repo.name, :status)
     end
 
     def spawn_actor(name) = RepoActor.spawn(name, Repo.root, Repo.upstream_token, @events)
@@ -148,6 +165,8 @@ module Outbox
               s
             end
         end
+        # A job that finished may have moved refs; anything else is progress.
+        @notifier.publish(name, kind == :finished ? :refs : :status)
         apply_config if name == Config::NAME && kind == :finished && rest[0] == :approve && rest[2]
       end
     end
@@ -162,6 +181,7 @@ module Outbox
         s = @status[Config::NAME] || Status.new
         @status[Config::NAME] = s.with(last: Result.new(job: :apply, branch: nil, ok: false, message: e.message, finished_at: Time.now))
       end
+      @notifier.publish(Config::NAME, :status)
     end
   end
 end

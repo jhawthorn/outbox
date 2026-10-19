@@ -17,6 +17,8 @@
 #   diverged  one staged commit on main and upstream moved underneath it.
 #   slow      upstream is an http stub in this process that answers 404
 #             after a delay, so a fetch can be watched running and failing.
+#   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
+#             watches open pages follow.
 require "fileutils"
 require "open3"
 require "socket"
@@ -130,6 +132,9 @@ def seed(dir)
 
   Outbox::Config.add("slow", "http://127.0.0.1:#{start_stub}/slow.git")
   Outbox::Config.apply!
+
+  upstream, = make_upstream(dir, "live", "README" => "hello\n")
+  add_repo(dir, "live", upstream)
 end
 
 dir = Dir.mktmpdir("outbox-browser")

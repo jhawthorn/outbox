@@ -113,7 +113,9 @@ module Outbox
       "upstream #{url} must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path"
     end
 
-    UPDATE_HOOK = File.expand_path("hooks/update", __dir__).freeze
+    # Installed into every staging repo: update limits pushes to branches,
+    # post-receive marks that one landed (pushed_at).
+    HOOKS = %w[update post-receive].to_h { |name| [name, File.expand_path("hooks/#{name}", __dir__).freeze] }.freeze
 
     def self.all(root = self.root)
       Dir.glob(File.join(repos_dir(root), "*.git")).sort.map { |p| new(File.basename(p, ".git"), root: root) }
@@ -149,7 +151,7 @@ module Outbox
         repo.git("remote", "add", "upstream", upstream_url.strip)
         repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
         repo.git("config", "remote.upstream.tagOpt", "--no-tags")
-        repo.install_hook
+        repo.install_hooks
       rescue StandardError
         FileUtils.rm_rf(repo.path)
         raise
@@ -207,12 +209,27 @@ module Outbox
 
     # Pushes may only update refs/heads/*. Enforced by git itself via the
     # update hook, so it holds for any server that runs receive-pack here.
-    def install_hook
-      target = File.join(path, "hooks", "update")
-      return if File.exist?(target) && File.read(target) == File.read(UPDATE_HOOK)
-      FileUtils.mkdir_p(File.dirname(target))
-      FileUtils.cp(UPDATE_HOOK, target)
-      File.chmod(0o755, target)
+    # The post-receive hook touches PUSHED_MARKER after every push.
+    def install_hooks
+      HOOKS.each do |name, source|
+        target = File.join(path, "hooks", name)
+        next if File.exist?(target) && File.read(target) == File.read(source)
+        FileUtils.mkdir_p(File.dirname(target))
+        FileUtils.cp(source, target)
+        File.chmod(0o755, target)
+      end
+    end
+
+    PUSHED_MARKER = "outbox-pushed"
+
+    # When the last push landed, to the nanosecond, as the post-receive hook
+    # left it; nil before the first. Only a stat, so cheap enough to ask of
+    # every repo every second (PushWatcher). Not last_push_at, which reads
+    # the reflogs and is what the pages show.
+    def pushed_at
+      File.mtime(File.join(path, PUSHED_MARKER))
+    rescue SystemCallError
+      nil
     end
 
     # --- refs ---------------------------------------------------------------
@@ -278,7 +295,7 @@ module Outbox
     # moved underneath them). HEAD follows upstream's default branch. Yields
     # git's progress lines if a block is given.
     def fetch!(&progress)
-      install_hook
+      install_hooks
       before = upstream_refs
       if progress
         Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: remote_env, &progress)

@@ -186,43 +186,124 @@
   .empty { color: var(--muted); padding: 24px 0; }
   details.add { margin-top: 24px; }
   details.add summary { cursor: pointer; color: var(--accent); }
+  /* Shown over a branch or commit page whose branch has moved. Fixed, so it
+     is seen from anywhere in a long diff. */
+  .panel.outdated { position: fixed; z-index: 10; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0;
+                    width: max-content; max-width: calc(100% - 32px); background: var(--bg);
+                    box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
+  .panel.outdated button { margin-left: 8px; }
 </style>
 </head>
 <body>
 <header><div class="in">
   <a class="brand" href="/"><svg class="logo" viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><path fill="var(--ok)" d="M3 7h4V3h4v4h4v4h-4v4H7v-4H3z"/><path fill="var(--bad)" d="M18 7h11v4H18z"/><path fill="currentColor" fill-rule="evenodd" d="M2 18h7v3h14v-3h7v9a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3zm3 3v7h22v-4h-1a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3H5z"/></svg><div>outbox <span>— review before push</span></div></a>
 </div></header>
-<main<%= %( data-live) if @refresh %>>
+<main<% if @seq %> data-live data-seq="<%= @seq %>"<% if @repo %> data-repo="<%= h @repo.name %>"<% end %><% if @branch %> data-tips="<%= @branch.staged %> <%= @branch.upstream %>"<% end %><% end %>>
 <%= yield %>
 </main>
 <script>
-// While a repo is busy, re-fetch this page every couple of seconds and swap
-// in the new <main>, so progress shows without a reload. Stops once the
-// served page is no longer busy. Open <details> are kept as they were.
+// Live pages (App#live!) follow what happens elsewhere: pushes, jobs, other
+// tabs. GET /events names each repository that changes (Notifier); the
+// index cares about all of them, a repository's pages about their own. On
+// one, the page fetches itself again, a burst of them collapsing into one
+// fetch, and then:
+//
+// - The index and a repository's page swap in the new <main>, keeping open
+//   <details> as they were.
+// - A branch page, and a commit page, never change under the reader: what
+//   is approved is what was reviewed. If the branch has moved
+//   (data-tips) or the page is gone, a notice says so and offers a reload,
+//   and the page's approve and discard buttons are disabled. These pages
+//   only look when refs may have moved, not at every progress line.
+//
+// A hidden tab closes its stream, since a browser allows only a few
+// connections to one host over HTTP/1.1, and opens it again when shown.
+// Each time a stream opens, the server says how many changes it has sent
+// (seq); if that is not what the page last saw, it missed some, and catches
+// up with a fetch.
 (function () {
-  var main = document.querySelector("main");
-  if (!main || !main.hasAttribute("data-live")) return;
-  var busy = false;
-  async function tick() {
-    if (!document.hidden && !busy) {
-      busy = true;
-      try {
-        var res = await fetch(location.href, { credentials: "same-origin", headers: { "X-Requested-With": "poll" } });
-        if (res.ok && !res.redirected) {
-          var next = new DOMParser().parseFromString(await res.text(), "text/html").querySelector("main");
-          if (next && next.innerHTML !== main.innerHTML) {
-            var open = Array.from(main.querySelectorAll("details"), function (d) { return d.open; });
-            main.innerHTML = next.innerHTML;
-            main.querySelectorAll("details").forEach(function (d, i) { if (i < open.length) d.open = open[i]; });
-          }
-          if (next && !next.hasAttribute("data-live")) return;
-        }
-      } catch (e) { /* offline or restarting; try again */ }
-      busy = false;
-    }
-    setTimeout(tick, 2000);
+  var main = document.querySelector("main[data-live]");
+  if (!main || !window.EventSource) return;
+  var repo = main.getAttribute("data-repo");
+  var tips = main.getAttribute("data-tips");
+  var seen = main.getAttribute("data-seq");
+  var source = null, timer = null, fetching = false, again = false, stale = false;
+
+  function schedule(delay) {
+    if (fetching) again = true;
+    else if (!timer && !stale) timer = setTimeout(refresh, delay);
   }
-  setTimeout(tick, 2000);
+
+  async function refresh() {
+    timer = null;
+    fetching = true;
+    again = false;
+    try {
+      var res = await fetch(location.href, { headers: { "X-Requested-With": "live" } });
+      if (res.status === 404) {
+        outdated(tips ? "What this page shows is no longer staged here." : "This repository is gone.");
+      } else if (res.ok && !res.redirected) {
+        var next = new DOMParser().parseFromString(await res.text(), "text/html").querySelector("main");
+        if (next && tips) {
+          if (next.getAttribute("data-tips") !== tips) {
+            var now = next.querySelector(".review .summary");
+            outdated("This branch has changed since the page was loaded." + (now ? " Now: " + now.textContent.trim() + "." : ""));
+          }
+        } else if (next && next.innerHTML !== main.innerHTML) {
+          var open = Array.from(main.querySelectorAll("details"), function (d) { return d.open; });
+          main.innerHTML = next.innerHTML;
+          main.querySelectorAll("details").forEach(function (d, i) { if (i < open.length) d.open = open[i]; });
+        }
+      }
+    } catch (e) { /* offline or restarting; the stream reconnects and catches up */ }
+    fetching = false;
+    if (again) schedule(500);
+  }
+
+  function outdated(message) {
+    stale = true;
+    disconnect();
+    main.querySelectorAll('form[action$="/approve"] button, form[action$="/discard"] button').forEach(function (b) {
+      b.disabled = true;
+      b.title = "Reload to review what is staged now";
+    });
+    var note = document.createElement("div");
+    note.className = "panel warn outdated";
+    note.setAttribute("role", "status");
+    note.textContent = message + " ";
+    var reload = document.createElement("button");
+    reload.type = "button";
+    reload.textContent = "Reload";
+    reload.addEventListener("click", function () { location.reload(); });
+    note.appendChild(reload);
+    document.body.appendChild(note);
+  }
+
+  function changed(e) {
+    seen = e.lastEventId;
+    if (repo && e.data !== repo) return;
+    if (tips && e.type !== "refs") return;
+    schedule(100);
+  }
+
+  function connect() {
+    if (source || stale) return;
+    source = new EventSource("/events");
+    source.addEventListener("hello", function (e) {
+      if (e.data !== seen) { seen = e.data; schedule(0); }
+    });
+    source.addEventListener("status", changed);
+    source.addEventListener("refs", changed);
+  }
+
+  function disconnect() {
+    if (source) source.close();
+    source = null;
+  }
+
+  document.addEventListener("visibilitychange", function () { document.hidden ? disconnect() : connect(); });
+  window.addEventListener("pageshow", function () { if (!document.hidden) connect(); });
+  if (!document.hidden) connect();
 })();
 </script>
 </body>

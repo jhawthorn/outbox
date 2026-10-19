@@ -8,9 +8,9 @@ const { test, expect } = require("@playwright/test");
 
 test.describe.configure({ mode: "default" });
 
-// Pages served while a repository is busy re-fetch themselves and swap in
-// the new <main> until it is idle. A marker set on window survives that and
-// not a reload, so a test can tell which one brought the result in.
+// Pages re-fetch themselves and swap in the new <main> when the server says
+// something they show changed. A marker set on window survives that and not
+// a reload, so a test can tell which one brought the result in.
 const mark = (page) => page.evaluate(() => { window.__marker = true; });
 const marked = (page) => page.evaluate(() => window.__marker === true);
 
@@ -93,8 +93,8 @@ test("a diverged branch needs a confirmed force approve", async ({ page }) => {
 
 test("a fetch shows its progress live, then its failure, until dismissed", async ({ page }) => {
   test.slow(); // the stub upstream takes a couple of seconds to answer
-  let polls = 0;
-  page.on("request", (r) => { if (r.headers()["x-requested-with"] === "poll") polls++; });
+  let fetches = 0;
+  page.on("request", (r) => { if (r.headers()["x-requested-with"] === "live") fetches++; });
   await page.goto("/repos/slow");
   // The fetch at boot failed the same way; clear it so this test's is distinct.
   const failed = page.locator(".panel.danger");
@@ -109,18 +109,19 @@ test("a fetch shows its progress live, then its failure, until dismissed", async
   await expect(page.locator(".badge.busy")).toHaveText("working");
   await expect(page.locator(".panel")).toContainText("Fetching upstream");
   await expect(page.getByRole("button", { name: "Fetch upstream" })).toBeDisabled();
-  await expect(page.locator("main")).toHaveAttribute("data-live", "");
 
-  // Swapped in by the page's own polling, not a navigation.
+  // Swapped in by the page fetching itself, not a navigation.
   await expect(failed.locator(".badge.failed")).toHaveText("fetch failed");
   await expect(failed.locator("pre")).toContainText("not found");
   expect(await marked(page)).toBe(true);
-  expect(polls).toBeGreaterThan(0);
+  expect(fetches).toBeGreaterThan(0);
   await expect(page.getByRole("button", { name: "Fetch upstream" })).toBeEnabled();
-  // Idle again, so the polling stopped.
-  const settled = polls;
+  // Idle again: nothing changes, so the page stops fetching. (One fetch for
+  // the last change may still be on its way.)
+  await page.waitForTimeout(1_000);
+  const settled = fetches;
   await page.waitForTimeout(3_000);
-  expect(polls).toBe(settled);
+  expect(fetches).toBe(settled);
 
   await failed.getByRole("button", { name: "Dismiss" }).click();
   await expect(page).toHaveURL("/repos/slow");

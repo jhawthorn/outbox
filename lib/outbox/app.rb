@@ -39,6 +39,12 @@ module Outbox
 
       def hub = Outbox.hub
 
+      # Marks the page being rendered as live: it listens on /events and
+      # fetches itself again when something it shows changes (the script at
+      # the end of views/layout.erb). Called before anything is read, so the
+      # page reflects at least the changes up to the seq it records.
+      def live! = @seq = hub.seq
+
       def job_label(status)
         case status.job
         when :fetch   then "Fetching upstream"
@@ -262,7 +268,25 @@ module Outbox
       send_file File.join(PWA_DIR, params[:file])
     end
 
+    # The body of /events. A Rack 3 streaming body: puma writes the headers,
+    # calls this with the socket, and leaves the connection to it, so the
+    # request thread is free again at once. (Each in its place would hold
+    # the thread for as long as the page stays open.)
+    class EventStream
+      def initialize(hub) = @hub = hub
+      def call(stream) = @hub.subscribe(stream)
+    end
+
+    # Server-sent events naming each repository that changes. See Notifier.
+    get "/events" do
+      content_type "text/event-stream"
+      headers "cache-control" => "no-cache",
+              "x-accel-buffering" => "no" # a proxy must not buffer the stream
+      body EventStream.new(hub)
+    end
+
     get "/" do
+      live!
       @repos = Repo.all.map { |r| [r, r.branches, hub.status(r), r.last_push_at] }
       # Repos with something to review first, then the rest; within each, the
       # most recently pushed first, and never-pushed ones by name.
@@ -271,7 +295,6 @@ module Outbox
       # Fetches of https upstreams fail without the token; say so up front
       # rather than once per repo.
       @needs_token = Repo.upstream_token.nil? && @repos.any? { |r, _, _, _| !r.config? && r.remote_upstream? }
-      @refresh = @repos.any? { |_, _, status, _| status.busy? }
       erb :index
     end
 
@@ -281,10 +304,10 @@ module Outbox
     end
 
     get "/repos/:name" do
+      live!
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)
       @branches = @repo.branches
-      @refresh = @status.busy?
       erb :repo
     end
 
@@ -327,6 +350,7 @@ module Outbox
     # Must be defined before the branch route, whose splat would otherwise
     # swallow "/commits/<sha>".
     get "/repos/:name/branches/*/commits/:sha" do
+      live!
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
       list, index = staged_commit!(@repo, @branch, params[:sha])
@@ -341,6 +365,7 @@ module Outbox
     end
 
     get "/repos/:name/branches/*" do
+      live!
       @repo = Repo.find!(params[:name])
       @branch = @repo.branch(params[:splat].first)
       @commits = @repo.commits(@branch)

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Installed by outbox into every staging repo. Pushes arrive over the git
+# daemon, in another container, so the server does not see them happen; it
+# watches this file's mtime instead (Outbox::PushWatcher) to update open
+# pages. Nothing is written into it.
+touch "${GIT_DIR:-.}/outbox-pushed" 2>/dev/null || :
