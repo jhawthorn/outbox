@@ -251,6 +251,38 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "newest →"
   end
 
+  def test_branch_page_rests_the_commits_on_what_they_build_on
+    stage_commit("a.txt", "a\n", "First")
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "fork point"
+    assert_includes body, "upstream <b>main</b>"
+    assert_includes body, ">initial<", "the commit they build on is shown"
+    assert_includes body, "already upstream"
+    assert_includes body, '<span class="count add">+1</span> <span class="count del">−0</span>'
+  end
+
+  def test_branch_page_shows_times_with_their_offsets_and_the_committer_only_when_it_differs
+    identity = { "GIT_COMMITTER_NAME" => "Test", "GIT_COMMITTER_EMAIL" => "test@example.com" }
+    commit_at = lambda do |message, author_date, committer_date, extra = {}|
+      env = OutboxTest::GIT_ENV.merge(identity, extra, "GIT_AUTHOR_DATE" => author_date, "GIT_COMMITTER_DATE" => committer_date)
+      _, err, status = Open3.capture3(env, "git", "commit", "--quiet", "--allow-empty", "-m", message, chdir: @stage)
+      assert status.success?, err
+    end
+    commit_at.call("Same", "2026-10-15T14:28:54-0700", "2026-10-15T14:28:54-0700")
+    commit_at.call("Later", "2026-10-16T09:00:00+0530", "2026-10-16T12:00:00+0000")
+    commit_at.call("Someone else", "2026-10-17T00:00:00+0000", "2026-10-17T00:00:00+0000",
+                   "GIT_COMMITTER_NAME" => "Bot", "GIT_COMMITTER_EMAIL" => "bot@example.com")
+    push(@stage, "main")
+
+    body = get("/repos/demo/branches/main")
+    assert_includes body, '2026-10-15 14:28 <span class="off">UTC−7</span>'
+    assert_includes body, '2026-10-16 09:00 <span class="off">UTC+5:30</span>'
+    assert_includes body, '2026-10-16 12:00 <span class="off">UTC</span>'
+    assert_includes body, 'title="2026-10-15T14:28:54-07:00"', "the full timestamp is on hover"
+    assert_equal 2, body.scan('class="line committer"').size, "only the commits with a different time or committer"
+    assert_includes body, "Bot <i>&lt;bot@example.com&gt;</i>"
+  end
+
   def test_commit_bodies_are_shown_in_full_on_the_branch_page
     File.write(File.join(@stage, "a.txt"), "a\n")
     git("add", "a.txt", chdir: @stage)

@@ -71,6 +71,17 @@ module Outbox
       def committer_differs? = committer != author || committer_email != author_email
     end
 
+    # Where a branch's incoming commits start: the commit they build on, and
+    # the upstream branch it is on.
+    class Base
+      attr_reader :commit, :ref
+
+      def initialize(commit:, ref:)
+        @commit = commit
+        @ref = ref
+      end
+    end
+
     SHA_RE = /\A[0-9a-f]{7,64}\z/
     LOG_FORMAT = "%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%P%x1f%B"
 
@@ -377,6 +388,44 @@ module Outbox
       count(*incoming_revs(resolve(branch)))
     end
 
+    # The commit the incoming commits build on: upstream's tip when ready, the
+    # merge-base when diverged, where it forked off the default branch when
+    # new. nil when there is no such commit (nothing staged, or an empty or
+    # unrelated upstream).
+    def base(branch)
+      b = resolve(branch)
+      case b.status
+      when :ready, :diverged
+        sha = git("merge-base", "refs/remotes/upstream/#{b.name}", "refs/heads/#{b.name}").strip
+        Base.new(commit: commit_detail(sha), ref: b.name)
+      when :new
+        default = default_branch
+        sha = git("merge-base", "refs/remotes/upstream/#{default}", "refs/heads/#{b.name}").strip
+        Base.new(commit: commit_detail(sha), ref: default)
+      end
+    rescue GitError
+      nil
+    end
+
+    # Lines added and deleted by each of the first limit incoming commits,
+    # as { sha => [added, deleted] }. Binary files count as nothing.
+    def commit_stats(branch, limit: 200)
+      revs = incoming_revs(resolve(branch))
+      return {} if revs.nil?
+      stats = {}
+      git("log", "-n", limit.to_s, "--format=%x00%H", "--numstat", *revs).split("\0").reject(&:empty?).each do |record|
+        sha, *lines = record.lines
+        added = deleted = 0
+        lines.each do |line|
+          a, d = line.split("\t", 3)
+          added += a.to_i
+          deleted += d.to_i
+        end
+        stats[sha.strip] = [added, deleted]
+      end
+      stats
+    end
+
     # Commits on upstream that approving would remove (diverged or deleted).
     def outgoing_commits(branch, limit: 200)
       log(limit, *outgoing_revs(resolve(branch)))
@@ -527,10 +576,13 @@ module Outbox
     # default branch, like a compare against main. Falls back to the empty
     # tree when upstream is empty or unrelated.
     def nearest_upstream_base(sha)
-      default = git("symbolic-ref", "HEAD").strip.delete_prefix("refs/heads/")
-      git("merge-base", "refs/remotes/upstream/#{default}", sha).strip
+      git("merge-base", "refs/remotes/upstream/#{default_branch}", sha).strip
     rescue GitError
       empty_tree
+    end
+
+    def default_branch
+      git("symbolic-ref", "HEAD").strip.delete_prefix("refs/heads/")
     end
 
     def empty_tree

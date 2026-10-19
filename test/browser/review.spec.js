@@ -120,7 +120,7 @@ test("j and k move between files", async ({ page }) => {
 
 test("a commit's full message unfolds and its page shows only its changes", async ({ page }) => {
   await page.goto(BRANCH);
-  const commits = page.locator("h2", { hasText: "Commits (2)" }).locator("~ .commit");
+  const commits = page.locator(".history .commit").filter({ has: page.locator(".subject") });
   await expect(commits.locator(".subject")).toHaveText(["Add thing", "Add greeting"]);
 
   const greeting = commits.nth(1);

@@ -109,6 +109,39 @@
   details.more > summary.ellipsis::-webkit-details-marker { display: none; }
   details.more > summary.ellipsis:hover, details.more[open] > summary.ellipsis { background: var(--accent); color: #fff; }
   details.more > pre.message { margin: 8px 0 4px 0; font-size: 12.5px; color: var(--muted); }
+  /* The commit list on a branch: oldest at the bottom, resting on the commit
+     it builds on, so which way is back in time never needs saying. */
+  .history { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .history .commit { display: grid; grid-template-columns: 24px minmax(0, 1fr) 120px; column-gap: 12px;
+                     padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .history .commit:last-child { border-bottom: 0; }
+  .history .rail { grid-row: 1 / span 2; position: relative; }
+  .history .rail::before { content: ""; position: absolute; left: 11px; top: -11px; bottom: -11px; width: 2px; background: var(--accent); }
+  .history .commit:first-child .rail::before { top: 12px; }
+  .history .rail::after { content: ""; position: absolute; left: 5px; top: 6px; width: 14px; height: 14px; box-sizing: border-box;
+                          border: 2px solid var(--accent); border-radius: 50%; background: var(--bg); }
+  .history .title { grid-column: 2; min-width: 0; }
+  .history .meta { grid-column: 2; min-height: 36px; font-size: 12.5px; line-height: 18px; color: var(--muted); }
+  .history .line { display: grid; grid-template-columns: 92px minmax(0, 380px) auto; white-space: nowrap; }
+  .history .name { overflow: hidden; text-overflow: ellipsis; padding-right: 14px; }
+  .history .name i { font-style: italic; }
+  .history .committer { color: var(--warn); }
+  .history .hash { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12.5px; }
+  .history .off { opacity: .55; }
+  .history .size { grid-column: 3; grid-row: 1 / span 2; align-self: center; font-size: 12px; }
+  .history .bar { display: flex; height: 6px; margin-bottom: 3px; border-radius: 3px; overflow: hidden; background: var(--line); }
+  .history .bar i { display: block; height: 100%; }
+  .history .bar .before { background: var(--muted); opacity: .45; }
+  .history .bar .share { background: var(--accent); }
+  .history .commit.base { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); }
+  .history .commit.base .title { font-weight: 600; }
+  .history .commit.base .meta { min-height: 0; }
+  .history .commit.base .rail::before, .history .commit.stub .rail::before { background: var(--ok); width: 6px; left: 9px; }
+  .history .commit.base .rail::after { border-color: var(--ok); background: var(--ok); border-radius: 3px; left: 5px; }
+  .history .commit.stub { background: color-mix(in srgb, var(--ok) 6%, var(--bg)); padding-top: 6px; padding-bottom: 6px; }
+  .history .commit.stub .rail::after { display: none; }
+  .history .commit.stub .rail::before { bottom: 0; }
+  .history .commit.stub b { color: var(--ok); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
   .commit { padding: 6px 0; border-bottom: 1px solid var(--line); }
   .commit .who { font-size: 12.5px; }
   .invis { background: var(--bad); color: #fff; font-size: 10px; font-weight: 700; padding: 0 4px;

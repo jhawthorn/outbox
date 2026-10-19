@@ -2,6 +2,7 @@
 
 require "sinatra/base"
 require "json"
+require "time"
 
 module Outbox
   class App < Sinatra::Base
@@ -101,6 +102,48 @@ module Outbox
         else
           "#{author} committed #{h c.date}"
         end
+      end
+
+      # A timestamp from git's %aI/%cI as "2026-10-15 14:28 UTC−7": the
+      # clock time of whoever recorded it, with their offset, dimmed. The full
+      # timestamp is the tooltip.
+      def when_label(iso)
+        t = Time.iso8601(iso)
+        %(<span title="#{h iso}">#{t.strftime("%Y-%m-%d %H:%M")} <span class="off">#{utc_offset_label(t.utc_offset)}</span></span>)
+      end
+
+      def utc_offset_label(seconds)
+        return "UTC" if seconds.zero?
+        hours, minutes = (seconds.abs / 60).divmod(60)
+        "UTC#{seconds.negative? ? "\u2212" : "+"}#{hours}#{format(":%02d", minutes) unless minutes.zero?}"
+      end
+
+      def identity(name, email) = "#{hv name} <i>&lt;#{hv email}&gt;</i>"
+
+      # What the second line of a commit shows, if anything: the committer
+      # when they differ from the author, and when the commit was made when
+      # that is a different time. Compared as displayed, so two clocks that
+      # agree to the minute don't produce a line repeating the first.
+      def committer_line(c)
+        who = c.committer_differs? ? identity(c.committer, c.committer_email) : ""
+        at = when_label(c.commit_date)
+        return nil if who.empty? && at == when_label(c.date)
+        [who, at]
+      end
+
+      # [commit, before, share] for each commit, newest first: how much of the
+      # branch's total change (lines added plus deleted) came before it, and
+      # how much it adds, both as percentages.
+      def change_shares(commits, stats)
+        sizes = commits.map { |c| stats.fetch(c.sha, [0, 0]).sum }
+        total = sizes.sum
+        before = 0
+        rows = commits.zip(sizes).reverse.map do |c, size|
+          row = [c, total.zero? ? 0 : 100.0 * before / total, total.zero? ? 0 : 100.0 * size / total]
+          before += size
+          row
+        end
+        rows.reverse
       end
 
       def file_status_label(file)
@@ -291,6 +334,9 @@ module Outbox
       @commits = @repo.commits(@branch)
       @outgoing = @repo.outgoing_commits(@branch)
       @commit_count = @repo.commit_count(@branch)
+      @stats = @repo.commit_stats(@branch)
+      # Only drawn when the list reaches all the way down to it.
+      @base = @repo.base(@branch) if @commits.size == @commit_count
       @outgoing_count = @repo.outgoing_commit_count(@branch)
       @patch = @repo.diff(@branch)
       erb :branch

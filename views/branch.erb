@@ -57,20 +57,45 @@
 
 <% unless @commits.empty? %>
   <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
-  <% @commits.each do |c| %>
-    <div class="commit">
-      <code><%= c.short %></code>
-      <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= hv c.subject %></a>
-      <% if c.body? %>
-        <details class="more">
-          <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
-          <pre class="message"><%= hv c.body %></pre>
-        </details>
-      <% end %>
-      <% if c.merge? %><span class="badge merge">merge</span><% end %>
-      <div class="who"><%= identity_line(c) %></div>
-    </div>
-  <% end %>
+  <div class="history">
+    <% change_shares(@commits, @stats).each do |c, before, share| %>
+      <% added, deleted = @stats.fetch(c.sha, [0, 0]) %>
+      <div class="commit">
+        <div class="rail"></div>
+        <div class="title">
+          <a class="subject" href="<%= commit_url(@repo, @branch.name, c) %>"><%= hv c.subject %></a>
+          <% if c.body? %>
+            <details class="more">
+              <summary class="ellipsis" title="Show full commit message (<%= c.body_lines %> more line<%= c.body_lines == 1 ? "" : "s" %>)">…</summary>
+              <pre class="message"><%= hv c.body %></pre>
+            </details>
+          <% end %>
+          <% if c.merge? %><span class="badge merge">merge</span><% end %>
+        </div>
+        <div class="meta">
+          <div class="line"><code class="hash"><%= c.short %></code><span class="name"><%= identity(c.author, c.author_email) %></span><span class="when"><%= when_label(c.date) %></span></div>
+          <% if (line = committer_line(c)) %>
+            <div class="line committer"><span></span><span class="name"><%= line[0] %></span><span class="when"><%= line[1] %></span></div>
+          <% end %>
+        </div>
+        <div class="size" title="<%= added %> added, <%= deleted %> deleted. The bar shows how much of the branch's change this commit is, after everything before it.">
+          <div class="bar"><i class="before" style="width: <%= "%.1f" % before %>%"></i><i class="share" style="width: <%= "%.1f" % [share, 1.2].max %>%"></i></div>
+          <span class="count add">+<%= added %></span> <span class="count del">−<%= deleted %></span>
+        </div>
+      </div>
+    <% end %>
+    <% if @base %>
+      <div class="commit base">
+        <div class="rail"></div>
+        <div class="title"><%= hv @base.commit.subject %></div>
+        <div class="meta"><div class="line"><code class="hash"><%= @base.commit.short %></code><span class="name">upstream <b><%= h @base.ref %></b> · fork point</span></div></div>
+      </div>
+      <div class="commit stub">
+        <div class="rail"></div>
+        <div class="title"><b><%= h @base.ref %></b> <span class="muted">… already upstream</span></div>
+      </div>
+    <% end %>
+  </div>
 <% end %>
 
 <% if @patch.empty? %>

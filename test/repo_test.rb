@@ -555,6 +555,60 @@ class RepoTest < OutboxTest::RepoCase
                  "merge diff is against the first parent, so only the side branch's file shows"
   end
 
+  # --- base and stats -----------------------------------------------------
+
+  def test_base_is_upstreams_tip_when_ready
+    tip = rev(@repo.path, "refs/remotes/upstream/main")
+    stage_commit
+    base = @repo.base("main")
+    assert_equal tip, base.commit.sha
+    assert_equal "main", base.ref
+  end
+
+  def test_base_is_the_merge_base_when_diverged
+    fork = rev(@repo.path, "refs/remotes/upstream/main")
+    stage_commit
+    upstream_commit
+    @repo.fetch!
+    assert_equal :diverged, status_of
+    assert_equal fork, @repo.base("main").commit.sha
+  end
+
+  def test_base_of_a_new_branch_is_where_it_left_the_default_branch
+    tip = rev(@repo.path, "refs/remotes/upstream/main")
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit(branch: "feature")
+    base = @repo.base("feature")
+    assert_equal tip, base.commit.sha
+    assert_equal "main", base.ref
+  end
+
+  def test_nothing_staged_has_no_base
+    assert_nil @repo.base("main")
+  end
+
+  def test_commit_stats_count_added_and_deleted_lines_per_commit
+    first = commit(@stage, "a.txt", "1\n2\n3\n", "Add a")
+    File.write(File.join(@stage, "a.txt"), "1\nX\n3\n4\n")
+    File.write(File.join(@stage, "b.txt"), "b\n")
+    git("add", "a.txt", "b.txt", chdir: @stage)
+    git("commit", "--quiet", "-m", "Change a, add b", chdir: @stage)
+    second = rev(@stage, "HEAD")
+    push(@stage, "main")
+
+    assert_equal({ first => [3, 0], second => [3, 1] }, @repo.commit_stats("main"))
+  end
+
+  def test_commit_stats_count_binary_files_as_nothing
+    sha = commit(@stage, "blob.bin", "a\0b\0c", "Add binary")
+    push(@stage, "main")
+    assert_equal({ sha => [0, 0] }, @repo.commit_stats("main"))
+  end
+
+  def test_commit_stats_are_empty_when_nothing_is_staged
+    assert_equal({}, @repo.commit_stats("main"))
+  end
+
   # --- discard ------------------------------------------------------------
 
   def test_discard_resets_staged_branch_to_upstream
