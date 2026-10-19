@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require "socket"
+require "openssl"
 
 class NotifierTest < Minitest::Test
   def setup
@@ -119,6 +120,23 @@ class NotifierTest < Minitest::Test
     assert_includes read(other) { |b| b.include?("data: demo\n\n") }, "data: demo\n\n"
     assert_equal 1, @notifier.subscribers
     assert server.closed?
+  end
+
+  # Whatever a write raises, the one thread serving every stream goes on.
+  class RaisingSocket
+    def write_nonblock(*) = raise(OpenSSL::SSL::SSLError, "SSL_write: bad write retry")
+    def closed? = false
+    def close = raise(OpenSSL::SSL::SSLError, "SSL_shutdown: shutdown while in init")
+  end
+
+  def test_a_client_whose_socket_raises_is_dropped_and_the_rest_go_on
+    @notifier.subscribe(RaisingSocket.new)
+    other = subscribe
+    hello(other)
+    assert_equal 1, @notifier.subscribers
+    @notifier.publish("demo", :refs)
+    assert_includes read(other) { |b| b.include?("data: demo\n\n") }, "event: refs\ndata: demo\n\n"
+    assert_equal 1, @notifier.seq
   end
 
   def test_stop_closes_every_stream

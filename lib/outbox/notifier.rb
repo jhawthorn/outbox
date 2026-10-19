@@ -109,7 +109,9 @@ module Outbox
     end
 
     # Whether all of data went out. A socket whose buffer is full counts as
-    # gone: this one thread serves every client.
+    # gone: this one thread serves every client. So does one whose write
+    # raises, whatever it raises (an SSL socket's errors are not IOErrors):
+    # a client is never worth the thread that serves all the others.
     def write(io, data)
       until data.empty?
         n = io.write_nonblock(data, exception: false)
@@ -117,13 +119,13 @@ module Outbox
         data = data.byteslice(n..)
       end
       true
-    rescue IOError, SystemCallError
+    rescue StandardError
       false
     end
 
     def close(io)
       io.close unless io.closed?
-    rescue IOError, SystemCallError
+    rescue StandardError
       # already gone
     end
   end

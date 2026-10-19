@@ -52,9 +52,12 @@ class AppTest < OutboxTest::RepoCase
   # but the seq, a repository's pages its name, a branch's and a commit's
   # the tips the page was drawn from. Error and offline pages do not.
   def test_pages_are_live
+    before = Outbox.hub.seq
     sha = stage_commit
     branch = @repo.branch("main")
-    seq = Outbox.hub.seq
+    # The push is announced within the watcher's interval; let it be, so the
+    # seq does not move under the pages below.
+    seq = wait_for_seq { |s| s > before }
     assert_includes get("/"), %(<main data-live data-seq="#{seq}">)
     assert_includes get("/repos/demo"), %(<main data-live data-seq="#{seq}" data-repo="demo">)
     live = %(<main data-live data-seq="#{seq}" data-repo="demo" data-tips="#{branch.staged} #{branch.upstream}">)
@@ -69,8 +72,23 @@ class AppTest < OutboxTest::RepoCase
   def test_a_page_drawn_after_a_change_has_a_later_seq
     before = Outbox.hub.seq
     Outbox.hub.fetch(@repo)
-    wait_until("the fetch to be announced") { Outbox.hub.seq > before }
-    assert_includes get("/"), %(<main data-live data-seq="#{Outbox.hub.seq}">)
+    wait_until("the fetch to finish") { !Outbox.hub.status(@repo).busy? }
+    # Queued, started and finished: at least the first and last are announced.
+    seq = wait_for_seq { |s| s >= before + 2 }
+    assert_includes get("/"), %(<main data-live data-seq="#{seq}">)
+  end
+
+  # The seq once it has reached what the block asks for and then stayed put
+  # for a moment, so a page drawn afterwards carries it.
+  def wait_for_seq
+    wait_until("the seq to move") { yield Outbox.hub.seq }
+    seq = nil
+    wait_until("the seq to settle") do
+      s = Outbox.hub.seq
+      sleep 0.05
+      seq = s if Outbox.hub.seq == s
+    end
+    seq
   end
 
   # /events hands its socket to the hub and returns: the stream is written

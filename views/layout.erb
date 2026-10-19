@@ -217,10 +217,12 @@
 //   only look when refs may have moved, not at every progress line.
 //
 // A hidden tab closes its stream, since a browser allows only a few
-// connections to one host over HTTP/1.1, and opens it again when shown.
-// Each time a stream opens, the server says how many changes it has sent
-// (seq); if that is not what the page last saw, it missed some, and catches
-// up with a fetch.
+// connections to one host over HTTP/1.1, and opens it again when shown. So
+// does a page being left, so that it can be kept and brought back (the
+// back/forward cache), and it opens a new one when it is. Each time a
+// stream opens, the server says how many changes it has sent (seq); if
+// that is not what the page last saw, it missed some, and catches up with a
+// fetch.
 (function () {
   var main = document.querySelector("main[data-live]");
   if (!main || !window.EventSource) return;
@@ -228,10 +230,14 @@
   var tips = main.getAttribute("data-tips");
   var seen = main.getAttribute("data-seq");
   var source = null, timer = null, fetching = false, again = false, stale = false;
+  // When the last fetch finished. The next waits at least SPACING after it,
+  // so a repository reporting progress several times a second has the page
+  // fetching itself about once a second, not as fast as the server answers.
+  var settled = 0, SPACING = 1000;
 
   function schedule(delay) {
     if (fetching) again = true;
-    else if (!timer && !stale) timer = setTimeout(refresh, delay);
+    else if (!timer && !stale) timer = setTimeout(refresh, Math.max(delay, settled + SPACING - Date.now()));
   }
 
   async function refresh() {
@@ -257,7 +263,8 @@
       }
     } catch (e) { /* offline or restarting; the stream reconnects and catches up */ }
     fetching = false;
-    if (again) schedule(500);
+    settled = Date.now();
+    if (again) schedule(0);
   }
 
   function outdated(message) {
@@ -302,6 +309,7 @@
   }
 
   document.addEventListener("visibilitychange", function () { document.hidden ? disconnect() : connect(); });
+  window.addEventListener("pagehide", disconnect);
   window.addEventListener("pageshow", function () { if (!document.hidden) connect(); });
   if (!document.hidden) connect();
 })();

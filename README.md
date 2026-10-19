@@ -87,7 +87,7 @@ finishing, an approval made in another tab. Each page opens `GET /events`, a str
 server-sent events, each naming a repository and saying whether its refs may have moved
 (`refs`: a push, a finished job) or only its job status changed (`status`). The index
 cares about every repository, a repository's pages about their own. On an event the page
-fetches itself again.
+fetches itself again, at most about once a second.
 
 The index and a repository's page swap in the new content. A branch page, and a commit
 page, do not: what gets approved must be what was reviewed, so a page never changes under

@@ -45,6 +45,15 @@ module Outbox
       # page reflects at least the changes up to the seq it records.
       def live! = @seq = hub.seq
 
+      # The error page is never live, even when the page that failed would
+      # have been (live! runs before anything that can fail).
+      def error_page(code)
+        status code
+        @seq = nil
+        @message = env["sinatra.error"].message
+        erb :error
+      end
+
       def job_label(status)
         case status.job
         when :fetch   then "Fetching upstream"
@@ -208,21 +217,15 @@ module Outbox
     end
 
     error NotFound do
-      status 404
-      @message = env["sinatra.error"].message
-      erb :error
+      error_page 404
     end
 
     error GitError, ArgumentError do
-      status 422
-      @message = env["sinatra.error"].message
-      erb :error
+      error_page 422
     end
 
     error do
-      status 500
-      @message = env["sinatra.error"].message
-      erb :error
+      error_page 500
     end
 
     PWA_DIR = File.expand_path("../../pwa", __dir__)
