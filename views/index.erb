@@ -1,4 +1,11 @@
-<h1>Repositories</h1>
+<div class="page-head">
+  <h1>Repositories</h1>
+  <% unless @repos.empty? %>
+    <form class="inline" method="post" action="/fetch">
+      <button type="submit" <%= "disabled" if @repos.all? { |_, _, status, _| status.busy? } %>>Fetch all upstreams</button>
+    </form>
+  <% end %>
+</div>
 
 <% @problems.each do |problem| %>
   <div class="panel danger"><span class="badge failed">config</span> <%= h problem %></div>
@@ -7,15 +14,6 @@
 <% if @needs_token %>
   <div class="panel danger"><span class="badge failed">no token</span>
     <code>OUTBOX_UPSTREAM_TOKEN</code> is not set. Fetching and pushing https upstreams will fail until the server has one.</div>
-<% end %>
-
-<% unless @repos.empty? %>
-  <div class="toolbar">
-    <span class="spacer"></span>
-    <form class="inline" method="post" action="/fetch">
-      <button type="submit" <%= "disabled" if @repos.all? { |_, _, status, _| status.busy? } %>>Fetch all upstreams</button>
-    </form>
-  </div>
 <% end %>
 
 <% pending_count = @repos.sum { |_, branches, _, _| branches.count(&:pending?) } %>
@@ -27,22 +25,24 @@
   <li class="repo <%= "pending" if pending.any? %>">
     <div class="repo-head">
       <a class="repo-name" href="<%= repo_url(repo) %>"><%= h repo.name %></a>
-      <% if pushed %><span class="muted" title="<%= h pushed.utc.strftime("%Y-%m-%d %H:%M UTC") %>">pushed <%= time_ago(pushed) %></span><% end %>
-    </div>
-    <% if status.running? %>
-      <div><span class="badge busy"><%= h job_label(status) %></span></div>
-      <div class="progress muted"><%= h status.progress %></div>
-    <% elsif status.busy? %>
-      <div><span class="badge busy">queued</span></div>
-    <% elsif status.last && !status.last.ok? %>
-      <div><span class="badge failed"><%= h status.last.job %> failed</span>
+      <% if status.running? %>
+        <span class="badge busy"><%= h job_label(status) %></span>
+      <% elsif status.busy? %>
+        <span class="badge busy">queued</span>
+      <% elsif status.last && !status.last.ok? %>
+        <span class="badge failed"><%= h status.last.job %> failed</span>
         <form class="inline" method="post" action="<%= repo_url(repo) %>/dismiss?back=/">
           <button type="submit">Dismiss</button>
         </form>
-      </div>
-    <% elsif pending.empty? %>
-      <div class="muted">Nothing to review</div>
-    <% else %>
+      <% elsif pending.empty? %>
+        <span class="muted">nothing to review</span>
+      <% end %>
+      <span class="spacer"></span>
+      <% if pushed %><span class="muted" title="<%= h pushed.utc.strftime("%Y-%m-%d %H:%M UTC") %>">pushed <%= time_ago(pushed) %></span><% end %>
+    </div>
+    <% if status.running? && status.progress %>
+      <div class="progress muted"><%= h status.progress %></div>
+    <% elsif !status.busy? && pending.any? %>
       <ul class="branches">
       <% pending.each do |b| %>
         <li>
