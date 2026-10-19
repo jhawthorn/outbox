@@ -51,6 +51,12 @@
   li.repo.pending { border-left: 4px solid var(--accent); }
   .repo-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   .repo-head .spacer { flex: 1; }
+  /* Repos with nothing to review: a plain list, not a card each. */
+  ul.repos.idle li.repo { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+                          border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 8px 0; margin: 0; }
+  ul.repos.idle li.repo:last-child { border-bottom: 0; }
+  ul.repos.idle .spacer { flex: 1; }
+  ul.repos.idle .repo-name { font-size: 15px; }
   .repo-name { font-size: 16px; font-weight: 600; }
   /* One grid for the whole list, so the badges, names and summaries line
      up down the card however wide each badge is. */

@@ -19,8 +19,12 @@
 <% pending_count = @repos.sum { |_, branches, _, _| branches.count(&:pending?) } %>
 <p class="muted"><%= @repos.empty? ? "No repositories yet." : "#{pluralize(pending_count, "branch", "branches")} awaiting review across #{pluralize(@repos.size, "repository", "repositories")}." %></p>
 
+<%# Repos that need a look get a card each: something to review, a job
+    running, or one that failed. The rest are a plain list below. %>
+<% cards, idle = @repos.partition { |_, branches, status, _| branches.any?(&:pending?) || status.busy? || (status.last && !status.last.ok?) } %>
+<% unless cards.empty? %>
 <ul class="repos">
-<% @repos.each do |repo, branches, status, pushed| %>
+<% cards.each do |repo, branches, status, pushed| %>
   <% pending = branches.select(&:pending?) %>
   <li class="repo <%= "pending" if pending.any? %>">
     <div class="repo-head">
@@ -34,8 +38,6 @@
         <form class="inline" method="post" action="<%= repo_url(repo) %>/dismiss?back=/">
           <button type="submit">Dismiss</button>
         </form>
-      <% elsif pending.empty? %>
-        <span class="muted">nothing to review</span>
       <% end %>
       <span class="spacer"></span>
       <% if pushed %><span class="muted" title="<%= h pushed.utc.strftime("%Y-%m-%d %H:%M UTC") %>">pushed <%= time_ago(pushed) %></span><% end %>
@@ -56,6 +58,21 @@
   </li>
 <% end %>
 </ul>
+<% end %>
+
+<% unless idle.empty? %>
+<h2>Nothing to review</h2>
+<ul class="repos idle">
+<% idle.each do |repo, _, _, pushed| %>
+  <li class="repo">
+    <a class="repo-name" href="<%= repo_url(repo) %>"><%= h repo.name %></a>
+    <% if repo.config? %><span class="muted">the outbox's own configuration</span><% end %>
+    <span class="spacer"></span>
+    <% if pushed %><span class="muted" title="<%= h pushed.utc.strftime("%Y-%m-%d %H:%M UTC") %>">pushed <%= time_ago(pushed) %></span><% end %>
+  </li>
+<% end %>
+</ul>
+<% end %>
 
 <details class="add" <%= "open" if @repos.none? { |repo, _, _, _| !repo.config? } %>>
   <summary>Adding a repository</summary>
