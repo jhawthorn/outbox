@@ -446,4 +446,24 @@ class AppTest < OutboxTest::RepoCase
     refute_equal staged, rev(@upstream, "main")
     assert_equal :ready, status_of
   end
+
+  # A page on another site can post the approve form, and the browser sends
+  # the remembered password with it. An agent knows the sha it pushed, so
+  # that would let it approve its own work. The Origin header gives the
+  # other site away.
+  def test_posts_from_another_origin_are_refused
+    staged = stage_commit
+    %w[approve discard].each do |action|
+      res = @request.post("/repos/demo/branches/main/#{action}", params: { expected: staged }, "HTTP_ORIGIN" => "http://evil.example")
+      assert_equal 403, res.status
+    end
+    assert_equal 403, @request.post("/fetch", "HTTP_ORIGIN" => "http://evil.example").status
+    assert_equal :ready, status_of
+    refute_equal staged, rev(@upstream, "main")
+    # The site's own forms carry its origin.
+    res = @request.post("/repos/demo/branches/main/discard", params: { expected: staged }, "HTTP_ORIGIN" => "http://example.org")
+    assert_equal 303, res.status
+    wait_until("discard") { !Outbox.hub.status(@repo).busy? }
+    assert_equal :synced, status_of
+  end
 end

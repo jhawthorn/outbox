@@ -12,6 +12,11 @@ module Outbox
     PUBLIC_DIR = File.expand_path("../../public", __dir__)
     DIFFS_BUNDLE = File.join(PUBLIC_DIR, "diffs/diffs.js")
     set :public_folder, PUBLIC_DIR
+    # Sinatra's default reaction to a failed check is to drop the session,
+    # which with no sessions is nothing at all. Deny instead, so a form
+    # posted from another site (browsers send remembered basic auth with
+    # it) cannot approve or discard anything.
+    set :protection, reaction: :deny
     set :show_exceptions, false
     set :raise_errors, false
     set :logging, false
