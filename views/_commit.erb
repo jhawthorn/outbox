@@ -1,5 +1,6 @@
 <%# One row of a commit list (.history): title, hash/author/time, size bar. %>
-<%# url is nil for commits that have no page of their own. %>
+<%# url is nil for commits that have no page of their own. rewrite, when %>
+<%# given, says whether the commit carries over an upstream one. %>
 <% added, deleted = stats.fetch(c.sha, [0, 0]) %>
 <div class="commit">
   <div class="rail"></div>
@@ -16,6 +17,10 @@
       </details>
     <% end %>
     <% if c.merge? %><span class="badge merge">merge</span><% end %>
+    <% if rewrite && (kind, old = rewrite.of(c.sha)) %>
+      <% if kind == :unchanged %><span class="badge same" title="The same patch as upstream's <%= short(old) %>; only what it builds on moved">unchanged</span><% end %>
+      <% if kind == :changed %><span class="badge changed" title="Reworked from upstream's <%= short(old) %>">changed</span><% end %>
+    <% end %>
     <% tips[c.sha].each do |name| %><a class="badge tip" href="<%= branch_url(@repo, name) %>" title="Also the tip of <%= h name %>"><%= h name %></a><% end %>
   </div>
   <div class="meta">

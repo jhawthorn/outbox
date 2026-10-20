@@ -80,7 +80,7 @@ test("a diverged branch needs a confirmed force approve", async ({ page }) => {
   const force = page.getByRole("button", { name: "Force approve" });
   const declined = answerConfirm(page, "dismiss");
   await force.click();
-  expect(await declined).toBe("Force-push main to upstream? 1 upstream commit(s) will be dropped.");
+  expect(await declined).toBe("Force-push main to upstream? 1 upstream commit will be dropped.");
   await expect(page).toHaveURL("/repos/diverged/branches/main");
 
   const accepted = answerConfirm(page, "accept");

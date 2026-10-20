@@ -48,7 +48,7 @@
       <ul class="branches">
       <% pending.each do |b| %>
         <li>
-          <span class="badge <%= b.status %>"><%= status_label(b.status) %></span>
+          <span class="badge <%= b.status %>"><%= status_label(b) %></span>
           <a class="branch-name" href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
           <span class="muted"><%= h summary(b) %></span>
         </li>

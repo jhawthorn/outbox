@@ -156,3 +156,29 @@ test("when the patch cannot be fetched each file points at the raw patch", async
     await expect(p.getByRole("link", { name: "View raw patch" })).toHaveAttribute("href", `${BRANCH}.patch`);
   }
 });
+
+test("a rebased branch says so and shows only what changed besides the rebase", async ({ page }) => {
+  await page.goto("/repos/rebased/branches/feature");
+  await expect(page.locator("h1 .badge")).toHaveText("rebased");
+  await expect(page.locator(".review .summary")).toHaveText("2 commits to push, rebased onto 1 newer upstream commit");
+  await expect(page.locator(".review .rebase")).toContainText("Of upstream's 2 commits: 1 carried over unchanged, 1 changed.");
+  await expect(page.locator("h2", { hasText: "Dropped from upstream" })).toHaveCount(0);
+  await expect(page.locator(".history .commit .subject")).toHaveText(["Add docs", "Add greeter"]);
+  await expect(page.locator(".history .commit", { hasText: "Add docs" }).locator(".badge")).toHaveText("changed");
+  await expect(page.locator(".history .commit", { hasText: "Add greeter" }).locator(".badge")).toHaveText("unchanged");
+  await expect(page.locator(".history .commit.base")).toContainText("Upstream change");
+  await expect(page.locator(".history .commit.base")).toContainText("upstream main · rebased onto");
+  await expect(page.locator("h2", { hasText: "Files changed (1)" })).toBeVisible();
+  await expect(page.locator(".patch-summary")).toContainText("docs.md");
+  await expect(page.locator(".patch-summary")).not.toContainText("other.txt");
+  await expect(diff(page, 0).getByText("docs, with more")).toBeVisible();
+});
+
+test("a rebase that conflicted shows how it was resolved", async ({ page }) => {
+  await page.goto("/repos/conflicted/branches/feature");
+  await expect(page.locator("h1 .badge")).toHaveText("rebased");
+  await expect(page.locator("h2", { hasText: "Files changed (1)" })).toBeVisible();
+  await expect(page.locator("main")).toContainText("Replaying it conflicted in config.ini");
+  await expect(diff(page, 0).getByText("<<<<<<<")).toBeVisible();
+  await expect(diff(page, 0).getByText("setting_6 = 45")).toBeVisible();
+});

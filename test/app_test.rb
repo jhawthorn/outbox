@@ -340,6 +340,109 @@ class AppTest < OutboxTest::RepoCase
     refute_includes body, "Approve and push to upstream"
   end
 
+  LINES = (1..10).map { |i| "line #{i}\n" }.join
+
+  # feature, once approved with two commits, rebased onto a main that has
+  # moved on: the first commit carried over as it was, the second reworked.
+  def rebase_feature
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("one.txt", LINES, "Add one", branch: "feature")
+    stage_commit("two.txt", LINES, "Add two", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("rebase", "--quiet", "up/main", chdir: @stage)
+    File.write(File.join(@stage, "two.txt"), LINES.sub("line 5", "two fixed"))
+    git("add", "two.txt", chdir: @stage)
+    git("commit", "--quiet", "--amend", "--no-edit", chdir: @stage)
+    push(@stage, "feature", force: true)
+  end
+
+  def test_a_rebased_branch_is_called_that_and_lists_only_its_own_commits
+    rebase_feature
+    body = get("/repos/demo/branches/feature")
+    assert_includes body, '<span class="badge diverged">rebased</span>'
+    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit"
+    assert_includes body, "onto <b>main</b>"
+    assert_includes body, "Of upstream's 2 commits: 1 carried over unchanged, 1 changed."
+    assert_includes body, "Approving overwrites upstream's version."
+    assert_includes body, "Commits (2)"
+    refute_includes body, "Dropped from upstream", "both upstream commits live on"
+    refute_includes body, '<span class="subject">Upstream change</span>', "the commit picked up from main is not the branch's"
+    assert_match(%r{>Add one</a>.*<span class="badge same" title="The same patch as upstream's \h{10}; only what it builds on moved">unchanged</span>}m, body)
+    assert_match(%r{>Add two</a>.*<span class="badge changed" title="Reworked from upstream's \h{10}">changed</span>}m, body)
+    assert_includes body, "upstream <b>main</b> · rebased onto"
+    assert_includes body, ">Upstream change<", "the commit the branch now rests on"
+    assert_includes body, "Files changed (1)"
+    assert_includes body, "What changed besides the rebase"
+    assert_includes body, "two.txt"
+    refute_includes body, "up.txt", "what the new base brought in is not part of the review"
+    assert_includes body, "confirm('Force-push feature to upstream? All 2 upstream commits are carried over.')"
+    patch = get("/repos/demo/branches/feature.patch")
+    assert_includes patch, "+two fixed"
+    refute_includes patch, "up.txt"
+
+    body = get("/repos/demo")
+    assert_includes body, '<span class="badge diverged">rebased</span>'
+    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit"
+    assert_includes get("/"), "rebased onto 1 newer upstream commit"
+  end
+
+  def test_a_rebase_that_changes_nothing_says_so
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("one.txt", LINES, "Add one", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("rebase", "--quiet", "up/main", chdir: @stage)
+    push(@stage, "feature", force: true)
+
+    body = get("/repos/demo/branches/feature")
+    assert_includes body, "Files changed (0)"
+    assert_includes body, "The rebase changed nothing else"
+    assert_includes body, "1 carried over unchanged."
+  end
+
+  def test_a_rebase_that_dropped_a_commit_lists_it
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("one.txt", LINES, "Add one", branch: "feature")
+    stage_commit("two.txt", LINES, "Add two", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("reset", "--quiet", "--hard", "up/main", chdir: @stage)
+    commit(@stage, "one.txt", LINES, "Add one")
+    push(@stage, "HEAD:feature", force: true)
+
+    body = get("/repos/demo/branches/feature")
+    assert_includes body, "1 carried over unchanged, 1 dropped."
+    assert_includes body, "Dropped from upstream (1)"
+    assert_includes body, "not even reworked: the 1 commit it carries over is marked below"
+    assert_match(%r{<div class="history dropped">.*<span class="subject">Add two</span>.*</div>\s*<h2>Commits \(1\)}m, body)
+    assert_includes body, "confirm('Force-push feature to upstream? 1 upstream commit will be dropped.')"
+    assert_includes body, "two.txt"
+    assert_includes get("/repos/demo/branches/feature.patch"), "-line 1", "dropping the commit shows as removing what it added"
+  end
+
+  def test_a_rebase_that_conflicted_names_the_file
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("clash.txt", "feature\n" * 8, "Add clash", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit("clash.txt", "upstream\n" * 8, "Upstream clash")
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("reset", "--quiet", "--hard", "up/main", chdir: @stage)
+    commit(@stage, "clash.txt", "resolved\n" * 8, "Add clash")
+    push(@stage, "HEAD:feature", force: true)
+
+    body = get("/repos/demo/branches/feature")
+    assert_includes body, "Replaying it conflicted in <code>clash.txt</code>, so there the diff starts from the conflict markers"
+    assert_includes body, "Files changed (1)"
+  end
+
   def test_deleted_branch_page_offers_to_delete_it_from_upstream
     add_upstream_branch("extra")
     git("push", "--quiet", "origin", ":extra", chdir: @stage)

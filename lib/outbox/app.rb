@@ -76,7 +76,9 @@ module Outbox
 
       def config_clone_url = "#{request.base_url}/#{Config::NAME}.git"
 
-      def status_label(status) = STATUS_LABELS.fetch(status, status.to_s)
+      # A rebased branch is diverged to git, and to the approve button, but
+      # "rebased" is what the reviewer wants to know.
+      def status_label(branch) = branch.rebased? ? "rebased" : STATUS_LABELS.fetch(branch.status, branch.status.to_s)
 
       def short(sha) = sha ? sha[0, 10] : "—"
 
@@ -86,8 +88,37 @@ module Outbox
         when :ready    then "#{pluralize(branch.ahead, "commit")} to push"
         when :new      then "#{pluralize(branch.ahead, "commit")} (new branch)"
         when :deleted  then "branch will be deleted upstream (#{pluralize(branch.behind, "commit")} only reachable from it)"
-        when :diverged then "#{pluralize(branch.ahead, "commit")} to push; upstream has #{pluralize(branch.behind, "commit")} not in staged"
+        when :diverged
+          if branch.rebased?
+            "#{pluralize(branch.ahead, "commit")} to push, rebased onto #{pluralize(branch.picked_up, "newer upstream commit")}"
+          else
+            "#{pluralize(branch.ahead, "commit")} to push; upstream has #{pluralize(branch.behind, "commit")} not in staged"
+          end
         end
+      end
+
+      # What becomes of the commits upstream has on a diverged branch, from
+      # the pairing (Repo::Rewrite): "2 carried over unchanged, 1 changed,
+      # 1 dropped", leaving out the kinds there are none of.
+      def rewrite_label(rewrite, dropped)
+        parts = []
+        parts << "#{rewrite.unchanged.size} carried over unchanged" unless rewrite.unchanged.empty?
+        parts << "#{rewrite.changed.size} changed" unless rewrite.changed.empty?
+        parts << "#{dropped} dropped" if dropped.positive?
+        parts.join(", ")
+      end
+
+      # The question the force approve button asks, with what the force
+      # drops; when a rebase carries every upstream commit over, that it
+      # drops nothing. Goes inside a single-quoted script string, so no
+      # apostrophes.
+      def force_confirm(branch, dropped)
+        what =
+          if dropped.positive? then "#{pluralize(dropped, "upstream commit")} will be dropped."
+          elsif branch.behind == 1 then "The one upstream commit is carried over."
+          else "All #{branch.behind} upstream commits are carried over."
+          end
+        "Force-push #{branch.name} to upstream? #{what}"
       end
 
       def pluralize(n, singular, plural = "#{singular}s") = "#{n} #{n == 1 ? singular : plural}"
@@ -396,6 +427,13 @@ module Outbox
       @outgoing_count = @repo.outgoing_commit_count(@branch)
       @outgoing_stats = @repo.outgoing_commit_stats(@branch)
       @patch = @repo.diff(@branch)
+      @rebase = @repo.rebase(@branch)
+      # Upstream commits that live on in a staged one are marked on that
+      # one rather than listed as dropped. The pairing covers every commit
+      # when there is one, so the list is then complete.
+      @rewrite = @repo.rewrite(@branch)
+      @dropped = @rewrite ? @outgoing.reject { |c| @rewrite.carried?(c.sha) } : @outgoing
+      @dropped_count = @rewrite ? @dropped.size : @outgoing_count
       @tips = other_tips(@repo.branches, @branch)
       erb :branch
     end

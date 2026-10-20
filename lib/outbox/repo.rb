@@ -20,21 +20,31 @@ module Outbox
     NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/
 
     class Branch
-      attr_reader :name, :staged, :upstream, :status, :ahead, :behind, :time
+      attr_reader :name, :staged, :upstream, :status, :ahead, :behind, :onto, :picked_up, :time
 
-      # time: committer date of the tip (staged if there is one, else upstream's).
-      def initialize(name:, staged:, upstream:, status:, ahead:, behind:, time:)
+      # ahead: commits approving adds to upstream; behind: commits upstream
+      # has that the staged branch lacks. A rebased branch (diverged, and
+      # moved onto a commit upstream has on another branch) also has onto,
+      # that commit, and picked_up, how many commits it brought in that
+      # upstream's version of the branch lacks. Those are not counted as
+      # ahead: approving does put them on upstream's copy of the branch,
+      # but they are upstream's own work. time: committer date of the tip
+      # (staged if there is one, else upstream's).
+      def initialize(name:, staged:, upstream:, status:, ahead:, behind:, time:, onto: nil, picked_up: 0)
         @name = name
         @staged = staged
         @upstream = upstream
         @status = status
         @ahead = ahead
         @behind = behind
+        @onto = onto
+        @picked_up = picked_up
         @time = time
       end
 
       def pending? = status != :synced
       def needs_force? = status == :diverged
+      def rebased? = !onto.nil?
     end
 
     # A commit with its complete message. The subject is the first line and
@@ -69,6 +79,56 @@ module Outbox
       # whoever actually created the object. They differ after rebases,
       # amends and cherry-picks, and when someone sets one by hand.
       def committer_differs? = committer != author || committer_email != author_email
+    end
+
+    # Where a rebased branch went: onto is the commit it now builds on, ref
+    # an upstream branch that has it (the default branch when it does), and
+    # from the commit upstream's version builds on, or nil when the two
+    # histories are unrelated. replay is the tree of upstream's version
+    # moved onto the new base by git merge-tree, which is what the staged
+    # tip is diffed against, so the diff shows what changed beyond the move;
+    # nil when the replay was not possible. conflicts names the files the
+    # replay could not merge: in the replay they hold conflict markers, so
+    # the diff shows how each was resolved.
+    class Rebase
+      attr_reader :onto, :ref, :from, :replay, :conflicts
+
+      def initialize(onto:, ref:, from:, replay:, conflicts:)
+        @onto = onto
+        @ref = ref
+        @from = from
+        @replay = replay
+        @conflicts = conflicts
+      end
+
+      def replayed? = !replay.nil?
+    end
+
+    # How the staged commits of a diverged branch correspond to the ones
+    # upstream has for it, as git range-diff pairs them: each staged commit
+    # is the same patch as an upstream one (unchanged), a reworked version
+    # of one (changed), or new; each upstream commit is carried over one of
+    # those ways or dropped.
+    class Rewrite
+      attr_reader :unchanged, :changed
+
+      # unchanged, changed: { staged sha => upstream sha }.
+      def initialize(unchanged:, changed:)
+        @unchanged = unchanged
+        @changed = changed
+      end
+
+      # :unchanged or :changed with the upstream sha, or nil for a new commit.
+      def of(sha)
+        return [:unchanged, unchanged[sha]] if unchanged.key?(sha)
+        return [:changed, changed[sha]] if changed.key?(sha)
+        nil
+      end
+
+      def carried = @carried ||= (unchanged.values + changed.values).to_h { |sha| [sha, true] }
+
+      # Whether an upstream commit lives on in a staged one.
+      def carried?(sha) = carried.key?(sha)
     end
 
     # Where a branch's incoming commits start: the commit they build on, and
@@ -173,8 +233,8 @@ module Outbox
 
     # extra: environment for this one command; remote_env for the ones that
     # talk to upstream, nothing for the rest.
-    def git(*args, input: nil, extra: {}, timeout: nil)
-      Git.run(*args, chdir: path, input: input, extra: extra, timeout: timeout)
+    def git(*args, input: nil, extra: {}, timeout: nil, ok: [0])
+      Git.run(*args, chdir: path, input: input, extra: extra, timeout: timeout, ok: ok)
     end
 
     # --- upstream credentials ----------------------------------------------
@@ -406,14 +466,15 @@ module Outbox
     end
 
     # The commit the incoming commits build on: upstream's tip when ready, the
-    # merge-base when diverged, where it forked off the default branch when
-    # new. nil when there is no such commit (nothing staged, or an empty or
-    # unrelated upstream).
+    # merge-base when diverged, the commit a rebased branch was moved onto,
+    # where it forked off the default branch when new. nil when there is no
+    # such commit (nothing staged, or an empty or unrelated upstream).
     def base(branch)
       b = resolve(branch)
+      return Base.new(commit: commit_detail(b.onto), ref: upstream_ref_with(b.onto)) if b.rebased?
       case b.status
       when :ready, :diverged
-        sha = git("merge-base", "refs/remotes/upstream/#{b.name}", "refs/heads/#{b.name}").strip
+        sha = fork_point(b)
         Base.new(commit: commit_detail(sha), ref: b.name)
       when :new
         default = default_branch
@@ -453,6 +514,47 @@ module Outbox
       return Diff::Patch.new(stat: "", text: "") if from.nil?
       patch(from, to, max_bytes)
     end
+
+    # Where a rebased branch went (Rebase), or nil when the branch is not
+    # one. Runs the replay, so ask once per page and keep the answer.
+    def rebase(branch)
+      b = resolve(branch)
+      return nil unless b.rebased?
+      from = fork_point(b)
+      replay, conflicts = replay_onto(b.onto, from, b.upstream) if from
+      Rebase.new(onto: commit_detail(b.onto), ref: upstream_ref_with(b.onto), from: from && commit_detail(from),
+                 replay: replay, conflicts: conflicts || [])
+    end
+
+    # How the staged commits of a diverged branch correspond to upstream's
+    # (Rewrite). nil when the branch is not diverged, and when either side
+    # has more than REWRITE_LIMIT commits: pairing compares every commit
+    # with every other, and past that a dropped list and no badges is
+    # better than a page that takes a minute.
+    def rewrite(branch)
+      b = resolve(branch)
+      return nil unless b.status == :diverged
+      return nil if b.ahead > REWRITE_LIMIT || b.behind > REWRITE_LIMIT
+      unchanged = {}
+      changed = {}
+      old = "refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}"
+      new = "#{b.onto || b.upstream}..refs/heads/#{b.name}"
+      git("range-diff", "--no-color", "--no-patch", "--abbrev=64", old, new).each_line do |line|
+        next unless (m = RANGE_DIFF_RE.match(line))
+        case m[:mark]
+        when "=" then unchanged[m[:new]] = m[:old]
+        when "!" then changed[m[:new]] = m[:old]
+        end
+      end
+      Rewrite.new(unchanged: unchanged, changed: changed)
+    end
+
+    REWRITE_LIMIT = 200
+
+    # One line of git range-diff's summary: a numbered commit on each side,
+    # or dashes where there is none, and between them = (same patch),
+    # ! (changed), < (only old) or > (only new).
+    RANGE_DIFF_RE = /\A\s*(?:\d+|-):\s+(?<old>\h+|-+)\s+(?<mark>[=!<>])\s+(?:\d+|-):\s+(?<new>\h+|-+)\s/
 
     # One commit, with its full message. The sha must already be known to
     # belong to this repo (callers look it up in a commits list first).
@@ -511,10 +613,72 @@ module Outbox
                               "refs/remotes/upstream/#{name}...refs/heads/#{name}").split.map(&:to_i)
           [behind.zero? ? :ready : :diverged, ahead, behind]
         end
-      Branch.new(name:, staged:, upstream:, status:, ahead:, behind:, time: Time.at(time))
+      onto = nil
+      picked_up = 0
+      if status == :diverged
+        # Rebased when the staged commits build on one commit upstream has
+        # (on some other branch, or it would not be diverged) and that is
+        # not where upstream's version of the branch builds: the commits
+        # between are upstream's, picked up by the move, not the branch's.
+        own, bases = own_commits(name)
+        if bases.size == 1 && own.size < ahead
+          onto = bases.first
+          picked_up = ahead - own.size
+          ahead = own.size
+        end
+      end
+      Branch.new(name:, staged:, upstream:, status:, ahead:, behind:, onto:, picked_up:, time: Time.at(time))
     end
 
+    # The staged commits upstream has nowhere, newest first, and the commits
+    # they build on, which upstream does have: one for a straight line of
+    # commits, several when they merge upstream branches, none when the
+    # history is unrelated to upstream's.
+    def own_commits(name)
+      own = []
+      bases = []
+      git("rev-list", "--boundary", "refs/heads/#{name}", "--not", "--remotes=upstream").each_line do |line|
+        sha = line.strip
+        sha.start_with?("-") ? bases << sha.delete_prefix("-") : own << sha
+      end
+      [own, bases]
+    end
+
+    # Where upstream's version of a branch and the staged one part ways, or
+    # nil when they share no history.
+    def fork_point(b)
+      git("merge-base", b.upstream, b.staged).strip
+    rescue GitError
+      nil
+    end
+
+    # An upstream branch that has the commit: the default branch when it
+    # does, else the first by name. nil when none does.
+    def upstream_ref_with(sha)
+      names = git("for-each-ref", "--contains", sha, "--format=%(refname:lstrip=3)", UPSTREAM_PREFIX).split
+      names.delete("HEAD")
+      default = default_branch
+      names.include?(default) ? default : names.first
+    end
+
+    # Upstream's version of a rebased branch moved onto its new base: what
+    # tip changed since from, replayed onto onto by one three-way merge.
+    # Returns the tree and the paths that conflicted, where the tree holds
+    # the markers. (git merge-tree exits 1 for a conflicted merge and still
+    # writes the tree.) nil when the merge could not be done at all.
+    def replay_onto(onto, from, tip)
+      out = git("merge-tree", "--write-tree", "--name-only", "--merge-base=#{from}", onto, tip, ok: [0, 1])
+      tree, *rest = out.lines.map(&:strip)
+      conflicts = rest.take_while { |line| !line.empty? }
+      [tree, conflicts]
+    rescue GitError
+      nil
+    end
+
+    # Rebased branches list the commits of their own; the ones the move
+    # picked up are upstream's.
     def incoming_revs(b)
+      return ["refs/heads/#{b.name}", "--not", "--remotes=upstream"] if b.rebased?
       case b.status
       when :new then ["refs/heads/#{b.name}", "--not", "--remotes=upstream"]
       when :ready, :diverged then ["refs/remotes/upstream/#{b.name}..refs/heads/#{b.name}"]
@@ -565,6 +729,14 @@ module Outbox
     end
 
     def diff_endpoints(b)
+      # For a rebased branch, upstream's tip to ours would also show
+      # everything the new base brought in, which is upstream's own work.
+      # Start from upstream's version replayed onto the new base instead
+      # (Rebase#replay), so the diff is what changed beyond the move:
+      # nothing for a plain rebase, the amendment for an amend, the
+      # resolution for a conflict. The plain diff when the replay is not
+      # possible.
+      return [rebase(b).replay || b.upstream, b.staged] if b.rebased?
       case b.status
       when :ready, :diverged
         # Upstream's tip to ours: what approving puts there. When ready,

@@ -1,7 +1,7 @@
 <% @title = "#{@repo.name} / #{@branch.name}" %>
 <div class="page-head">
   <h1><a class="crumb" href="<%= repo_url(@repo) %>"><%= h @repo.name %></a><span class="sep">/</span><%= h @branch.name %>
-    <span class="badge <%= @branch.status %>"><%= status_label(@branch.status) %></span></h1>
+    <span class="badge <%= @branch.status %>"><%= status_label(@branch) %></span></h1>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">
     <button type="submit">Fetch upstream</button>
@@ -12,7 +12,11 @@
   <div class="state">
     <div class="summary"><%= h summary(@branch) %></div>
     <div class="detail muted"><%= tips_label(@branch) %> · last commit <%= committed_label(@branch.time) %></div>
-    <% if @branch.needs_force? %>
+    <% if @rebase %>
+      <div class="note rebase">Moved <% if @rebase.from %>from <code><%= @rebase.from.short %></code> <% end %>onto <% if @rebase.ref %><b><%= h @rebase.ref %></b> <% end %><code><%= @rebase.onto.short %></code>.
+        <% if @rewrite %>Of upstream's <%= pluralize(@branch.behind, "commit") %>: <%= rewrite_label(@rewrite, @dropped_count) %>.<% end %>
+        Approving overwrites upstream's version.</div>
+    <% elsif @branch.needs_force? %>
       <div class="note">Upstream has moved. Approving overwrites it.</div>
     <% end %>
   </div>
@@ -20,7 +24,7 @@
     <div class="actions">
       <% if @branch.needs_force? %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
-              onsubmit="return confirm('Force-push <%= h @branch.name %> to upstream? <%= @outgoing.size %> upstream commit(s) will be dropped.')">
+              onsubmit="return confirm('<%= h force_confirm(@branch, @dropped_count) %>')">
           <input type="hidden" name="force" value="1">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
           <button type="submit" class="warn">Force approve</button>
@@ -46,12 +50,12 @@
   <% end %>
 </div>
 
-<% unless @outgoing.empty? %>
-  <h2>Dropped from upstream (<%= commit_total(@outgoing.size, @outgoing_count) %>)</h2>
-  <p class="muted">Upstream has these and the staged branch does not. Approving removes them from upstream.</p>
+<% unless @dropped.empty? %>
+  <h2>Dropped from upstream (<%= commit_total(@dropped.size, @dropped_count) %>)</h2>
+  <p class="muted">Upstream has these and the staged branch does not<% if @rewrite && @rewrite.carried.any? %>, not even reworked: the <%= pluralize(@rewrite.carried.size, "commit") %> it carries over <%= @rewrite.carried.size == 1 ? "is" : "are" %> marked below<% end %>. Approving removes them from upstream.</p>
   <div class="history dropped">
-    <% change_shares(@outgoing, @outgoing_stats).each do |c, before, share| %>
-      <%= erb :_commit, layout: false, locals: { c: c, stats: @outgoing_stats, before: before, share: share, url: nil, tips: @tips, whole: "dropped change" } %>
+    <% change_shares(@dropped, @outgoing_stats).each do |c, before, share| %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @outgoing_stats, before: before, share: share, url: nil, tips: @tips, whole: "dropped change", rewrite: nil } %>
     <% end %>
   </div>
 <% end %>
@@ -60,13 +64,13 @@
   <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
   <div class="history">
     <% change_shares(@commits, @stats).each do |c, before, share| %>
-      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), tips: @tips, whole: "branch's change" } %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), tips: @tips, whole: "branch's change", rewrite: @rewrite } %>
     <% end %>
     <% if @base %>
       <div class="commit base">
         <div class="rail"></div>
         <div class="title"><%= hv @base.commit.subject %></div>
-        <div class="meta"><div class="line"><code class="hash"><%= @base.commit.short %></code><span class="name">upstream <b><%= h @base.ref %></b> · fork point</span></div></div>
+        <div class="meta"><div class="line"><code class="hash"><%= @base.commit.short %></code><span class="name">upstream <b><%= h @base.ref %></b> · <%= @branch.rebased? ? "rebased onto" : "fork point" %></span></div></div>
       </div>
       <div class="commit stub">
         <div class="rail"></div>
@@ -76,9 +80,21 @@
   </div>
 <% end %>
 
+<% if @rebase&.replayed? && @patch.empty? %>
+  <h2>Files changed (0)</h2>
+  <p class="muted">The rebase changed nothing else: the branch makes the same changes as upstream's version, on the new base.</p>
+<% end %>
 <% unless @patch.empty? %>
   <h2>Files changed (<%= @patch.files.size %>)</h2>
-  <% if @branch.status == :diverged %>
+  <% if @rebase&.replayed? %>
+    <p class="muted">What changed besides the rebase: against upstream's version of the branch replayed onto <code><%= @rebase.onto.short %></code>.
+      <% unless @rebase.conflicts.empty? %>
+        Replaying it conflicted in <%= @rebase.conflicts.map { |f| "<code>#{h f}</code>" }.join(", ") %>, so there the diff starts from the conflict markers and shows how each was resolved.
+      <% end %>
+    </p>
+  <% elsif @rebase %>
+    <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Upstream's version could not be replayed onto the new base, so what the base brought in shows too.</p>
+  <% elsif @branch.status == :diverged %>
     <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>
   <% end %>
   <%= render_patch(@patch, branch_patch_url(@repo, @branch.name)) %>

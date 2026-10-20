@@ -47,6 +47,7 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/repo.rb` — one bare repo per name under `$OUTBOX_DATA/repos/<name>.git`.
   `refs/heads/*` is what was pushed here; `refs/remotes/upstream/*` is the real remote.
   A branch is pending when they differ. States: ready, new, deleted, diverged, synced.
+  A diverged branch moved onto a newer base is also rebased (below).
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name`,
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
@@ -79,6 +80,20 @@ Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverg
 branches need an explicit force. A branch's diff runs from upstream's current tip to the
 staged tip, so for a diverged branch it is exactly what the force push changes there: an
 amended commit shows as the amendment, and anything only upstream has shows as removed.
+
+A branch rebased onto a newer base is diverged too, but that diff would be mostly the
+base's own commits, so a rebase is told apart and shown for what it is. A diverged branch
+is rebased when its staged commits build on one commit upstream has (`git rev-list
+--boundary`, against every upstream ref) and that is not where upstream's version of the
+branch builds; the commits between are counted as picked up, not as the branch's. The
+page then lists only the branch's own commits, resting on the commit it was rebased onto,
+and diffs the staged tip against upstream's version of the branch replayed onto that
+commit (`git merge-tree`): a plain rebase shows no changes, an amend shows the amendment,
+and a conflict shows the markers being replaced by the resolution, with the files named.
+On every diverged branch, `git range-diff` pairs the staged commits with upstream's: each
+staged commit is marked unchanged or changed from the one it carries over, and only the
+upstream commits nothing carries over are listed as dropped. The pairing is skipped past
+200 commits a side, since it compares each commit with every other.
 
 ## Live pages
 

@@ -567,6 +567,196 @@ class RepoTest < OutboxTest::RepoCase
 
   # --- base and stats -----------------------------------------------------
 
+  def test_a_plain_rebase_lists_its_own_commits_on_the_new_base_and_changes_nothing
+    rebase_feature_onto_new_main
+    b = @repo.branch("feature")
+    assert_equal :diverged, b.status
+    assert b.rebased?
+    assert_equal 1, b.ahead, "the branch's own commit, not the one picked up from main"
+    assert_equal 1, b.behind
+    assert_equal 1, b.picked_up
+    assert_equal rev(@repo.path, "refs/remotes/upstream/main"), b.onto
+
+    assert_equal ["Add feature"], @repo.commits(b).map(&:subject)
+    assert_equal 1, @repo.commit_count(b)
+    assert_equal ["Add feature"], @repo.outgoing_commits(b).map(&:subject)
+
+    base = @repo.base(b)
+    assert_equal "main", base.ref
+    assert_equal "Upstream change", base.commit.subject
+
+    rebase = @repo.rebase(b)
+    assert_equal "main", rebase.ref
+    assert_equal "Upstream change", rebase.onto.subject
+    assert_equal "initial", rebase.from.subject
+    assert rebase.replayed?
+    assert_empty rebase.conflicts
+    assert @repo.diff(b).empty?, "the rebase changed nothing but the base"
+
+    rewrite = @repo.rewrite(b)
+    assert_equal({ b.staged => b.upstream }, rewrite.unchanged)
+    assert_empty rewrite.changed
+    assert rewrite.carried?(b.upstream)
+  end
+
+  def test_a_rebase_with_an_amend_shows_only_the_amendment
+    rebase_feature_onto_new_main(amend: true)
+    b = @repo.branch("feature")
+    assert b.rebased?
+    patch = @repo.diff(b)
+    assert_equal ["feature.txt"], patch.files.map(&:path)
+    assert_includes patch.text, "+feature fixed"
+    refute_includes patch.text, "up.txt"
+
+    rewrite = @repo.rewrite(b)
+    assert_empty rewrite.unchanged
+    assert_equal({ b.staged => b.upstream }, rewrite.changed)
+    assert_equal [:changed, b.upstream], rewrite.of(b.staged)
+    assert_nil rewrite.of("0" * 40)
+  end
+
+  def test_a_rebase_that_conflicted_shows_how_it_was_resolved
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("clash.txt", "feature\n" * 8, "Add clash", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit("clash.txt", "upstream\n" * 8, "Upstream clash")
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("reset", "--quiet", "--hard", "up/main", chdir: @stage)
+    commit(@stage, "clash.txt", "resolved\n" * 8, "Add clash")
+    push(@stage, "HEAD:feature", force: true)
+
+    b = @repo.branch("feature")
+    assert b.rebased?
+    rebase = @repo.rebase(b)
+    assert rebase.replayed?
+    assert_equal ["clash.txt"], rebase.conflicts
+    text = @repo.diff(b).text
+    assert_includes text, "-<<<<<<<", "the replay's conflict markers are what the resolution replaced"
+    assert_includes text, "-feature\n"
+    assert_includes text, "+resolved\n"
+  end
+
+  def test_a_rebase_that_drops_and_adds_commits
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("one.txt", "one\n", "Add one", branch: "feature")
+    stage_commit("two.txt", "two\n", "Add two", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("reset", "--quiet", "--hard", "up/main", chdir: @stage)
+    commit(@stage, "one.txt", "one\n", "Add one")
+    commit(@stage, "three.txt", "three\n", "Add three")
+    push(@stage, "HEAD:feature", force: true)
+
+    b = @repo.branch("feature")
+    assert b.rebased?
+    assert_equal 2, b.ahead
+    assert_equal 2, b.behind
+    one_new, three = @repo.commits(b).reverse.map(&:sha)
+    one_old, two = @repo.outgoing_commits(b).reverse.map(&:sha)
+    rewrite = @repo.rewrite(b)
+    assert_equal({ one_new => one_old }, rewrite.unchanged)
+    assert_empty rewrite.changed
+    assert_nil rewrite.of(three)
+    refute rewrite.carried?(two)
+
+    patch = @repo.diff(b)
+    assert_equal ["three.txt", "two.txt"], patch.files.map(&:path).sort
+    assert_includes patch.text, "-two"
+    assert_includes patch.text, "+three"
+  end
+
+  def test_a_rebase_onto_a_branch_that_is_not_the_default_one
+    add_upstream_branch("release")
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("feature.txt", "feature\n", "Add feature", branch: "feature")
+    @repo.approve!("feature")
+    git("fetch", "--quiet", chdir: @stage)
+    git("rebase", "--quiet", "origin/release", chdir: @stage)
+    push(@stage, "feature", force: true)
+
+    b = @repo.branch("feature")
+    assert b.rebased?
+    assert_equal rev(@repo.path, "refs/remotes/upstream/release"), b.onto
+    assert_equal "release", @repo.rebase(b).ref
+    assert_equal "release", @repo.base(b).ref
+    assert @repo.diff(b).empty?
+  end
+
+  def test_an_amend_is_diverged_but_not_a_rebase
+    commit(@stage, "a.txt", LINES, "Add a")
+    push(@stage, "main")
+    @repo.approve!("main")
+    File.write(File.join(@stage, "a.txt"), LINES.sub("line 5", "a fixed"))
+    git("add", "a.txt", chdir: @stage)
+    git("commit", "--quiet", "--amend", "--no-edit", chdir: @stage)
+    push(@stage, "main", force: true)
+
+    b = @repo.branch("main")
+    assert_equal :diverged, b.status
+    refute b.rebased?
+    assert_nil @repo.rebase(b)
+    assert_includes @repo.diff(b).text, "+a fixed"
+    rewrite = @repo.rewrite(b)
+    assert_equal({ b.staged => b.upstream }, rewrite.changed, "the reworked commit pairs with the one it replaces")
+  end
+
+  def test_upstream_moving_under_a_staged_branch_is_not_a_rebase
+    stage_commit
+    upstream_commit
+    @repo.fetch!
+    b = @repo.branch("main")
+    assert_equal :diverged, b.status
+    refute b.rebased?
+    assert_equal 1, b.ahead
+    assert_equal 1, b.behind
+    rewrite = @repo.rewrite(b)
+    assert_empty rewrite.unchanged
+    assert_empty rewrite.changed
+    refute rewrite.carried?(b.upstream)
+  end
+
+  def test_no_pairing_past_the_limit
+    stage_commit
+    upstream_commit
+    @repo.fetch!
+    b = @repo.branch("main")
+    assert @repo.rewrite(b)
+    stub_const(Repo, :REWRITE_LIMIT, 0) { assert_nil @repo.rewrite(b) }
+  end
+
+  def stub_const(mod, name, value)
+    saved = mod.const_get(name)
+    mod.send(:remove_const, name)
+    mod.const_set(name, value)
+    yield
+  ensure
+    mod.send(:remove_const, name)
+    mod.const_set(name, saved)
+  end
+
+  # Enough lines that a commit changing one of them is still mostly the
+  # same patch, which is what pairs it with its reworked version.
+  LINES = (1..10).map { |i| "line #{i}\n" }.join
+
+  def rebase_feature_onto_new_main(amend: false)
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("feature.txt", LINES, "Add feature", branch: "feature")
+    @repo.approve!("feature")
+    upstream_commit
+    @repo.fetch!
+    git("fetch", "--quiet", @upstream, "main:refs/remotes/up/main", chdir: @stage)
+    git("rebase", "--quiet", "up/main", chdir: @stage)
+    if amend
+      File.write(File.join(@stage, "feature.txt"), LINES.sub("line 5", "feature fixed"))
+      git("add", "feature.txt", chdir: @stage)
+      git("commit", "--quiet", "--amend", "--no-edit", chdir: @stage)
+    end
+    push(@stage, "feature", force: true)
+  end
+
   def test_base_is_upstreams_tip_when_ready
     tip = rev(@repo.path, "refs/remotes/upstream/main")
     stage_commit

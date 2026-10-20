@@ -15,6 +15,10 @@
 #   approve   one staged commit on main, for the approve test.
 #   discard   one staged commit on main, for the discard test.
 #   diverged  one staged commit on main and upstream moved underneath it.
+#   rebased   a feature branch rebased onto a newer main, one of its two
+#             commits amended on the way. Read-only.
+#   conflicted  a feature branch rebased onto a main that changed the same
+#             line, the conflict resolved by hand. Read-only.
 #   slow      upstream is an http stub in this process that answers 404
 #             after a delay, so a fetch can be watched running and failing.
 #   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
@@ -129,6 +133,39 @@ def seed(dir)
   commit(up_work, "Upstream change", "other.txt" => "upstream\n")
   git("push", "--quiet", "origin", "main", chdir: up_work)
   Outbox::Repo.find!("diverged").fetch!
+
+  body = (1..12).map { |i| "line #{i}\n" }.join
+  upstream, up_work = make_upstream(dir, "rebased", "README" => "hello\n")
+  git("checkout", "--quiet", "-b", "feature", chdir: up_work)
+  commit(up_work, "Add greeter", "greeter.rb" => "class Greeter\n#{body}end\n")
+  commit(up_work, "Add docs", "docs.md" => "#{body}docs\n")
+  git("push", "--quiet", "origin", "feature", chdir: up_work)
+  work = add_repo(dir, "rebased", upstream)
+  git("checkout", "--quiet", "-b", "feature", "origin/feature", chdir: work)
+  git("checkout", "--quiet", "main", chdir: up_work)
+  commit(up_work, "Upstream change", "other.txt" => "upstream\n")
+  git("push", "--quiet", "origin", "main", chdir: up_work)
+  Outbox::Repo.find!("rebased").fetch!
+  git("fetch", "--quiet", upstream, "main:refs/remotes/up/main", chdir: work)
+  git("rebase", "--quiet", "up/main", chdir: work)
+  git("reset", "--quiet", "--soft", "HEAD~1", chdir: work)
+  commit(work, "Add docs", "docs.md" => "#{body}docs, with more\n")
+  git("push", "--quiet", "--force", "origin", "feature", chdir: work)
+
+  cfg = (1..12).map { |i| "setting_#{i} = #{i}\n" }.join
+  upstream, up_work = make_upstream(dir, "conflicted", "config.ini" => cfg)
+  git("checkout", "--quiet", "-b", "feature", chdir: up_work)
+  commit(up_work, "Raise the timeout", "config.ini" => cfg.sub("setting_6 = 6", "setting_6 = 60"))
+  git("push", "--quiet", "origin", "feature", chdir: up_work)
+  work = add_repo(dir, "conflicted", upstream)
+  git("checkout", "--quiet", "main", chdir: up_work)
+  commit(up_work, "Change the timeout too", "config.ini" => cfg.sub("setting_6 = 6", "setting_6 = 30"))
+  git("push", "--quiet", "origin", "main", chdir: up_work)
+  Outbox::Repo.find!("conflicted").fetch!
+  git("fetch", "--quiet", upstream, "main:refs/remotes/up/main", chdir: work)
+  git("checkout", "--quiet", "-b", "feature", "up/main", chdir: work)
+  commit(work, "Raise the timeout", "config.ini" => cfg.sub("setting_6 = 6", "setting_6 = 45"))
+  git("push", "--quiet", "--force", "origin", "feature", chdir: work)
 
   Outbox::Config.add("slow", "http://127.0.0.1:#{start_stub}/slow.git")
   Outbox::Config.apply!
