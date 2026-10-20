@@ -125,6 +125,17 @@ module Outbox
       # "N", or "latest N of M" when the list was cut off at its limit.
       def commit_total(shown, total) = shown < total ? "latest #{shown} of #{total}" : total.to_s
 
+      # Other branches whose tip is this commit, by sha. Both the staged and
+      # the upstream tip count; a branch is listed once per commit.
+      def other_tips(branches, branch)
+        tips = Hash.new { |h, k| h[k] = [] }
+        branches.each do |b|
+          next if b.name == branch.name
+          [b.staged, b.upstream].compact.uniq.each { |sha| tips[sha] << b.name }
+        end
+        tips
+      end
+
       def commit_url(repo, branch, commit) = "#{branch_url(repo, branch)}/commits/#{commit.sha}"
 
       def identity_line(c)
@@ -385,6 +396,7 @@ module Outbox
       @outgoing_count = @repo.outgoing_commit_count(@branch)
       @outgoing_stats = @repo.outgoing_commit_stats(@branch)
       @patch = @repo.diff(@branch)
+      @tips = other_tips(@repo.branches, @branch)
       erb :branch
     end
 

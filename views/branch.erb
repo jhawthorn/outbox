@@ -51,7 +51,7 @@
   <p class="muted">Upstream has these and the staged branch does not. Approving removes them from upstream.</p>
   <div class="history dropped">
     <% change_shares(@outgoing, @outgoing_stats).each do |c, before, share| %>
-      <%= erb :_commit, layout: false, locals: { c: c, stats: @outgoing_stats, before: before, share: share, url: nil, whole: "dropped change" } %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @outgoing_stats, before: before, share: share, url: nil, tips: @tips, whole: "dropped change" } %>
     <% end %>
   </div>
 <% end %>
@@ -60,7 +60,7 @@
   <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
   <div class="history">
     <% change_shares(@commits, @stats).each do |c, before, share| %>
-      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), whole: "branch's change" } %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), tips: @tips, whole: "branch's change" } %>
     <% end %>
     <% if @base %>
       <div class="commit base">

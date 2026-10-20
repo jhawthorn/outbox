@@ -16,6 +16,7 @@
       </details>
     <% end %>
     <% if c.merge? %><span class="badge merge">merge</span><% end %>
+    <% tips[c.sha].each do |name| %><a class="badge tip" href="<%= branch_url(@repo, name) %>" title="Also the tip of <%= h name %>"><%= h name %></a><% end %>
   </div>
   <div class="meta">
     <div class="line"><code class="hash"><%= c.short %></code><span class="name"><%= identity(c.author, c.author_email) %></span><span class="when"><%= when_label(c.date) %></span></div>

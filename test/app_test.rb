@@ -280,6 +280,18 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "/repos/demo/branches/main/commits/#{second}"
   end
 
+  def test_branch_page_marks_commits_that_are_another_branchs_tip
+    first = stage_commit("a.txt", "a\n", "First")
+    push(@stage, "main:topic")
+    second = stage_commit("b.txt", "b\n", "Second")
+    body = get("/repos/demo/branches/main")
+    assert_includes body, 'class="badge tip" href="/repos/demo/branches/topic"'
+    assert_equal 1, body.scan('class="badge tip"').size
+    refute_includes get("/repos/demo/branches/topic"), 'class="badge tip"'
+    assert_equal first, @repo.branch("topic").staged
+    refute_equal second, first
+  end
+
   def test_commit_page_shows_one_commit_with_navigation
     first = stage_commit("a.txt", "a\n", "First")
     File.write(File.join(@stage, "b.txt"), "b\n")
