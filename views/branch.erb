@@ -13,7 +13,7 @@
     <div class="summary"><%= h summary(@branch) %></div>
     <div class="detail muted"><%= tips_label(@branch) %> · last commit <%= committed_label(@branch.time) %></div>
     <% if @rebase %>
-      <div class="note rebase">Moved <% if @rebase.from %>from <code><%= @rebase.from.short %></code> <% end %>onto <% if @rebase.ref %><b><%= h @rebase.ref %></b> <% end %><code><%= @rebase.onto.short %></code>.
+      <div class="note rebase<%= " drops" if @dropped_count.positive? %>">Moved <% if @rebase.from %>from <code><%= @rebase.from.short %></code> <% end %>onto <% if @rebase.ref %><b><%= h @rebase.ref %></b> <% end %><code><%= @rebase.onto.short %></code>.
         <% if @rewrite %>Of upstream's <%= pluralize(@branch.behind, "commit") %>: <%= rewrite_label(@rewrite, @dropped_count) %>.<% end %>
         Approving overwrites upstream's version.</div>
     <% elsif @branch.needs_force? %>
@@ -27,7 +27,7 @@
               onsubmit="return confirm('<%= h force_confirm(@branch, @dropped_count) %>')">
           <input type="hidden" name="force" value="1">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
-          <button type="submit" class="warn">Force approve</button>
+          <button type="submit" class="warn"><%= h force_label(@dropped_count) %></button>
         </form>
       <% elsif @branch.status == :deleted %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"

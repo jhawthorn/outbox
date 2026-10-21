@@ -346,7 +346,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "Dropped from upstream (1)"
     assert_includes body, "Upstream has moved. Approving overwrites it."
     assert_match(%r{<div class="history dropped">.*<span class="subject">Upstream change</span>.*\+2</span> <span class="count del">−0</span>.*</div>\s*<h2>Commits}m, body)
-    assert_includes body, "Force approve"
+    assert_includes body, "Force approve (drops 1 commit)"
     refute_includes body, "Approve and push to upstream"
   end
 
@@ -373,9 +373,9 @@ class AppTest < OutboxTest::RepoCase
     rebase_feature
     body = get("/repos/demo/branches/feature")
     assert_includes body, '<span class="badge diverged">rebased</span>'
-    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit"
+    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit; replaces 2 upstream commits"
     assert_includes body, "onto <b>upstream/main</b>"
-    assert_includes body, "Of upstream's 2 commits: 1 carried over unchanged, 1 changed."
+    assert_includes body, "Of upstream's 2 commits: 1 carried over unchanged, 1 changed, none dropped."
     assert_includes body, "Approving overwrites upstream's version."
     assert_includes body, "Commits (2)"
     refute_includes body, "Dropped from upstream", "both upstream commits live on"
@@ -395,7 +395,7 @@ class AppTest < OutboxTest::RepoCase
 
     body = get("/repos/demo")
     assert_includes body, '<span class="badge diverged">rebased</span>'
-    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit"
+    assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit; replaces 2 upstream commits"
     assert_includes get("/"), "rebased onto 1 newer upstream commit"
   end
 
@@ -412,7 +412,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/branches/feature")
     assert_includes body, "Files changed (0)"
     assert_includes body, "The rebase changed nothing else"
-    assert_includes body, "1 carried over unchanged."
+    assert_includes body, "1 carried over unchanged, none dropped."
   end
 
   def test_a_rebase_that_dropped_a_commit_lists_it
@@ -433,6 +433,8 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "not even reworked: the 1 commit it carries over is marked below"
     assert_match(%r{<div class="history dropped">.*<span class="subject">Add two</span>.*</div>\s*<h2>Commits \(1\)}m, body)
     assert_includes body, "confirm('Force-push feature to upstream? 1 upstream commit will be dropped.')"
+    assert_includes body, "Force approve (drops 1 commit)"
+    assert_includes body, '<div class="note rebase drops">'
     assert_includes body, "two.txt"
     assert_includes get("/repos/demo/branches/feature.patch"), "-line 1", "dropping the commit shows as removing what it added"
   end

@@ -90,7 +90,8 @@ module Outbox
         when :deleted  then "branch will be deleted upstream (#{pluralize(branch.behind, "commit")} only reachable from it)"
         when :diverged
           if branch.rebased?
-            "#{pluralize(branch.ahead, "commit")} to push, rebased onto #{pluralize(branch.picked_up, "newer upstream commit")}"
+            "#{pluralize(branch.ahead, "commit")} to push, rebased onto #{pluralize(branch.picked_up, "newer upstream commit")}; " \
+              "replaces #{pluralize(branch.behind, "upstream commit")}"
           else
             "#{pluralize(branch.ahead, "commit")} to push; upstream has #{pluralize(branch.behind, "commit")} not in staged"
           end
@@ -99,12 +100,13 @@ module Outbox
 
       # What becomes of the commits upstream has on a diverged branch, from
       # the pairing (Repo::Rewrite): "2 carried over unchanged, 1 changed,
-      # 1 dropped", leaving out the kinds there are none of.
+      # 1 dropped", leaving out the kinds there are none of
+      # except dropped, which is always said.
       def rewrite_label(rewrite, dropped)
         parts = []
         parts << "#{rewrite.unchanged.size} carried over unchanged" unless rewrite.unchanged.empty?
         parts << "#{rewrite.changed.size} changed" unless rewrite.changed.empty?
-        parts << "#{dropped} dropped" if dropped.positive?
+        parts << (dropped.positive? ? "#{dropped} dropped" : "none dropped")
         parts.join(", ")
       end
 
@@ -120,6 +122,9 @@ module Outbox
           end
         "Force-push #{branch.name} to upstream? #{what}"
       end
+
+      # The force approve button says what it deletes.
+      def force_label(dropped) = dropped.positive? ? "Force approve (drops #{pluralize(dropped, "commit")})" : "Force approve"
 
       def pluralize(n, singular, plural = "#{singular}s") = "#{n} #{n == 1 ? singular : plural}"
 
