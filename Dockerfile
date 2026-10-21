@@ -23,7 +23,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 # Fixed uid so the git daemon container (a stock git image sharing the repos
 # volume) can run as the same user.
-RUN groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home outbox \
+# Ubuntu noble images ship an "ubuntu" user and group at 1000; drop it first.
+RUN (id ubuntu >/dev/null 2>&1 && userdel --remove ubuntu || true) \
+ && (getent group ubuntu >/dev/null && groupdel ubuntu || true) \
+ && groupadd --gid 1000 outbox && useradd --uid 1000 --gid outbox --create-home outbox \
  && mkdir -p /data/repos /data/config.git && chown -R outbox:outbox /data
 WORKDIR /app
 COPY --from=build /usr/local/bundle /usr/local/bundle
