@@ -217,7 +217,7 @@ class HubTest < OutboxTest::RepoCase
     git("commit", "--quiet", "-am", "Break it", chdir: work)
     push(work, "main")
     # A directory that is not a repo, where the staging repo would go, is
-    # one way apply! can fail: git refuses to read its remote.
+    # one way apply! can fail: git refuses to set up its remotes.
     FileUtils.mkdir_p(File.join(Outbox::Repo.repos_dir, "bad.git"))
 
     @hub.approve(config, "main")
@@ -225,7 +225,7 @@ class HubTest < OutboxTest::RepoCase
     wait_until("apply to fail") { @hub.status(config).last&.job == :apply }
     s = @hub.status(config).last
     refute s.ok?
-    assert_match(/git config/, s.message)
+    assert_match(/not a git repository/, s.message)
   end
 
   def test_a_dead_actor_is_replaced

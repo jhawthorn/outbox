@@ -62,17 +62,18 @@ module Outbox
     # restart interrupted.
     def start_all
       Config.ensure!
-      created = reconcile.map(&:name)
-      Repo.all.each { |repo| fetch(repo) unless created.include?(repo.name) }
+      fetched = reconcile.map(&:name)
+      Repo.all.each { |repo| fetch(repo) unless fetched.include?(repo.name) }
     end
 
     # Apply the approved configuration: create staging repos for new
-    # entries and start their first fetch. Runs at boot and after every
-    # approval on the config repo.
+    # entries, bring the remotes of the others in line, and fetch every repo
+    # that gained a remote, or is new. Runs at boot and after every approval
+    # on the config repo. Returns the repos it fetched.
     def reconcile
-      created = Config.apply!
-      created.each { |repo| fetch(repo) }
-      created
+      changed = Config.apply!
+      changed.each { |repo| fetch(repo) }
+      changed
     end
 
     def status(repo)

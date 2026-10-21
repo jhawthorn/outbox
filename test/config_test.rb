@@ -69,12 +69,117 @@ class ConfigTest < OutboxTest::RepoCase
       CONF
     end
     config = Config.load
-    assert_equal({ "a.b" => "https://example.com/a.git" }, config.repos)
+    assert_equal({ "a.b" => "https://example.com/a.git" }, config.repos.transform_values(&:push_url))
     assert_equal [
       "rails: upstream git@github.com:rails/rails.git must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path",
       "\"-x\" is not a valid repository name",
       "_config is reserved for the configuration itself",
       "empty has no upstream",
+    ], config.problems
+  end
+
+  def write_conf(text) = Config.edit(message: "Edit") { |f| File.write(f, text) }
+
+  def test_load_reads_named_remotes
+    write_conf(<<~'CONF')
+      [remote "you"]
+          url = https://github.com/you/${name}.git
+      [remote "ruby"]
+          url = https://github.com/ruby/${name}.git
+      [remote "shopify"]
+          url = https://github.com/Shopify/${name}.git
+
+      [repo "ruby"]
+          push = you
+          fetch = ruby
+          fetch = shopify
+          base = ruby/master
+          base = ruby/ruby_4_0
+
+      [repo "vernier"]
+          push = you
+    CONF
+    config = Config.load
+    assert_empty config.problems
+    ruby = config.repos.fetch("ruby")
+    assert_equal "you", ruby.push
+    assert_equal [%w[you https://github.com/you/ruby.git], %w[ruby https://github.com/ruby/ruby.git],
+                  %w[shopify https://github.com/Shopify/ruby.git]], ruby.remotes.to_a
+    assert_equal %w[ruby/master ruby/ruby_4_0], ruby.bases
+    vernier = config.repos.fetch("vernier")
+    assert_equal [%w[you https://github.com/you/vernier.git]], vernier.remotes.to_a
+    assert_empty vernier.bases
+  end
+
+  def test_load_reports_problems_with_remotes_and_bases
+    write_conf(<<~'CONF')
+      [remote "you"]
+          url = https://github.com/you/${name}.git
+      [remote "origin"]
+          url = https://example.com/${name}.git
+      [remote "a.b"]
+          url = https://example.com/${name}.git
+      [remote "nourl"]
+          other = x
+      [remote "ssh"]
+          url = git@github.com:x/${name}.git
+      [remote "solo"]
+          url = https://github.com/ruby/ruby.git
+
+      [repo "nopush"]
+          fetch = you
+      [repo "both"]
+          upstream = https://example.com/both.git
+          push = you
+      [repo "twopush"]
+          push = you
+          push = solo
+      [repo "unknown"]
+          push = you
+          fetch = nope
+      [repo "twice"]
+          push = you
+          fetch = you
+      [repo "badbase"]
+          push = you
+          base = ruby/master
+          base = you/
+          base = you/a..b
+      [repo "dupbase"]
+          push = you
+          base = you/main
+          base = you/main
+      [repo "sshy"]
+          push = ssh
+      [repo "s1"]
+          push = you
+          fetch = solo
+      [repo "s2"]
+          push = you
+          fetch = solo
+      [repo "s3"]
+          push = solo
+      [repo "fine"]
+          push = you
+          base = you/main
+    CONF
+    config = Config.load
+    assert_equal %w[fine], config.repos.keys
+    assert_equal [
+      "origin is reserved: clones of the outbox use it",
+      "\"a.b\" is not a valid remote name",
+      "remote nourl has no url",
+      "nopush has no push remote",
+      "both has both upstream and push; give one",
+      "twopush has more than one push remote",
+      "unknown: no remote named nope",
+      "twice lists remote you twice",
+      "badbase: base ruby/master is not a branch of one of its remotes, as remote/branch",
+      "badbase: base you/ is not a branch of one of its remotes, as remote/branch",
+      "badbase: base you/a..b is not a branch of one of its remotes, as remote/branch",
+      "dupbase lists base you/main twice",
+      "sshy: remote ssh git@github.com:x/sshy.git must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path",
+      "remote solo has no ${name} in its url, so only one repository can use it, not s1, s2, s3",
     ], config.problems
   end
 
@@ -87,7 +192,7 @@ class ConfigTest < OutboxTest::RepoCase
 
   def test_add_edits_the_live_config
     Config.add("demo", @upstream)
-    assert_equal({ "demo" => @upstream }, Config.load.repos)
+    assert_equal({ "demo" => @upstream }, Config.load.repos.transform_values(&:push_url))
     assert_equal "Add demo", git("log", "-1", "--format=%s", chdir: live).strip
 
     other, = make_upstream("other")
@@ -134,15 +239,69 @@ class ConfigTest < OutboxTest::RepoCase
     created.first.fetch!
     assert_equal %w[main], Repo.find!("other").branches.map(&:name)
 
-    # A changed upstream re-points the existing staging repo.
+    # A changed upstream re-points the existing staging repo, which then
+    # wants a fetch.
     moved, = make_upstream("moved")
     Config.add("other", moved)
-    assert_empty Config.apply!
+    assert_equal ["other"], Config.apply!.map(&:name)
     assert_equal moved, Repo.find!("other").upstream_url
+    assert_empty Config.apply!, "nothing changed"
 
     # The config repo itself is never touched.
     assert File.directory?(Config.staging.path)
     assert_empty Config.apply!
+  end
+
+  # A fork: mine/proj.git is a copy of theirs/proj.git, which has moved on.
+  def test_apply_gives_a_repo_its_remotes_and_bases
+    theirs, their_work = make_upstream("proj", dir: File.join(@dir, "theirs"))
+    mine = File.join(@dir, "mine", "proj.git")
+    git("clone", "--quiet", "--bare", theirs, mine)
+    commit(their_work, "new.txt", "new\n", "Theirs moved on")
+    push(their_work, "main")
+    conf = <<~CONF
+      [remote "mine"]
+          url = #{@dir}/mine/${name}.git
+      [remote "theirs"]
+          url = #{@dir}/theirs/${name}.git
+      [repo "proj"]
+          push = mine
+          fetch = theirs
+          base = theirs/main
+    CONF
+    write_conf(conf)
+    assert_equal ["proj"], Config.apply!.map(&:name)
+    repo = Repo.find!("proj")
+    assert_equal [["mine", mine], ["theirs", theirs]], repo.remotes.to_a
+    assert_equal "mine", repo.push_remote
+    assert_equal ["theirs/main"], repo.configured_bases
+    repo.fetch!
+    assert_equal rev(mine, "main"), rev(repo.path, "refs/heads/main")
+    assert_equal rev(theirs, "main"), rev(repo.path, "refs/remotes/theirs/main")
+    assert_empty Config.apply!, "nothing changed"
+
+    write_conf(conf.sub(/^\s*fetch = theirs\n/, "").sub(%r{^\s*base = theirs/main\n}, ""))
+    assert_empty Config.apply!, "dropping a remote needs no fetch"
+    assert_equal %w[mine], Repo.find!("proj").remotes.keys
+    write_conf(conf)
+    assert_equal ["proj"], Config.apply!.map(&:name), "adding one does"
+  end
+
+  # The upstream remote of a repo from before remotes had names becomes the
+  # named push remote, keeping what it has.
+  def test_apply_names_an_upstream_remote
+    stage_commit
+    write_conf(<<~CONF)
+      [remote "mine"]
+          url = #{@upstream}
+      [repo "demo"]
+          push = mine
+    CONF
+    assert_empty Config.apply!, "the same repo by another name needs no fetch"
+    repo = Repo.find!("demo")
+    assert_equal [["mine", @upstream]], repo.remotes.to_a
+    assert_equal rev(@upstream, "main"), rev(repo.path, "refs/remotes/mine/main")
+    assert_equal :ready, repo.branch("main").status
   end
 
   def test_proposed_change_goes_through_review_before_taking_effect
@@ -161,7 +320,7 @@ class ConfigTest < OutboxTest::RepoCase
     assert_empty Config.load.repos, "the live config is untouched until approval"
 
     staging.approve!("main")
-    assert_equal({ "demo" => @upstream }, Config.load.repos)
+    assert_equal({ "demo" => @upstream }, Config.load.repos.transform_values(&:push_url))
     assert_equal :synced, staging.branch("main").status
     assert_equal rev(work, "HEAD"), rev(live, "main")
   end

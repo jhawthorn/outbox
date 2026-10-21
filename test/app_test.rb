@@ -159,6 +159,16 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.post("/repos/demo/destroy").status
   end
 
+  def test_repo_page_lists_remotes_and_bases
+    theirs = File.join(@dir, "theirs.git")
+    git("clone", "--quiet", "--bare", @upstream, theirs)
+    @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream, "theirs" => theirs }, bases: ["theirs/main"])
+    body = get("/repos/demo")
+    assert_includes body, "push <b>upstream</b> <code>#{@upstream}</code>"
+    assert_includes body, "fetch <b>theirs</b> <code>#{theirs}</code>"
+    assert_includes body, "base <b>theirs/main</b>"
+  end
+
   def test_config_repo_page
     Outbox::Config.staging.fetch!
     body = get("/repos/_config")
@@ -322,7 +332,7 @@ class AppTest < OutboxTest::RepoCase
     stage_commit("a.txt", "a\n", "First")
     body = get("/repos/demo/branches/main")
     assert_includes body, "fork point"
-    assert_includes body, "upstream <b>main</b>"
+    assert_includes body, "<b>upstream/main</b> · fork point"
     assert_includes body, ">initial<", "the commit they build on is shown"
     assert_includes body, "already upstream"
     assert_includes body, '<span class="count add">+1</span> <span class="count del">−0</span>'
@@ -364,7 +374,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/branches/feature")
     assert_includes body, '<span class="badge diverged">rebased</span>'
     assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit"
-    assert_includes body, "onto <b>main</b>"
+    assert_includes body, "onto <b>upstream/main</b>"
     assert_includes body, "Of upstream's 2 commits: 1 carried over unchanged, 1 changed."
     assert_includes body, "Approving overwrites upstream's version."
     assert_includes body, "Commits (2)"
@@ -372,7 +382,7 @@ class AppTest < OutboxTest::RepoCase
     refute_includes body, '<span class="subject">Upstream change</span>', "the commit picked up from main is not the branch's"
     assert_match(%r{>Add one</a>.*<span class="badge same" title="The same patch as upstream's \h{10}; only what it builds on moved">unchanged</span>}m, body)
     assert_match(%r{>Add two</a>.*<span class="badge changed" title="Reworked from upstream's \h{10}">changed</span>}m, body)
-    assert_includes body, "upstream <b>main</b> · rebased onto"
+    assert_includes body, "<b>upstream/main</b> · rebased onto"
     assert_includes body, ">Upstream change<", "the commit the branch now rests on"
     assert_includes body, "Files changed (1)"
     assert_includes body, "What changed besides the rebase"

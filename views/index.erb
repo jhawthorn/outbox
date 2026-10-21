@@ -79,6 +79,9 @@
   <p class="muted">The list above comes from <code><%= h Outbox::Config::FILE %></code> in
   <code><%= h config_clone_url %></code>. Clone it, add a section, push to a branch, and
   approve the change here like any other.</p>
-  <pre><code>[repo "myapp"]
-    upstream = https://github.com/you/myapp.git</code></pre>
+  <pre><code>[remote "you"]
+    url = https://github.com/you/${name}.git
+
+[repo "myapp"]
+    push = you</code></pre>
 </details>

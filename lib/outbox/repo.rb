@@ -3,21 +3,38 @@
 require "fileutils"
 
 module Outbox
-  # A staging repository: a bare repo that clients push to. The real remote is
-  # configured as the "upstream" remote, tracked under refs/remotes/upstream/*.
+  # A staging repository: a bare repo that clients push to. Each real remote
+  # it tracks is a git remote of the same name, fetched into
+  # refs/remotes/<remote>/*. One of them, the push remote (outbox.push in the
+  # repo's config), is where approvals go; in this file "upstream" means that
+  # one, whatever it is called. The others are only fetched.
   #
   #   refs/heads/<branch>            what has been pushed to the outbox
-  #   refs/remotes/upstream/<branch> what the real remote has (as of last fetch)
+  #   refs/remotes/<push>/<branch>   what the real remote has (as of last fetch)
+  #   refs/remotes/<other>/<branch>  what a fetch-only remote has
   #
-  # A branch is "pending" whenever those two differ. Approving pushes the staged
-  # ref to upstream; discarding resets the staged ref back to upstream.
+  # A branch is "pending" whenever the first two differ. Approving pushes the
+  # staged ref to upstream; discarding resets the staged ref back to upstream.
+  # Commits any remote has are not a branch's own, and a new branch is shown
+  # against the nearest of the repo's bases (outbox.base).
   #
   # Reads (branches, commits, diff) are safe from any thread. Writes (fetch!,
   # approve!, discard!) are only ever called from the repo's RepoActor, which
-  # serialises them.
+  # serialises them. Config.apply! also writes, to the remotes alone.
   class Repo
     # No leading "." or "-": those would be path traversal or a git flag.
     NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/
+
+    # A remote's name is a ref path component in every clone, so no "/";
+    # no "." either, which is kept free for scoping a remote to one repo.
+    REMOTE_NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9_-]*\z/
+
+    # Clones of a staging repo call it origin, and fetch every
+    # refs/remotes/<remote>/* beside it, so no remote may be called that.
+    RESERVED_REMOTES = %w[origin HEAD].freeze
+
+    # The push remote of a repo created before remotes had names.
+    LEGACY_PUSH = "upstream"
 
     class Branch
       attr_reader :name, :staged, :upstream, :status, :ahead, :behind, :onto, :picked_up, :time
@@ -82,8 +99,8 @@ module Outbox
     end
 
     # Where a rebased branch went: onto is the commit it now builds on, ref
-    # an upstream branch that has it (the default branch when it does), and
-    # from the commit upstream's version builds on, or nil when the two
+    # a remote branch that has it, as "remote/branch" (a base when one does),
+    # and from the commit upstream's version builds on, or nil when the two
     # histories are unrelated. replay is the tree of upstream's version
     # moved onto the new base by git merge-tree, which is what the staged
     # tip is diffed against, so the diff shows what changed beyond the move;
@@ -132,7 +149,7 @@ module Outbox
     end
 
     # Where a branch's incoming commits start: the commit they build on, and
-    # the upstream branch it is on.
+    # the remote branch it is on, as "remote/branch".
     class Base
       attr_reader :commit, :ref
 
@@ -162,15 +179,23 @@ module Outbox
       token.empty? ? nil : token
     end
 
-    # Upstreams are https URLs, authenticated with the token, or local
-    # paths. Anything else (ssh, git://) is refused: there is nothing here
-    # to authenticate it with, and a failed fetch later would be harder to
-    # read than a message now. Returns the problem, or nil.
-    def self.upstream_url_problem(url)
+    # Remotes are https URLs, authenticated with the token, or local paths.
+    # Anything else (ssh, git://) is refused: there is nothing here to
+    # authenticate it with, and a failed fetch later would be harder to read
+    # than a message now. what names the URL in the message. Returns the
+    # problem, or nil.
+    def self.upstream_url_problem(url, what = "upstream")
       url = url.to_s.strip
-      return "upstream URL is required" if url.empty?
+      return "#{what} URL is required" if url.empty?
       return nil if url.match?(%r{\Ahttps?://}i) || url.match?(%r{\A(/|\./|\.\./|file://)})
-      "upstream #{url} must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path"
+      "#{what} #{url} must be an https URL (authenticated with OUTBOX_UPSTREAM_TOKEN) or a local path"
+    end
+
+    # Whether name can be a branch, by git check-ref-format's rules, without
+    # running git: config is checked on every index page.
+    def self.branch_name?(name)
+      name = name.to_s
+      !name.empty? && !name.match?(%r{[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|\A/|/\z|\.\z|\.lock(\z|/)|(\A|/)\.|\A-|\A@\z})
     end
 
     # Installed into every staging repo: update limits pushes to branches,
@@ -191,8 +216,11 @@ module Outbox
       find(name) or raise NotFound, "no repository named #{name.inspect}"
     end
 
-    def self.create(name, upstream_url, root: self.root)
+    # A staging repo with one remote, the push remote, called push. Any
+    # others come from configure!.
+    def self.create(name, upstream_url, root: self.root, push: LEGACY_PUSH)
       raise ArgumentError, "invalid repository name #{name.inspect}" unless name.to_s.match?(NAME_RE)
+      raise ArgumentError, "invalid remote name #{push.inspect}" unless push.match?(REMOTE_NAME_RE)
       if (problem = upstream_url_problem(upstream_url))
         raise ArgumentError, problem
       end
@@ -208,9 +236,8 @@ module Outbox
         # Bare repos don't keep reflogs by default. We want one per staged
         # branch: it is the push history, and it is how force pushes show.
         repo.git("config", "core.logAllRefUpdates", "true")
-        repo.git("remote", "add", "upstream", upstream_url.strip)
-        repo.git("config", "remote.upstream.fetch", "+refs/heads/*:refs/remotes/upstream/*")
-        repo.git("config", "remote.upstream.tagOpt", "--no-tags")
+        repo.add_remote(push, upstream_url.strip)
+        repo.git("config", "outbox.push", push)
         repo.install_hooks
       rescue StandardError
         FileUtils.rm_rf(repo.path)
@@ -250,17 +277,63 @@ module Outbox
       { "GIT_ASKPASS" => ASKPASS, "OUTBOX_UPSTREAM_TOKEN" => @upstream_token }
     end
 
-    def upstream_url
-      git("config", "remote.upstream.url").strip
-    end
+    # --- remotes ------------------------------------------------------------
+
+    # The remote approvals go to. A repo from before remotes had names has no
+    # outbox.push, and its one remote is called upstream.
+    def push_remote = settings[:push]
+
+    # Every remote, { name => url }, the push remote first.
+    def remotes = settings[:remotes]
+
+    # The bases, as "remote/branch", in the order configured. Empty when
+    # none are, and then the push remote's default branch is the base.
+    def configured_bases = settings[:bases]
+
+    def upstream_url = remotes[push_remote].to_s
 
     # Whether fetching and pushing need the token.
-    def remote_upstream? = upstream_url.match?(%r{\Ahttps?://}i)
+    def remote_upstream? = remotes.values.any? { |url| url.match?(%r{\Ahttps?://}i) }
 
-    # The URL is a copy of what the configuration says (Config.apply! keeps
-    # it current); git needs it here to fetch and push.
-    def upstream_url=(url)
-      git("remote", "set-url", "upstream", url)
+    # Make the remotes and bases what the configuration says (Config.apply!
+    # keeps them current; git needs the URLs here to fetch and push).
+    # remotes is { name => url }. A push remote that only changes its name
+    # is renamed, refs and all, so what upstream has is known throughout.
+    # Remotes no longer listed are removed with their refs, which a fetch
+    # would bring back. Returns whether there is anything new to fetch: a
+    # remote added or pointed somewhere else.
+    def configure!(push:, remotes:, bases:)
+      current = self.remotes.dup
+      old = push_remote
+      if old != push && current.key?(old) && !current.key?(push)
+        git("remote", "rename", old, push)
+        current[push] = current.delete(old)
+      end
+      fetch_needed = false
+      remotes.each do |name, url|
+        if !current.key?(name)
+          add_remote(name, url)
+          fetch_needed = true
+        elsif current[name] != url
+          git("remote", "set-url", name, url)
+          fetch_needed = true
+        end
+      end
+      (current.keys - remotes.keys).each { |name| git("remote", "remove", name) }
+      git("config", "outbox.push", push) unless settings[:push_set] && old == push
+      unless configured_bases == bases
+        git("config", "--unset-all", "outbox.base", ok: [0, 5])
+        bases.each { |b| git("config", "--add", "outbox.base", b) }
+      end
+      @settings = nil
+      fetch_needed
+    end
+
+    # Each remote's branches under refs/remotes/<name>/, never its tags.
+    def add_remote(name, url)
+      git("remote", "add", name, url)
+      git("config", "remote.#{name}.fetch", "+refs/heads/*:refs/remotes/#{name}/*")
+      git("config", "remote.#{name}.tagOpt", "--no-tags")
     end
 
     def destroy!
@@ -295,7 +368,12 @@ module Outbox
     # --- refs ---------------------------------------------------------------
 
     STAGED_PREFIX = "refs/heads/"
-    UPSTREAM_PREFIX = "refs/remotes/upstream/"
+    REMOTES_PREFIX = "refs/remotes/"
+
+    def upstream_prefix = "#{REMOTES_PREFIX}#{push_remote}/"
+
+    # Where upstream's copy of a branch is kept.
+    def upstream_ref(branch) = "#{upstream_prefix}#{branch}"
 
     def staged_refs = all_refs[0]
     def upstream_refs = all_refs[1]
@@ -308,15 +386,16 @@ module Outbox
       staged = {}
       upstream = {}
       times = {}
-      out = git("for-each-ref", "--format=%(refname) %(objectname) %(committerdate:unix)", STAGED_PREFIX.chomp("/"), UPSTREAM_PREFIX.chomp("/"))
+      prefix = upstream_prefix
+      out = git("for-each-ref", "--format=%(refname) %(objectname) %(committerdate:unix)", STAGED_PREFIX.chomp("/"), prefix.chomp("/"))
       out.each_line do |line|
         ref, sha, time = line.split
         if ref.start_with?(STAGED_PREFIX)
           name = ref.delete_prefix(STAGED_PREFIX)
           staged[name] = sha
           times[name] = time.to_i
-        elsif ref.start_with?(UPSTREAM_PREFIX)
-          name = ref.delete_prefix(UPSTREAM_PREFIX)
+        elsif ref.start_with?(prefix)
+          name = ref.delete_prefix(prefix)
           next if name == "HEAD"
           upstream[name] = sha
           times[name] ||= time.to_i
@@ -350,18 +429,16 @@ module Outbox
 
     # --- sync with upstream -------------------------------------------------
 
-    # Fetch upstream. Branches with nothing staged follow upstream; branches
-    # with staged changes are left alone (they show up as diverged if upstream
-    # moved underneath them). HEAD follows upstream's default branch. Yields
-    # git's progress lines if a block is given.
+    # Fetch every remote, upstream first. Branches with nothing staged follow
+    # upstream; branches with staged changes are left alone (they show up as
+    # diverged if upstream moved underneath them). HEAD follows upstream's
+    # default branch. The other remotes are fetched after all that, so one
+    # that fails leaves upstream's side done. Yields git's progress lines if
+    # a block is given.
     def fetch!(&progress)
       install_hooks
       before = upstream_refs
-      if progress
-        Git.stream("fetch", "--prune", "--progress", "upstream", chdir: path, extra: remote_env, &progress)
-      else
-        git("fetch", "--prune", "--quiet", "upstream", extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
-      end
+      fetch_remotes([push_remote], &progress)
       after = upstream_refs
       staged = staged_refs
 
@@ -377,6 +454,8 @@ module Outbox
       end
 
       follow_upstream_head! unless after.empty?
+      others = remotes.keys - [push_remote]
+      fetch_remotes(others, &progress) unless others.empty?
       optimize_for_clones!
     end
 
@@ -402,9 +481,9 @@ module Outbox
     # default branch changes.
     def follow_upstream_head!
       # Asks upstream which branch HEAD names, so it needs the credentials.
-      git("remote", "set-head", "upstream", "--auto", extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
-      target = git("symbolic-ref", "refs/remotes/upstream/HEAD").strip
-      branch = target.delete_prefix("refs/remotes/upstream/")
+      git("remote", "set-head", push_remote, "--auto", extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
+      target = git("symbolic-ref", upstream_ref("HEAD")).strip
+      branch = target.delete_prefix(upstream_prefix)
       git("symbolic-ref", "HEAD", "refs/heads/#{branch}")
     end
 
@@ -432,9 +511,9 @@ module Outbox
       end
       # git push updates the remote-tracking ref itself, but be explicit.
       if b.staged
-        git("update-ref", "refs/remotes/upstream/#{name}", b.staged)
+        git("update-ref", upstream_ref(name), b.staged)
       else
-        git("update-ref", "-d", "refs/remotes/upstream/#{name}")
+        git("update-ref", "-d", upstream_ref(name))
       end
       b
     end
@@ -467,22 +546,44 @@ module Outbox
 
     # The commit the incoming commits build on: upstream's tip when ready, the
     # merge-base when diverged, the commit a rebased branch was moved onto,
-    # where it forked off the default branch when new. nil when there is no
+    # where it forked off the nearest base when new. nil when there is no
     # such commit (nothing staged, or an empty or unrelated upstream).
     def base(branch)
       b = resolve(branch)
-      return Base.new(commit: commit_detail(b.onto), ref: upstream_ref_with(b.onto)) if b.rebased?
+      return Base.new(commit: commit_detail(b.onto), ref: ref_with(b.onto)) if b.rebased?
       case b.status
       when :ready, :diverged
         sha = fork_point(b)
-        Base.new(commit: commit_detail(sha), ref: b.name)
+        Base.new(commit: commit_detail(sha), ref: "#{push_remote}/#{b.name}")
       when :new
-        default = default_branch
-        sha = git("merge-base", "refs/remotes/upstream/#{default}", "refs/heads/#{b.name}").strip
-        Base.new(commit: commit_detail(sha), ref: default)
+        ref, sha = nearest_base(b.staged)
+        Base.new(commit: commit_detail(sha), ref: ref) if sha
       end
     rescue GitError
       nil
+    end
+
+    # What a new branch can be shown against, as "remote/branch": the
+    # configured bases that have been fetched, else upstream's default
+    # branch, if that has.
+    def bases
+      wanted = configured_bases + ["#{push_remote}/#{default_branch}"]
+      have = git("for-each-ref", "--format=%(refname:lstrip=2)", *wanted.map { |b| "#{REMOTES_PREFIX}#{b}" }).split("\n")
+      found = configured_bases & have
+      found.empty? ? wanted.last(1) & have : found
+    end
+
+    # The base a new branch builds on, the one that leaves it the fewest
+    # commits of its own, and the commit it forks off that base at. On a tie
+    # (a branch off a commit two bases share) the first listed wins. nil
+    # when it shares no history with any.
+    def nearest_base(sha)
+      best = bases.filter_map do |b|
+        ref = "#{REMOTES_PREFIX}#{b}"
+        fork = git("merge-base", ref, sha, ok: [0, 1]).strip
+        [b, fork, count("#{ref}..#{sha}")] unless fork.empty?
+      end
+      best.min_by { |_, _, own| own }&.first(2)
     end
 
     # Lines added and deleted by each of the first limit incoming commits,
@@ -522,7 +623,7 @@ module Outbox
       return nil unless b.rebased?
       from = fork_point(b)
       replay, conflicts = replay_onto(b.onto, from, b.upstream) if from
-      Rebase.new(onto: commit_detail(b.onto), ref: upstream_ref_with(b.onto), from: from && commit_detail(from),
+      Rebase.new(onto: commit_detail(b.onto), ref: ref_with(b.onto), from: from && commit_detail(from),
                  replay: replay, conflicts: conflicts || [])
     end
 
@@ -537,7 +638,7 @@ module Outbox
       return nil if b.ahead > REWRITE_LIMIT || b.behind > REWRITE_LIMIT
       unchanged = {}
       changed = {}
-      old = "refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}"
+      old = "refs/heads/#{b.name}..#{upstream_ref(b.name)}"
       new = "#{b.onto || b.upstream}..refs/heads/#{b.name}"
       git("range-diff", "--no-color", "--no-patch", "--abbrev=64", old, new).each_line do |line|
         next unless (m = RANGE_DIFF_RE.match(line))
@@ -589,7 +690,40 @@ module Outbox
 
     def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)
 
-    def push(*args) = git("push", "--quiet", "upstream", *args, extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
+    def fetch_remotes(names, &progress)
+      if progress
+        Git.stream("fetch", "--prune", "--progress", "--multiple", *names, chdir: path, extra: remote_env, &progress)
+      else
+        git("fetch", "--prune", "--quiet", "--multiple", *names, extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
+      end
+    end
+
+    # outbox.push, outbox.base and every remote's URL, read in one git call
+    # and kept for the life of this object, which is one request or one job
+    # of the repo's actor. configure! starts over.
+    def settings
+      @settings ||= begin
+        push = nil
+        bases = []
+        remotes = {}
+        out = git("config", "-z", "--get-regexp", '^(outbox\.(push|base)|remote\..*\.url)$', ok: [0, 1])
+        out.split("\0").each do |entry|
+          key, value = entry.split("\n", 2)
+          value = value.to_s.strip
+          case key
+          when "outbox.push" then push = value
+          when "outbox.base" then bases << value
+          else remotes[key.delete_prefix("remote.").delete_suffix(".url")] = value
+          end
+        end
+        push_set = !push.nil?
+        push ||= LEGACY_PUSH
+        remotes = { push => remotes[push] }.merge(remotes) if remotes.key?(push)
+        { push:, push_set:, bases:, remotes: }
+      end
+    end
+
+    def push(*args) = git("push", "--quiet", push_remote, *args, extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
 
     def check_expected!(b, expected)
       return if expected.nil?
@@ -603,14 +737,14 @@ module Outbox
     def branch_info(name, staged, upstream, time)
       status, ahead, behind =
         if upstream.nil?
-          [:new, count("refs/heads/#{name}", "--not", "--remotes=upstream"), 0]
+          [:new, count("refs/heads/#{name}", "--not", "--remotes"), 0]
         elsif staged.nil?
-          [:deleted, 0, count("refs/remotes/upstream/#{name}", "--not", "--branches")]
+          [:deleted, 0, count(upstream_ref(name), "--not", "--branches")]
         elsif staged == upstream
           [:synced, 0, 0]
         else
           behind, ahead = git("rev-list", "--left-right", "--count",
-                              "refs/remotes/upstream/#{name}...refs/heads/#{name}").split.map(&:to_i)
+                              "#{upstream_ref(name)}...refs/heads/#{name}").split.map(&:to_i)
           [behind.zero? ? :ready : :diverged, ahead, behind]
         end
       onto = nil
@@ -637,7 +771,7 @@ module Outbox
     def own_commits(name)
       own = []
       bases = []
-      git("rev-list", "--boundary", "refs/heads/#{name}", "--not", "--remotes=upstream").each_line do |line|
+      git("rev-list", "--boundary", "refs/heads/#{name}", "--not", "--remotes").each_line do |line|
         sha = line.strip
         sha.start_with?("-") ? bases << sha.delete_prefix("-") : own << sha
       end
@@ -652,13 +786,13 @@ module Outbox
       nil
     end
 
-    # An upstream branch that has the commit: the default branch when it
-    # does, else the first by name. nil when none does.
-    def upstream_ref_with(sha)
-      names = git("for-each-ref", "--contains", sha, "--format=%(refname:lstrip=3)", UPSTREAM_PREFIX).split
-      names.delete("HEAD")
-      default = default_branch
-      names.include?(default) ? default : names.first
+    # A remote branch that has the commit, as "remote/branch": the first
+    # base that does, else upstream's default branch, else the first by
+    # name. nil when none does.
+    def ref_with(sha)
+      names = git("for-each-ref", "--contains", sha, "--format=%(refname:lstrip=2)", REMOTES_PREFIX.chomp("/")).split
+      names.reject! { |n| n.end_with?("/HEAD") }
+      (bases + ["#{push_remote}/#{default_branch}"]).find { |b| names.include?(b) } || names.first
     end
 
     # Upstream's version of a rebased branch moved onto its new base: what
@@ -678,18 +812,18 @@ module Outbox
     # Rebased branches list the commits of their own; the ones the move
     # picked up are upstream's.
     def incoming_revs(b)
-      return ["refs/heads/#{b.name}", "--not", "--remotes=upstream"] if b.rebased?
+      return ["refs/heads/#{b.name}", "--not", "--remotes"] if b.rebased?
       case b.status
-      when :new then ["refs/heads/#{b.name}", "--not", "--remotes=upstream"]
-      when :ready, :diverged then ["refs/remotes/upstream/#{b.name}..refs/heads/#{b.name}"]
+      when :new then ["refs/heads/#{b.name}", "--not", "--remotes"]
+      when :ready, :diverged then ["#{upstream_ref(b.name)}..refs/heads/#{b.name}"]
       else nil
       end
     end
 
     def outgoing_revs(b)
       case b.status
-      when :deleted  then ["refs/remotes/upstream/#{b.name}", "--not", "--branches"]
-      when :diverged then ["refs/heads/#{b.name}..refs/remotes/upstream/#{b.name}"]
+      when :deleted  then [upstream_ref(b.name), "--not", "--branches"]
+      when :diverged then ["refs/heads/#{b.name}..#{upstream_ref(b.name)}"]
       end
     end
 
@@ -747,7 +881,7 @@ module Outbox
         # rewritten branch instead.
         [b.upstream, b.staged]
       when :new
-        [nearest_upstream_base(b.staged), b.staged]
+        [nearest_base(b.staged)&.last || empty_tree, b.staged]
       else
         [nil, nil]
       end
@@ -764,15 +898,6 @@ module Outbox
         truncated = true
       end
       Diff::Patch.new(stat:, text:, truncated:)
-    end
-
-    # For a brand-new branch, diff against where it forked from upstream's
-    # default branch, like a compare against main. Falls back to the empty
-    # tree when upstream is empty or unrelated.
-    def nearest_upstream_base(sha)
-      git("merge-base", "refs/remotes/upstream/#{default_branch}", sha).strip
-    rescue GitError
-      empty_tree
     end
 
     def default_branch

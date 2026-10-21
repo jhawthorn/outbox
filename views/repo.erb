@@ -10,7 +10,12 @@
   <% if @repo.config? %>
     <span class="muted">the outbox's own configuration; approving a change here applies it</span>
   <% else %>
-    <span class="muted">upstream <code><%= h @repo.upstream_url %></code></span>
+    <% @repo.remotes.each do |remote, url| %>
+      <span class="muted"><%= remote == @repo.push_remote ? "push" : "fetch" %> <b><%= h remote %></b> <code><%= h url %></code></span>
+    <% end %>
+    <% unless @repo.configured_bases.empty? %>
+      <span class="muted">base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
+    <% end %>
   <% end %>
   <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
 </div>

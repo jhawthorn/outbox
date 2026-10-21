@@ -102,8 +102,9 @@ class RepoTest < OutboxTest::RepoCase
 
   def test_upstream_url_can_be_changed
     other, = make_upstream("other")
-    @repo.upstream_url = other
+    assert @repo.configure!(push: "upstream", remotes: { "upstream" => other }, bases: []), "wants a fetch"
     assert_equal other, @repo.upstream_url
+    refute @repo.configure!(push: "upstream", remotes: { "upstream" => other }, bases: []), "nothing changed"
   end
 
   def test_remote_env_hands_the_token_to_askpass
@@ -582,11 +583,11 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal ["Add feature"], @repo.outgoing_commits(b).map(&:subject)
 
     base = @repo.base(b)
-    assert_equal "main", base.ref
+    assert_equal "upstream/main", base.ref
     assert_equal "Upstream change", base.commit.subject
 
     rebase = @repo.rebase(b)
-    assert_equal "main", rebase.ref
+    assert_equal "upstream/main", rebase.ref
     assert_equal "Upstream change", rebase.onto.subject
     assert_equal "initial", rebase.from.subject
     assert rebase.replayed?
@@ -680,8 +681,8 @@ class RepoTest < OutboxTest::RepoCase
     b = @repo.branch("feature")
     assert b.rebased?
     assert_equal rev(@repo.path, "refs/remotes/upstream/release"), b.onto
-    assert_equal "release", @repo.rebase(b).ref
-    assert_equal "release", @repo.base(b).ref
+    assert_equal "upstream/release", @repo.rebase(b).ref
+    assert_equal "upstream/release", @repo.base(b).ref
     assert @repo.diff(b).empty?
   end
 
@@ -762,7 +763,7 @@ class RepoTest < OutboxTest::RepoCase
     stage_commit
     base = @repo.base("main")
     assert_equal tip, base.commit.sha
-    assert_equal "main", base.ref
+    assert_equal "upstream/main", base.ref
   end
 
   def test_base_is_the_merge_base_when_diverged
@@ -780,7 +781,7 @@ class RepoTest < OutboxTest::RepoCase
     stage_commit(branch: "feature")
     base = @repo.base("feature")
     assert_equal tip, base.commit.sha
-    assert_equal "main", base.ref
+    assert_equal "upstream/main", base.ref
   end
 
   def test_nothing_staged_has_no_base
@@ -840,5 +841,151 @@ class RepoTest < OutboxTest::RepoCase
     @repo.discard!("extra")
     assert_equal extra, rev(@repo.path, "refs/heads/extra")
     assert_equal :synced, status_of("extra")
+  end
+
+  # --- remotes ------------------------------------------------------------
+
+  # A second remote, theirs, that upstream is a fork of: the same history,
+  # then two commits on main the fork lacks. Configured as a fetch remote
+  # with bases, and fetched.
+  def add_theirs(bases: ["theirs/main"])
+    @theirs = File.join(@dir, "theirs.git")
+    @their_work = File.join(@dir, "theirs-work")
+    git("clone", "--quiet", "--bare", @upstream, @theirs)
+    git("clone", "--quiet", @theirs, @their_work)
+    commit(@their_work, "a.txt", "a\n", "Theirs a")
+    commit(@their_work, "b.txt", "b\n", "Theirs b")
+    push(@their_work, "main")
+    assert @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream, "theirs" => @theirs }, bases: bases)
+    @repo.fetch!
+  end
+
+  # Start a branch in the staging clone from theirs' copy of from, as an
+  # agent that fetched theirs would.
+  def start_on_theirs(name, from: "main")
+    git("fetch", "--quiet", @theirs, "+#{from}:refs/remotes/theirs/#{from}", chdir: @stage)
+    git("checkout", "--quiet", "-b", name, "theirs/#{from}", chdir: @stage)
+  end
+
+  def test_fetch_brings_in_every_remote
+    add_theirs
+    assert_equal %w[upstream theirs], @repo.remotes.keys
+    assert_equal "+refs/heads/*:refs/remotes/theirs/*", @repo.git("config", "remote.theirs.fetch").strip
+    assert_equal rev(@theirs, "main"), rev(@repo.path, "refs/remotes/theirs/main")
+    assert_equal rev(@upstream, "main"), rev(@repo.path, "refs/heads/main"), "staged branches follow the push remote alone"
+    assert_equal :synced, status_of
+  end
+
+  def test_a_new_branch_off_a_fetch_remote_is_only_its_own_commits
+    add_theirs
+    start_on_theirs("feature")
+    stage_commit("feature.txt", "feature\n", "Add feature", branch: "feature")
+    b = @repo.branch("feature")
+    assert_equal :new, b.status
+    assert_equal 1, b.ahead, "theirs' two commits are not the branch's"
+    assert_equal ["Add feature"], @repo.commits(b).map(&:subject)
+    base = @repo.base(b)
+    assert_equal "theirs/main", base.ref
+    assert_equal "Theirs b", base.commit.subject
+    assert_equal ["feature.txt"], @repo.diff(b).files.map(&:path)
+  end
+
+  def test_a_new_branch_is_shown_against_the_base_it_builds_on
+    add_theirs(bases: %w[theirs/main theirs/stable])
+    # theirs' release branch, off the first commit, with a backport.
+    git("checkout", "--quiet", "-b", "stable", "main~2", chdir: @their_work)
+    commit(@their_work, "backport.txt", "backport\n", "Backport")
+    push(@their_work, "stable")
+    @repo.fetch!
+
+    start_on_theirs("fix", from: "stable")
+    stage_commit("fix.txt", "fix\n", "Fix on stable", branch: "fix")
+    assert_equal "theirs/stable", @repo.base("fix").ref
+    assert_equal ["fix.txt"], @repo.diff("fix").files.map(&:path)
+
+    start_on_theirs("feature")
+    stage_commit("feature.txt", "feature\n", "Feature on main", branch: "feature")
+    assert_equal "theirs/main", @repo.base("feature").ref
+    assert_equal ["feature.txt"], @repo.diff("feature").files.map(&:path)
+  end
+
+  # Off a commit both bases have, the branch is as much on one as the other.
+  def test_a_tie_between_bases_goes_to_the_first_listed
+    add_theirs(bases: %w[theirs/main upstream/main])
+    git("checkout", "--quiet", "-b", "old", "main", chdir: @stage)
+    stage_commit("old.txt", "old\n", "Off the shared commit", branch: "old")
+    assert_equal "theirs/main", @repo.base("old").ref
+    @repo.configure!(push: "upstream", remotes: @repo.remotes, bases: %w[upstream/main theirs/main])
+    assert_equal "upstream/main", @repo.base("old").ref
+  end
+
+  def test_a_base_not_fetched_yet_falls_back_to_the_default_branch
+    @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream }, bases: ["upstream/nope"])
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit(branch: "feature")
+    assert_equal "upstream/main", @repo.base("feature").ref
+  end
+
+  def test_a_branch_rebased_onto_a_fetch_remote
+    git("checkout", "--quiet", "-b", "feature", chdir: @stage)
+    stage_commit("feature.txt", "feature\n", "Add feature", branch: "feature")
+    @repo.approve!("feature")
+    add_theirs
+    git("fetch", "--quiet", @theirs, "main:refs/remotes/theirs/main", chdir: @stage)
+    git("rebase", "--quiet", "theirs/main", chdir: @stage)
+    push(@stage, "feature", force: true)
+
+    b = @repo.branch("feature")
+    assert b.rebased?
+    assert_equal rev(@theirs, "main"), b.onto
+    assert_equal 1, b.ahead
+    assert_equal 2, b.picked_up
+    assert_equal "theirs/main", @repo.rebase(b).ref
+    assert @repo.diff(b).empty?, "a plain rebase changes nothing"
+  end
+
+  def test_approving_pushes_to_the_push_remote_alone
+    add_theirs
+    start_on_theirs("feature")
+    stage_commit("feature.txt", "feature\n", "Add feature", branch: "feature")
+    @repo.approve!("feature")
+    assert_equal rev(@stage, "feature"), rev(@upstream, "feature")
+    refute ref_exists?(@theirs, "refs/heads/feature")
+    assert_equal :synced, status_of("feature")
+  end
+
+  def test_a_push_remote_given_a_name_keeps_what_it_has
+    stage_commit
+    refute @repo.configure!(push: "mine", remotes: { "mine" => @upstream }, bases: []), "the same repo by another name needs no fetch"
+    assert_equal "mine", @repo.push_remote
+    assert_equal rev(@upstream, "main"), rev(@repo.path, "refs/remotes/mine/main")
+    refute ref_exists?(@repo.path, "refs/remotes/upstream/main")
+    assert_equal :ready, status_of, "still against what upstream has, not new"
+    @repo.approve!("main")
+    assert_equal rev(@stage, "main"), rev(@upstream, "main")
+    assert_equal :synced, status_of
+  end
+
+  def test_a_dropped_remote_goes_with_its_refs
+    add_theirs
+    refute @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream }, bases: [])
+    assert_equal %w[upstream], @repo.remotes.keys
+    refute ref_exists?(@repo.path, "refs/remotes/theirs/main")
+    assert_empty @repo.configured_bases
+  end
+
+  def test_a_fetch_remote_that_fails_leaves_upstream_fetched
+    @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream, "gone" => File.join(@dir, "gone.git") }, bases: [])
+    sha = upstream_commit
+    assert_raises(Outbox::GitError) { @repo.fetch! }
+    assert_equal sha, rev(@repo.path, "refs/remotes/upstream/main")
+    assert_equal sha, rev(@repo.path, "refs/heads/main"), "and the staged branch followed it"
+  end
+
+  def test_branch_names_follow_git
+    %w[main ruby_4_0 feature/x a.b v1.2].each { |n| assert Repo.branch_name?(n), n }
+    ["", "a..b", "a b", "-x", "x/", "/x", "x.lock", "x.lock/y", ".x", "a/.b", "a@{b", "@", "a~1", "a^", "a:b", "a\\b", "a//b", "x.", "a*"].each do |n|
+      refute Repo.branch_name?(n), n.inspect
+    end
   end
 end

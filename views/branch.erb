@@ -70,7 +70,7 @@
       <div class="commit base">
         <div class="rail"></div>
         <div class="title"><%= hv @base.commit.subject %></div>
-        <div class="meta"><div class="line"><code class="hash"><%= @base.commit.short %></code><span class="name">upstream <b><%= h @base.ref %></b> · <%= @branch.rebased? ? "rebased onto" : "fork point" %></span></div></div>
+        <div class="meta"><div class="line"><code class="hash"><%= @base.commit.short %></code><span class="name"><b><%= h @base.ref %></b> · <%= @branch.rebased? ? "rebased onto" : "fork point" %></span></div></div>
       </div>
       <div class="commit stub">
         <div class="rail"></div>

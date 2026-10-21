@@ -17,11 +17,14 @@ module Outbox
     end
 
     def self.run(name, root, token, events)
-      repo = Repo.new(name, root: root, upstream_token: token)
       loop do
         job, *args = Ractor.receive
         break if job == :stop
 
+        # A Repo per job: it keeps the repo's remotes as it first reads
+        # them, and an approved configuration change can alter them between
+        # jobs.
+        repo = Repo.new(name, root: root, upstream_token: token)
         branch = args[0]
         events << [name, :started, job, branch]
         begin

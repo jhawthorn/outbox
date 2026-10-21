@@ -167,7 +167,7 @@ test("a rebased branch says so and shows only what changed besides the rebase", 
   await expect(page.locator(".history .commit", { hasText: "Add docs" }).locator(".badge")).toHaveText("changed");
   await expect(page.locator(".history .commit", { hasText: "Add greeter" }).locator(".badge")).toHaveText("unchanged");
   await expect(page.locator(".history .commit.base")).toContainText("Upstream change");
-  await expect(page.locator(".history .commit.base")).toContainText("upstream main · rebased onto");
+  await expect(page.locator(".history .commit.base")).toContainText("upstream/main · rebased onto");
   await expect(page.locator("h2", { hasText: "Files changed (1)" })).toBeVisible();
   await expect(page.locator(".patch-summary")).toContainText("docs.md");
   await expect(page.locator(".patch-summary")).not.toContainText("other.txt");

@@ -22,7 +22,7 @@ class CliTest < OutboxTest::RepoCase
     stage_commit
     out = outbox!("list")
     assert_includes out, "_config  (configuration)"
-    assert_includes out, "demo  (#{@upstream})"
+    assert_includes out, "demo  (upstream #{@upstream})"
     assert_match(/main\s+ready\s+staged=\h{10} upstream=\h{10}/, out)
   end
 
@@ -30,7 +30,7 @@ class CliTest < OutboxTest::RepoCase
     other, = make_upstream("other")
     out = outbox!("add", "other", other)
     assert_includes out, "added other"
-    assert_equal({ "other" => other }, Outbox::Config.load.repos)
+    assert_equal({ "other" => other }, Outbox::Config.load.repos.transform_values(&:push_url))
     repo = Outbox::Repo.find!("other")
     assert_equal %w[main], repo.branches.map(&:name)
     assert File.exist?(@repo.path), "demo is not configured but is left alone"
@@ -52,7 +52,7 @@ class CliTest < OutboxTest::RepoCase
     assert_includes err, "first fetch failed"
     assert_includes err, "outbox fetch unreachable"
     assert Outbox::Repo.find("unreachable")
-    assert_equal File.join(@dir, "nonexistent.git"), Outbox::Config.load.repos["unreachable"]
+    assert_equal File.join(@dir, "nonexistent.git"), Outbox::Config.load.repos["unreachable"].push_url
   end
 
   def test_remove_edits_the_configuration_and_destroys
@@ -93,7 +93,7 @@ class CliTest < OutboxTest::RepoCase
     push(work, "main")
 
     outbox!("approve", "_config", "main")
-    assert_equal({ "demo" => @upstream }, Outbox::Config.load.repos)
+    assert_equal({ "demo" => @upstream }, Outbox::Config.load.repos.transform_values(&:push_url))
     assert File.exist?(@repo.path)
   end
 
