@@ -6,7 +6,7 @@ RUN pnpm install --frozen-lockfile
 COPY assets ./assets
 RUN pnpm build
 
-FROM docker.io/rubylang/ruby:master-dev-noble AS build
+FROM docker.io/rubylang/ruby:master-noble AS build
 ENV GEM_HOME=/usr/local/bundle BUNDLE_APP_CONFIG=/usr/local/bundle
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
