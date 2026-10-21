@@ -6,7 +6,8 @@ RUN pnpm install --frozen-lockfile
 COPY assets ./assets
 RUN pnpm build
 
-FROM docker.io/library/ruby:4.0-slim AS build
+FROM docker.io/rubylang/ruby:master-dev-noble AS build
+ENV GEM_HOME=/usr/local/bundle BUNDLE_APP_CONFIG=/usr/local/bundle
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
  && rm -rf /var/lib/apt/lists/*
@@ -15,7 +16,8 @@ COPY Gemfile Gemfile.lock ./
 RUN bundle config set --local without test \
  && bundle install --jobs 4
 
-FROM docker.io/library/ruby:4.0-slim
+FROM docker.io/rubylang/ruby:master-noble
+ENV GEM_HOME=/usr/local/bundle BUNDLE_APP_CONFIG=/usr/local/bundle
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
