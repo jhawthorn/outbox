@@ -11,10 +11,16 @@ const HEADERS = "/repos/headers/branches/main";
 // near the view are in the DOM.
 const diff = (page, i) => page.locator(`main.codeview diffs-container[data-file=f${i}]`);
 const title = (page, i) => diff(page, i).locator("[data-diffs-header] [data-title]");
-// Scroll the view to a file through its link in the summary, so it is drawn.
+// Scroll the view to a file through its link in the summary, so it is
+// drawn, and wait for the smooth scroll to finish.
 const reveal = async (page, i) => {
   await page.locator(`.patch-summary a[href="#f${i}"]`).click();
   await expect(diff(page, i)).toBeInViewport();
+  const at = () => page.locator("main").evaluate((m) => m.scrollTop);
+  for (let last = -1, now = await at(); now !== last; ) {
+    await page.waitForTimeout(100);
+    [last, now] = [now, await at()];
+  }
 };
 // How far the top of an element is below the top of the scrolling <main>.
 const fromTop = (page, locator) => locator.evaluate((el) => el.getBoundingClientRect().top - document.querySelector("main").getBoundingClientRect().top);
@@ -77,6 +83,64 @@ test("unchanged lines between hunks expand from the blob route", async ({ page }
   expect(blobRequests).toHaveLength(2);
   expect(new Set(blobRequests).size).toBe(2);
   for (const url of blobRequests) expect(url).toMatch(/\/repos\/review\/blobs\/[0-9a-f]{40}$/);
+});
+
+test("a file can be shown whole, and back to only its changes", async ({ page }) => {
+  await page.goto(BRANCH);
+  await reveal(page, 1);
+  const long = diff(page, 1);
+  const whole = long.locator("button.whole");
+  await expect(whole).toHaveText("Show whole file");
+  await expect(long.getByText("83 unmodified lines").first()).toBeVisible();
+  // Added and deleted files have no more to show.
+  await reveal(page, 3);
+  await expect(diff(page, 2).locator("button.whole")).toHaveCount(0);
+  await expect(diff(page, 3).locator("button.whole")).toHaveCount(0);
+
+  await reveal(page, 1);
+  await whole.click();
+  await expect(whole).toHaveText("Show changes");
+  await expect(whole).toHaveAttribute("aria-pressed", "true");
+  await expect(long.getByText("line 1", { exact: true }).first()).toBeVisible();
+  await expect(long.locator("[data-separator]")).toHaveCount(0);
+  await page.locator("main").evaluate((m) => m.scrollBy(0, 900));
+  await expect(long.getByText("line 50", { exact: true }).first()).toBeInViewport();
+
+  await reveal(page, 1);
+  await whole.click();
+  await expect(whole).toHaveText("Show whole file");
+  await expect(long.getByText("83 unmodified lines").first()).toBeVisible();
+  await expect(long.getByText("line 50", { exact: true })).toHaveCount(0);
+});
+
+test("selecting line numbers puts the lines in the URL", async ({ page }) => {
+  await page.goto(BRANCH);
+  await reveal(page, 1);
+  const number = (n) => diff(page, 1).locator(`[data-column-number="${n}"]`).last();
+  await number(11).click();
+  await expect(page).toHaveURL(/#f1-R11$/);
+  await number(13).click({ modifiers: ["Shift"] });
+  await expect(page).toHaveURL(/#f1-R11-R13$/);
+  await expect(diff(page, 1).locator("[data-line][data-selected-line]")).toHaveCount(3);
+});
+
+test("a link to lines scrolls to them and selects them, showing the whole file if it has to", async ({ page }) => {
+  await page.goto(`${BRANCH}#f1-L100`);
+  const long = diff(page, 1);
+  const old100 = long.locator("[data-line][data-selected-line]");
+  await expect(old100).toHaveCount(1);
+  await expect(old100).toContainText("line 100");
+  await expect(old100).toBeInViewport();
+  await expect(long.locator("button.whole")).toHaveText("Show whole file");
+
+  // Lines 50 to 55 are not in the patch.
+  await page.goto("about:blank");
+  await page.goto(`${BRANCH}#f1-R50-R55`);
+  const selected = long.locator("[data-line][data-selected-line]");
+  await expect(selected).toHaveCount(6);
+  await expect(selected.first()).toHaveText("line 50");
+  await expect(selected.first()).toBeInViewport();
+  await expect(long.locator("button.whole")).toHaveText("Show changes");
 });
 
 test("unified or split view is remembered across pages", async ({ page }) => {

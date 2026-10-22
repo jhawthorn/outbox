@@ -147,6 +147,11 @@
                         transform: translateY(-2px) rotate(45deg); transition: transform .1s; }
   button.fold[aria-expanded="false"]::before { transform: translateX(-2px) rotate(-45deg); }
   button.fold:hover { color: var(--fg); }
+  .file-actions { display: inline-flex; gap: 8px; align-items: center; margin-left: 8px; }
+  .file-actions .file-notes { margin: 0; }
+  button.whole { font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 1px 8px; color: var(--muted); }
+  button.whole:hover { color: var(--fg); }
+  button.whole[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
   .file-notes { display: inline-flex; gap: 8px; align-items: center; margin: 0 8px;
                 font: 12px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
   pre.message { background: var(--meta-bg); border: 1px solid var(--line); border-radius: 8px;

@@ -98,7 +98,7 @@ async function mount(root) {
   for (const details of root.querySelectorAll("details.file")) {
     const fileDiff = byPath.get(details.dataset.path);
     if (fileDiff == null) missing.push(details.dataset.path);
-    else files.push({ id: details.id, data: details.dataset, fileDiff, collapsed: false, version: 0 });
+    else files.push({ id: details.id, data: details.dataset, fileDiff, collapsed: false, version: 0, whole: false, instance: null });
   }
   const byId = new Map(files.map((f) => [f.id, f]));
   const blobs = new WeakMap(files.map((f) => [f.fileDiff, f.data]));
@@ -136,11 +136,28 @@ async function mount(root) {
       return foldToggle(f, () => setCollapsed([f], !f.collapsed));
     },
     renderHeaderFilenameSuffix: (diff, ctx) => fileNotes(byId.get(ctx.item.id), diff),
-    renderHeaderMetadata: (_diff, ctx) => hiddenBadge(byId.get(ctx.item.id)),
+    renderHeaderMetadata: (_diff, ctx) => {
+      const f = byId.get(ctx.item.id);
+      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole))].filter(Boolean);
+      if (!notes.length) return undefined;
+      const span = el("span", "file-actions");
+      span.append(...notes);
+      return span;
+    },
     // Rendered items come from a pool; this says which file each one is now.
-    onPostRender: (node, _instance, phase, ctx) => {
+    onPostRender: (node, instance, phase, ctx) => {
       if (phase === "unmount") delete node.dataset.file;
       else node.dataset.file = ctx.item.id;
+      const f = byId.get(ctx.item.id);
+      f.instance = instance;
+      if (f.whole && !f.opened) queueMicrotask(() => openWhole(f));
+    },
+    // Clicking a line number selects it, shift-click a range; the URL says
+    // which, so it can be shared.
+    enableLineSelection: true,
+    onSelectedLinesChange: (selection) => {
+      const hash = selection ? `#${lineHash(selection)}` : "";
+      history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
     },
     renderCodeViewHeader: () => header,
     renderCodeViewFooter: () => (missing.length ? footer : undefined),
@@ -154,6 +171,29 @@ async function mount(root) {
       f.version++;
       view.updateItem(item(f));
     }
+  };
+
+  // The whole file, every gap opened: what shift-clicking each separator
+  // does, once the file has been drawn. Back to only the changes is the
+  // same file from the patch again.
+  const openWhole = (f) => {
+    if (!f.whole || f.opened || !f.instance) return;
+    f.opened = true;
+    for (let i = 0; i <= f.fileDiff.hunks.length; i++) f.instance.expandHunk(i, "both", Number.POSITIVE_INFINITY);
+  };
+  const showWhole = (f, whole) => {
+    if (f.whole === whole) return;
+    f.whole = whole;
+    f.opened = false;
+    f.version++;
+    if (whole) {
+      setCollapsed([f], false);
+      openWhole(f);
+    } else {
+      f.fileDiff = parsePatchFiles(patch).flatMap((p) => p.files).find((d) => d.name === f.fileDiff.name);
+      blobs.set(f.fileDiff, f.data);
+    }
+    view.updateItem(item(f));
   };
 
   root.replaceChildren(diffControls(view, options, files, setCollapsed));
@@ -200,11 +240,83 @@ async function mount(root) {
       history.replaceState({ ...history.state, place: { id: files[i].id, offset: scrollTop - top(i) } }, "");
     }, 150);
   });
+  // Resolves once a file shown whole has its contents and has been drawn
+  // with them. Nothing says when, so this looks each frame, for a while.
+  const whenWhole = (f) => new Promise((resolve) => {
+    let frames = 0;
+    const check = () => {
+      if (f.opened && !f.fileDiff.isPartial) requestAnimationFrame(() => requestAnimationFrame(resolve));
+      else if (++frames < 600) requestAnimationFrame(check);
+    };
+    check();
+  });
+
+  // #f2 is a file, #f2-R10 a line on its new side (L the old), #f2-R10-R14
+  // a range. A line the patch does not show opens the whole file.
+  const follow = (hash, scroll) => {
+    const i = files.findIndex((f) => `#${f.id}` === hash);
+    if (i >= 0) {
+      if (scroll) { go(i); navigated(i); }
+      return;
+    }
+    const selection = parseLineHash(hash);
+    const f = selection && byId.get(selection.id);
+    if (!f) return;
+    setCollapsed([f], false);
+    const show = () => {
+      view.setSelectedLines(selection, { notify: false });
+      if (scroll) view.scrollTo({ type: "range", ...selection, align: "center" });
+    };
+    if (scroll) navigated(files.indexOf(f));
+    show();
+    if (!inHunks(f.fileDiff, selection.range)) {
+      // The lines exist once the whole file has loaded and been drawn.
+      showWhole(f, true);
+      whenWhole(f).then(show);
+    }
+  };
+  window.addEventListener("hashchange", () => follow(location.hash, true));
+
   const place = history.state?.place;
-  const hashed = files.findIndex((f) => `#${f.id}` === location.hash);
+  follow(location.hash, !(place && byId.has(place.id)));
   if (place && byId.has(place.id)) view.scrollTo({ type: "item", id: place.id, align: "start", offset: -place.offset });
-  else if (hashed >= 0) { go(hashed); navigated(hashed); }
   main.focus({ preventScroll: true });
+}
+
+const SIDES = { L: "deletions", R: "additions" };
+const sideLetter = (side) => (side === "deletions" ? "L" : "R");
+
+function lineHash({ id, range }) {
+  const start = `${sideLetter(range.side)}${range.start}`;
+  const end = `${sideLetter(range.endSide ?? range.side)}${range.end}`;
+  return start === end ? `${id}-${start}` : `${id}-${start}-${end}`;
+}
+
+function parseLineHash(hash) {
+  const m = /^#(f\d+)-([LR])(\d+)(?:-([LR])(\d+))?$/.exec(hash);
+  if (!m) return undefined;
+  const [, id, side, start, endSide = side, end = start] = m;
+  return { id, range: { start: Number(start), side: SIDES[side], end: Number(end), endSide: SIDES[endSide] } };
+}
+
+// Whether the patch's hunks show both ends of a range.
+function inHunks(fileDiff, { start, side, end, endSide }) {
+  const shown = (n, s) => fileDiff.hunks.some((h) => (s === "deletions"
+    ? n >= h.deletionStart && n < h.deletionStart + h.deletionCount
+    : n >= h.additionStart && n < h.additionStart + h.additionCount));
+  return shown(start, side) && shown(end, endSide ?? side);
+}
+
+// Only for a file whose two sides can be fetched: added and deleted files
+// are whole already.
+function wholeToggle(file, onclick) {
+  const { oldBlob, newBlob } = file.data;
+  if (!oldBlob || !newBlob || file.fileDiff.hunks.length === 0) return undefined;
+  const b = button(file.whole ? "Show changes" : "Show whole file", "", (e) => { e.stopPropagation(); onclick(); });
+  b.className = "whole";
+  b.title = file.whole ? "Show only the changed lines and their context" : "Show every line of the file";
+  b.setAttribute("aria-pressed", String(file.whole));
+  return b;
 }
 
 function foldToggle(file, onclick) {
