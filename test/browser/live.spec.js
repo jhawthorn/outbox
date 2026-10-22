@@ -62,7 +62,7 @@ test("the index shows a push as it arrives", async ({ page }) => {
 
 test("a branch page says when the branch moves, and does not change under the reader", async ({ page }) => {
   await page.goto("/repos/live/branches/main");
-  await expect(page.locator("#f0 .diff").getByText("the first line")).toBeVisible();
+  await expect(page.locator("diffs-container[data-file=f0]").getByText("the first line")).toBeVisible();
   const first = await page.locator("input[name=expected]").first().inputValue();
   await mark(page);
 
@@ -78,7 +78,7 @@ test("a branch page says when the branch moves, and does not change under the re
   // What was reviewed is still what is shown, and nothing can be approved
   // from it.
   await expect(page.locator("h2", { hasText: "Commits (1)" })).toBeVisible();
-  await expect(page.locator("#f0 .diff").getByText("the first line")).toBeVisible();
+  await expect(page.locator("diffs-container[data-file=f0]").getByText("the first line")).toBeVisible();
   await expect(page.locator("input[name=expected]").first()).toHaveValue(first);
   await expect(page.getByRole("button", { name: "Approve and push to upstream" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Discard" })).toBeDisabled();

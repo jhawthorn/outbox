@@ -28,7 +28,8 @@
 
   <div class="patch" data-patch-url="<%= patch_url %>" data-blob-url="<%= blob_url %>">
   <% files.each_with_index do |f, i| %>
-    <details class="file" id="f<%= i %>" open>
+    <%# What the browser's file headers show besides the path and counts (diffs.js). %>
+    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if f.old_mode && f.new_mode && f.status == :modified %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.map(&:label).join(", ") %>"<% end %>>
       <summary>
         <code><%= hv f.path %></code>
         <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= hv f.old_path %></code></span><% end %>
@@ -47,7 +48,7 @@
       <% elsif f.hunks.empty? %>
         <p class="muted" style="padding:8px 12px;margin:0">No content changes.</p>
       <% else %>
-        <div class="diff" data-diff-file="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %>>
+        <div class="diff" data-diff-file="<%= h f.path %>">
           <noscript>JavaScript is off. <a href="<%= patch_url %>">View the raw patch.</a></noscript>
         </div>
       <% end %>

@@ -215,8 +215,8 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "1 file changed"
     # The diff body is drawn in the browser from the raw patch.
     assert_includes body, 'data-patch-url="/repos/demo/branches/main.patch"'
-    assert_includes body, '<details class="file" id="f0" open>'
-    assert_match %r{<div class="diff" data-diff-file="lib/a.rb" data-new-blob="[0-9a-f]{40}">}, body
+    assert_match %r{<details class="file" id="f0" open data-path="lib/a.rb" data-new-blob="[0-9a-f]{40}">}, body
+    assert_includes body, '<div class="diff" data-diff-file="lib/a.rb">'
     refute_includes body, "data-old-blob"
     assert_includes body, 'data-blob-url="/repos/demo/blobs"'
     refute_includes body, "x = 1"
@@ -512,7 +512,26 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, '<a href="#f0">a.txt</a>'
     assert_includes body, '<span class="badge hidden">hidden characters</span>'
     assert_includes body, 'title="Zero-width, bidi or control characters on lines +1">hidden characters on 1 line</span>'
+    # And so is the browser's header for it (diffs.js).
+    assert_match %r{<details class="file" id="f0" open data-path="a.txt" data-new-blob="[0-9a-f]{40}" data-hidden="\+1">}, body
     refute_includes body, "​"
+  end
+
+  def test_file_sections_carry_what_the_browser_headers_show
+    File.write(File.join(@stage, "logo.bin"), "\x00\x01binary")
+    File.write(File.join(@stage, "run.sh"), "echo hi\n")
+    git("add", "logo.bin", "run.sh", chdir: @stage)
+    git("commit", "--quiet", "-m", "Add files", chdir: @stage)
+    push(@stage, "main")
+    File.write(File.join(@stage, "logo.bin"), "\x00\x02binary")
+    File.chmod(0o755, File.join(@stage, "run.sh"))
+    git("commit", "--quiet", "-am", "Change them", chdir: @stage)
+    push(@stage, "main")
+
+    sha = rev(@stage, "HEAD")
+    body = get("/repos/demo/branches/main/commits/#{sha}")
+    assert_match %r{<details class="file" id="f0" open data-path="logo.bin" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-binary>}, body
+    assert_includes body, '<details class="file" id="f1" open data-path="run.sh" data-mode="100644 → 100755">'
   end
 
   def test_commit_page_refuses_commits_outside_the_staged_range

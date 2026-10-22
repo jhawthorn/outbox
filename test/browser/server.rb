@@ -21,6 +21,8 @@
 #             line, the conflict resolved by hand. Read-only.
 #   slow      upstream is an http stub in this process that answers 404
 #             after a delay, so a fetch can be watched running and failing.
+#   headers   one staged commit: a rename, a binary file, a mode change, a
+#             hidden character and a long file. Read-only.
 #   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
 #             watches open pages follow.
 require "fileutils"
@@ -167,7 +169,20 @@ def seed(dir)
   commit(work, "Raise the timeout", "config.ini" => cfg.sub("setting_6 = 6", "setting_6 = 45"))
   git("push", "--quiet", "--force", "origin", "feature", chdir: work)
 
-  Outbox::Config.add("slow", "http://127.0.0.1:#{start_stub}/slow.git")
+  # One staged commit with everything a file header has to say: a rename
+  # with changes, a binary file, a mode change, a hidden character, and a
+  # file long enough to scroll under its own stuck header.
+  big = (1..400).map { |i| "def method_#{i} = #{i}\n" }.join
+  upstream, up_work = make_upstream(dir, "headers", "old_name.rb" => body, "logo.bin" => "\x00\x01binary",
+                                    "run.sh" => "echo hi\n", "big.rb" => big, "plain.txt" => "plain\n")
+  work = add_repo(dir, "headers", upstream)
+  git("mv", "old_name.rb", "new_name.rb", chdir: work)
+  File.chmod(0o755, File.join(work, "run.sh"))
+  stage(work, "Exercise the file headers",
+        "new_name.rb" => body.sub("line 6\n", "line six\n"), "logo.bin" => "\x00\x02binary",
+        "plain.txt" => "pla​in\n", "big.rb" => big.gsub(/= (\d*[05])$/) { "= #{$1.to_i * 2}" })
+
+  Outbox::Config.add("slow","http://127.0.0.1:#{start_stub}/slow.git")
   Outbox::Config.apply!
 
   upstream, = make_upstream(dir, "live", "README" => "hello\n")

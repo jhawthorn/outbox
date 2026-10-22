@@ -90,7 +90,10 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
   lines with hidden characters. The diff body itself is drawn in the browser.
 - `assets/diffs.js` — the diff viewer: [@pierre/diffs](https://diffs.com) (Shiki
-  highlighting), fetching the `.patch` URL and rendering each file. `rake assets` bundles
+  highlighting), fetching the `.patch` URL and drawing every file in one CodeView, which
+  becomes the page's scroller (the rest of the page is its header). File headers are
+  pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
+  their slots, from data attributes on the server's file sections. `rake assets` bundles
   it with esbuild into `public/diffs/` (gitignored; needs pnpm). Without it the pages
   still work, with a notice and a link to the raw patch instead of rendered diffs.
 - `lib/outbox/git.rb` — git wrapper. Arguments as arrays, never a shell. Subprocesses get

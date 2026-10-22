@@ -5,9 +5,19 @@
 const { test, expect } = require("@playwright/test");
 
 const BRANCH = "/repos/review/branches/main";
+const HEADERS = "/repos/headers/branches/main";
 
-// The rendered diff of the file placeholder with this index.
-const diff = (page, i) => page.locator(`#f${i} .diff`);
+// The rendered file with this index (f0, f1, …), header and diff. Only files
+// near the view are in the DOM.
+const diff = (page, i) => page.locator(`main.codeview diffs-container[data-file=f${i}]`);
+const title = (page, i) => diff(page, i).locator("[data-diffs-header] [data-title]");
+// Scroll the view to a file through its link in the summary, so it is drawn.
+const reveal = async (page, i) => {
+  await page.locator(`.patch-summary a[href="#f${i}"]`).click();
+  await expect(diff(page, i)).toBeInViewport();
+};
+// How far the top of an element is below the top of the scrolling <main>.
+const fromTop = (page, locator) => locator.evaluate((el) => el.getBoundingClientRect().top - document.querySelector("main").getBoundingClientRect().top);
 
 test("each file's diff is rendered from the raw patch", async ({ page }) => {
   await page.goto(BRANCH);
@@ -15,17 +25,27 @@ test("each file's diff is rendered from the raw patch", async ({ page }) => {
   await expect(page.locator("h1 .badge")).toHaveText("ready");
   await expect(page.locator("h2", { hasText: "Files changed (4)" })).toBeVisible();
 
-  // Server-rendered summary and headers.
+  // Server-rendered summary; the server's file sections give way to one
+  // CodeView, with pierre's file headers.
   const summary = page.locator(".patch-summary");
   await expect(summary.locator("li")).toHaveText([/README/, /lib\/long\.rb/, /lib\/thing\.rb.*added/s, /notes\.md.*deleted/s]);
-  await expect(page.locator("details.file")).toHaveCount(4);
+  await expect(page.locator("main.codeview")).toBeVisible();
+  await expect(page.locator("details.file")).toHaveCount(0);
+  await expect(title(page, 0)).toHaveText("README");
+  await expect(diff(page, 0).locator("[data-diffs-header]")).toHaveAttribute("data-change-type", "change");
+  await expect(diff(page, 1).locator("[data-additions-count]")).toHaveText("+2");
+  await expect(diff(page, 1).locator("[data-deletions-count]")).toHaveText("-2");
 
-  // Browser-rendered bodies: the patch's lines, highlighted by type.
+  // The patch's lines, highlighted by type.
   await expect(diff(page, 0).getByText("hello world")).toBeVisible();
   await expect(diff(page, 0).locator("[data-line-type=change-addition]").first()).toBeVisible();
+  await reveal(page, 1);
   await expect(diff(page, 1).getByText("line ten")).toBeVisible();
   await expect(diff(page, 1).getByText("line one hundred")).toBeVisible();
+  await reveal(page, 3);
+  await expect(diff(page, 2).locator("[data-diffs-header]")).toHaveAttribute("data-change-type", "new");
   await expect(diff(page, 2).getByText("class Thing")).toBeVisible();
+  await expect(diff(page, 3).locator("[data-diffs-header]")).toHaveAttribute("data-change-type", "deleted");
   await expect(diff(page, 3).locator("[data-line-type=change-deletion]").first()).toBeVisible();
   await expect(page.locator(".diff-controls")).toBeVisible();
 });
@@ -35,6 +55,7 @@ test("unchanged lines between hunks expand from the blob route", async ({ page }
   page.on("request", (r) => { if (r.url().includes("/repos/review/blobs/")) blobRequests.push(r.url()); });
 
   await page.goto(BRANCH);
+  await reveal(page, 1);
   const long = diff(page, 1);
   // The gutter and the content column each carry a copy of the separator.
   const between = long.locator("[data-separator][data-expand-index='1']").first();
@@ -46,9 +67,10 @@ test("unchanged lines between hunks expand from the blob route", async ({ page }
   // hunk, from the full files fetched by blob id.
   await between.locator("[data-expand-down]").click();
   await expect(long.getByText("line 77", { exact: true }).first()).toBeVisible();
-  await expect(long.getByText("line 96", { exact: true }).first()).toBeVisible();
   await expect(long.getByText("line 76", { exact: true })).toHaveCount(0);
   await expect(between).toContainText("63 unmodified lines");
+  await page.locator("main").evaluate((m) => m.scrollBy(0, 400));
+  await expect(long.getByText("line 96", { exact: true }).first()).toBeInViewport();
   // With the whole file known, the trailing separator can say how much is left.
   await expect(long.locator("[data-separator][data-expand-index='2']").first()).toContainText("17 unmodified lines");
   // Both sides of the file, each once.
@@ -78,24 +100,44 @@ test("unified or split view is remembered across pages", async ({ page }) => {
   await expect(diff(page, 0).locator("pre[data-diff-type=single]")).toBeVisible();
 });
 
-test("collapse all and expand all fold the file sections", async ({ page }) => {
+test("collapse all and expand all fold the files", async ({ page }) => {
   await page.goto(BRANCH);
-  const files = page.locator("details.file");
-  await expect(files).toHaveCount(4);
-  for (const f of await files.all()) await expect(f).toHaveAttribute("open", "");
+  const folds = page.locator("main.codeview diffs-container button.fold");
+  await expect(folds.first()).toHaveAttribute("aria-expanded", "true");
 
+  // Folded, all four fit in the view.
   await page.getByRole("button", { name: "Collapse all" }).click();
-  for (const f of await files.all()) await expect(f).not.toHaveAttribute("open", "");
-  await expect(diff(page, 0).getByText("hello world")).toBeHidden();
+  await expect(folds).toHaveCount(4);
+  for (const f of await folds.all()) await expect(f).toHaveAttribute("aria-expanded", "false");
+  await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
+  await expect(title(page, 3)).toHaveText("notes.md"); // headers stay
 
-  await page.getByRole("button", { name: "Expand all" }).first().click();
-  for (const f of await files.all()) await expect(f).toHaveAttribute("open", "");
+  await page.getByRole("button", { name: "Expand all" }).click();
+  await expect(diff(page, 0).locator("button.fold")).toHaveAttribute("aria-expanded", "true");
   await expect(diff(page, 0).getByText("hello world")).toBeVisible();
+  await reveal(page, 3);
+  await expect(diff(page, 3).locator("button.fold")).toHaveAttribute("aria-expanded", "true");
+  await expect(diff(page, 3).locator("[data-line-type=change-deletion]").first()).toBeVisible();
+});
+
+test("the toggle in a file's header folds just that file", async ({ page }) => {
+  await page.goto(BRANCH);
+  const fold = diff(page, 1).locator("button.fold");
+  await expect(diff(page, 1).getByText("line ten")).toBeVisible();
+
+  await fold.click();
+  await expect(fold).toHaveAttribute("aria-expanded", "false");
+  await expect(fold).toHaveAttribute("aria-label", "Expand file");
+  await expect(diff(page, 1).getByText("line ten")).toHaveCount(0);
+  await expect(diff(page, 0).getByText("hello world")).toBeVisible();
+
+  await fold.click();
+  await expect(diff(page, 1).getByText("line ten")).toBeVisible();
 });
 
 test("j and k move between files", async ({ page }) => {
   await page.goto(BRANCH);
-  await expect(diff(page, 3).locator("[data-line-type]").first()).toBeVisible();
+  await expect(diff(page, 0).locator("[data-line-type]").first()).toBeVisible();
   const hash = () => page.evaluate(() => location.hash);
 
   await page.keyboard.press("j");
@@ -112,10 +154,68 @@ test("j and k move between files", async ({ page }) => {
   await page.keyboard.press("k");
   await page.keyboard.press("k");
   expect(await hash()).toBe("#f0");
-  // The page scrolled to each file, not just changed the hash.
-  const top = await page.locator("#f0").evaluate((el) => el.getBoundingClientRect().top);
-  expect(top).toBeGreaterThanOrEqual(-1);
-  expect(top).toBeLessThan(40);
+  // The view scrolled to each file, not just changed the hash.
+  await expect.poll(() => fromTop(page, diff(page, 0))).toBeGreaterThanOrEqual(-1);
+  expect(await fromTop(page, diff(page, 0))).toBeLessThan(2);
+});
+
+test("j reaches files too near the end to scroll to the top, and outlines them", async ({ page }) => {
+  await page.goto(HEADERS);
+  await expect(title(page, 0)).toHaveText("big.rb");
+  const hash = () => page.evaluate(() => location.hash);
+  for (const expected of ["#f0", "#f1", "#f2", "#f3", "#f4"]) {
+    await page.keyboard.press("j");
+    expect(await hash()).toBe(expected);
+  }
+  await expect(diff(page, 4)).toHaveCSS("border-top-color", "rgb(3, 102, 214)");
+  await expect(diff(page, 3)).not.toHaveCSS("border-top-color", "rgb(3, 102, 214)");
+  await page.keyboard.press("k");
+  expect(await hash()).toBe("#f3");
+});
+
+test("a link in the summary scrolls to its file", async ({ page }) => {
+  await page.goto(HEADERS);
+  await expect(title(page, 0)).toHaveText("big.rb");
+  await expect(diff(page, 2)).toHaveCount(0); // far below, not drawn
+  await page.locator(".patch-summary a", { hasText: "new_name.rb" }).click();
+  await expect(title(page, 2)).toHaveText("new_name.rb");
+  await expect(diff(page, 2)).toBeInViewport();
+  await expect(page).toHaveURL(/#f2$/);
+});
+
+test("a reload comes back to the same place in the diff", async ({ page }) => {
+  await page.goto(HEADERS);
+  await expect(title(page, 0)).toHaveText("big.rb");
+  await page.locator("main").evaluate((m) => { m.scrollTop = 4000; });
+  const line = diff(page, 0).getByText("def method_150 = 300", { exact: true });
+  await expect(line).toBeInViewport();
+  const before = await fromTop(page, line);
+  await page.waitForTimeout(400); // the place is saved once scrolling settles
+  await page.reload();
+  await expect(line).toBeInViewport();
+  expect(Math.abs((await fromTop(page, line)) - before)).toBeLessThan(2);
+});
+
+test("file headers say what the patch alone does not", async ({ page }) => {
+  await page.goto(HEADERS);
+  await expect(title(page, 0)).toHaveText("big.rb");
+  // Short files at the end are all drawn once the view is at the bottom.
+  await page.locator("main").evaluate((m) => { m.scrollTop = m.scrollHeight; });
+
+  await expect(title(page, 1)).toHaveText("logo.bin");
+  await expect(diff(page, 1).locator(".file-notes")).toHaveText("binary, not shown");
+
+  await expect(diff(page, 2).locator("[data-diffs-header]")).toHaveAttribute("data-change-type", "rename-changed");
+  await expect(diff(page, 2).locator("[data-prev-name]")).toHaveText("old_name.rb");
+  await expect(title(page, 2)).toHaveText("new_name.rb");
+  await expect(diff(page, 2).getByText("line six")).toBeVisible();
+
+  const hidden = diff(page, 3).locator(".badge.hidden");
+  await expect(hidden).toHaveText("hidden characters on 1 line");
+  await expect(hidden).toHaveAttribute("title", "Zero-width, bidi or control characters on lines +1");
+
+  await expect(title(page, 4)).toHaveText("run.sh");
+  await expect(diff(page, 4).locator(".file-notes")).toHaveText("mode 100644 → 100755");
 });
 
 test("a commit's full message unfolds and its page shows only its changes", async ({ page }) => {
@@ -135,14 +235,15 @@ test("a commit's full message unfolds and its page shows only its changes", asyn
   await expect(page.locator("h1")).toHaveText("Add greeting");
   await expect(page.locator("main")).toContainText("commit 1 of 2");
   await expect(page.locator("pre.message")).toContainText("two lines of long.rb change");
-  await expect(page.locator("details.file")).toHaveCount(2);
+  await expect(page.locator("main.codeview diffs-container")).toHaveCount(2);
   await expect(diff(page, 0).getByText("hello world")).toBeVisible();
   await expect(page.locator("nav")).toContainText("← oldest");
 
   await page.getByRole("link", { name: /newer: Add thing/ }).click();
   await expect(page.locator("h1")).toHaveText("Add thing");
   await expect(page.locator("main")).toContainText("commit 2 of 2");
-  await expect(page.locator("details.file summary")).toHaveText([/lib\/thing\.rb/, /notes\.md/]);
+  await expect(title(page, 0)).toHaveText("lib/thing.rb");
+  await expect(title(page, 1)).toHaveText("notes.md");
   await expect(page.locator("nav")).toContainText("newest →");
 });
 
