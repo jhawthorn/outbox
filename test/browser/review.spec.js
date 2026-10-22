@@ -160,8 +160,8 @@ test("when the patch cannot be fetched each file points at the raw patch", async
 test("a rebased branch says so and shows only what changed besides the rebase", async ({ page }) => {
   await page.goto("/repos/rebased/branches/feature");
   await expect(page.locator("h1 .badge")).toHaveText("rebased");
-  await expect(page.locator(".review .summary")).toHaveText("2 commits to push, rebased onto 1 newer upstream commit");
-  await expect(page.locator(".review .rebase")).toContainText("Of upstream's 2 commits: 1 carried over unchanged, 1 changed.");
+  await expect(page.locator(".review .summary")).toHaveText("2 commits to push, rebased onto 1 newer upstream commit; replaces 2 upstream commits");
+  await expect(page.locator(".review .rebase")).toContainText("Of upstream's 2 commits: 1 carried over unchanged, 1 changed, none dropped.");
   await expect(page.locator("h2", { hasText: "Dropped from upstream" })).toHaveCount(0);
   await expect(page.locator(".history .commit .subject")).toHaveText(["Add docs", "Add greeter"]);
   await expect(page.locator(".history .commit", { hasText: "Add docs" }).locator(".badge")).toHaveText("changed");
