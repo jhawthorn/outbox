@@ -242,6 +242,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/tree/#{sha}/lib/a%20b.rb")
     assert_includes body, %(<a class="crumb" href="/repos/demo/tree/#{sha}/lib">lib</a>)
     assert_includes body, "<b>a b.rb</b>"
+    assert_includes body, %(<a href="/repos/demo">demo</a> /\n  commit <a href="/repos/demo/tree/#{sha}"><code>#{sha[0, 7]}</code></a>)
     assert_includes body, "2 lines · 12 bytes"
     assert_includes body, %(href="/repos/demo/blobs/#{blob}">Raw</a>)
     assert_includes body, %(data-file-name="lib/a b.rb" data-blob-url="/repos/demo/blobs/#{blob}")

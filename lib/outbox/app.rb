@@ -248,16 +248,14 @@ module Outbox
         [repo_url(repo), "tree", sha, *path.split("/").map { |s| Rack::Utils.escape_path(s) }].join("/")
       end
 
-      # The links of a path's breadcrumbs: the commit's root, then each
-      # directory; the last name, which is the page itself, is not a link.
+      # The breadcrumbs of a path inside a commit: "root", then each
+      # directory as a link; the last name, which is the page itself, is not.
       def path_crumbs(repo, sha, path)
         names = path.split("/")
+        root = names.empty? ? %(<b>root</b>) : %(<a class="crumb" href="#{tree_url(repo, sha)}">root</a>)
         links = names.each_index.map do |i|
-          dir = names[0..i].join("/")
-          i == names.size - 1 ? %(<b>#{hv names[i]}</b>) : %(<a class="crumb" href="#{tree_url(repo, sha, dir)}">#{hv names[i]}</a>)
+          i == names.size - 1 ? %(<b>#{hv names[i]}</b>) : %(<a class="crumb" href="#{tree_url(repo, sha, names[0..i].join("/"))}">#{hv names[i]}</a>)
         end
-        root = %(<a class="crumb" href="#{repo_url(repo)}">#{h repo.name}</a>) <<
-               (names.empty? ? %(<span class="sep">/</span><b><code>#{h sha[0, 7]}</code></b>) : %(<span class="sep">/</span><a class="crumb" href="#{tree_url(repo, sha)}"><code>#{h sha[0, 7]}</code></a>))
         [root, *links].join(%(<span class="sep">/</span>))
       end
 

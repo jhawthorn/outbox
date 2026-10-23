@@ -352,7 +352,8 @@ test("a file can be viewed whole, with lines selected from the URL", async ({ pa
   await page.goto(BRANCH);
   await page.locator(".patch-summary li", { hasText: "lib/long.rb" }).getByText("view file").click();
   await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}\/lib\/long\.rb$/);
-  await expect(page.locator("h1.path")).toHaveText("review/" + (await page.locator("h1.path code").textContent()) + "/lib/long.rb");
+  await expect(page.locator("h1.path")).toHaveText("root/lib/long.rb");
+  await expect(page.locator(".codeview-head p.muted").first()).toContainText("review / commit");
   await expect(page.locator(".path-meta")).toContainText("120 lines");
   await expect(page.getByRole("link", { name: "Raw" })).toBeVisible();
 

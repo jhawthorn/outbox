@@ -1,12 +1,16 @@
 <% @title = "#{File.basename(@path)} · #{@repo.name}" %>
 <% raw = "#{repo_url(@repo)}/blobs/#{@blob}" %>
+<p class="muted">
+  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
+  commit <a href="<%= tree_url(@repo, @sha) %>"><code><%= h @commit.short %></code></a>
+</p>
 <div class="page-head">
   <h1 class="path"><%= path_crumbs(@repo, @sha, @path) %></h1>
   <a class="button" href="<%= raw %>">Raw</a>
 </div>
 <p class="muted path-meta">
   <%= pluralize(@lines, "line") %> · <%= byte_size(@size) %> ·
-  commit <code><%= h @commit.short %></code> <%= hv @commit.subject %>
+  <%= hv @commit.subject %>
   · <%= hv @commit.author %> · <%= when_label(@commit.date) %>
 </p>
 
