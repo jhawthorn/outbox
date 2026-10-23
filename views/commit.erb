@@ -31,4 +31,4 @@
   <pre class="message"><%= hv @commit.body %></pre>
 <% end %>
 
-<%= render_patch(@patch, commit_patch_url(@repo, @branch.name, @commit.sha)) %>
+<%= render_patch(@patch, commit_patch_url(@repo, @branch.name, @commit.sha), @commit.sha) %>

@@ -233,6 +233,34 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/demo/blobs/HEAD").status
   end
 
+  def test_file_page_shows_a_file_as_it_is_in_a_commit
+    sha = stage_commit("lib/a b.rb", "x = 1\ny = 2\n", "Add a")
+    blob = @repo.file_blob(sha, "lib/a b.rb")
+
+    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/files/#{sha}/lib/a%20b.rb">view file</a>)
+    assert_includes get("/repos/demo/branches/main/commits/#{sha}"), %(href="/repos/demo/files/#{sha}/lib/a%20b.rb")
+    body = get("/repos/demo/files/#{sha}/lib/a%20b.rb")
+    assert_includes body, "<h1>lib/a b.rb</h1>"
+    assert_includes body, %(data-file-name="lib/a b.rb" data-blob-url="/repos/demo/blobs/#{blob}")
+    refute_includes body, "x = 1"
+  end
+
+  def test_file_page_refuses_what_is_not_a_file_in_a_commit
+    sha = stage_commit("lib/a.rb", "x = 1\n", "Add a")
+
+    assert_equal 404, @request.get("/repos/demo/files/#{sha}/lib").status
+    assert_equal 404, @request.get("/repos/demo/files/#{sha}/nope.rb").status
+    assert_equal 404, @request.get("/repos/demo/files/main/lib/a.rb").status
+    assert_equal 404, @request.get("/repos/demo/files/#{"0" * 40}/lib/a.rb").status
+  end
+
+  def test_file_page_does_not_draw_binary_files
+    sha = stage_commit("logo.bin", "a\0b\0c", "Add binary")
+    body = get("/repos/demo/files/#{sha}/logo.bin")
+    assert_includes body, "Binary file not shown."
+    refute_includes body, "data-file-name"
+  end
+
   def test_raw_patch_for_branch_and_commit
     first = stage_commit("a.txt", "a\n", "First")
     stage_commit("b.txt", "b\n", "Second")

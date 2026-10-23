@@ -398,6 +398,51 @@ function navigation(main, view, files, top, go) {
   return (i) => { current = i; moved = false; };
 }
 
+// A single file, as it is in a commit: the same CodeView with one file item
+// (pierre's File rendering) in place of diffs. The URL hash selects lines,
+// #L10 or #L10-L14.
+async function mountFile(root) {
+  const name = root.dataset.fileName;
+  const contents = await fetchText(root.dataset.blobUrl);
+  const main = root.closest("main");
+  const header = el("div", "codeview-head");
+  const hash = ({ range: { start, end } }) => (start === end ? `#L${start}` : `#L${start}-L${end}`);
+  const view = new CodeView({
+    ...OPTIONS,
+    enableLineSelection: true,
+    onSelectedLinesChange: (selection) => {
+      history.replaceState(history.state, "", `${location.pathname}${location.search}${selection ? hash(selection) : ""}`);
+    },
+    renderCodeViewHeader: () => header,
+  }, workerPool());
+  root.remove();
+  header.append(...main.childNodes);
+  main.classList.add("codeview");
+  document.body.classList.add("codeview");
+  view.setup(main);
+  const id = "file";
+  view.setItems([{ id, type: "file", file: { name, contents, cacheKey: root.dataset.blobUrl }, version: 0 }]);
+
+  const m = /^#L(\d+)(?:-L?(\d+))?$/.exec(location.hash);
+  if (m) {
+    const start = Number(m[1]);
+    const end = Number(m[2] ?? m[1]);
+    view.setSelectedLines({ id, range: { start, end } });
+    view.scrollTo({ type: "line", id, lineNumber: start, align: "center", behavior: "instant" });
+  }
+}
+
+for (const root of document.querySelectorAll("[data-file-name]")) {
+  mountFile(root).catch((err) => {
+    console.error(err);
+    root.textContent = `Could not render file (${err.message}). `;
+    const a = document.createElement("a");
+    a.href = root.dataset.blobUrl;
+    a.textContent = "View raw file";
+    root.appendChild(a);
+  });
+}
+
 for (const root of document.querySelectorAll("[data-patch-url]")) {
   mount(root).catch((err) => {
     console.error(err);

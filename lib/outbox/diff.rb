@@ -144,8 +144,8 @@ module Outbox
       when /\Arename to (.*)/          then file.new_path = unquote($1)
       when /\Acopy from (.*)/          then file.status = :copied;  file.old_path = unquote($1)
       when /\Acopy to (.*)/            then file.new_path = unquote($1)
-      when /\A--- (.*)/                then file.old_path = strip_prefix(unquote($1), "a/")
-      when /\A\+\+\+ (.*)/             then file.new_path = strip_prefix(unquote($1), "b/")
+      when /\A--- (.*)/                then file.old_path = strip_prefix(unquote($1.chomp("\t")), "a/")
+      when /\A\+\+\+ (.*)/             then file.new_path = strip_prefix(unquote($1.chomp("\t")), "b/")
       when /\Aindex ([0-9a-f]{40,64})\.\.([0-9a-f]{40,64})/
         file.old_blob = $1 unless $1.match?(/\A0+\z/)
         file.new_blob = $2 unless $2.match?(/\A0+\z/)

@@ -24,6 +24,11 @@ class DiffTest < Minitest::Test
      end
   DIFF
 
+  def test_path_with_spaces_loses_the_tab_git_adds_after_it
+    files = Diff.parse("diff --git a/a b.rb b/a b.rb\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/a b.rb\t\n@@ -0,0 +1 @@\n+x\n")
+    assert_equal "a b.rb", files.first.path
+  end
+
   def test_modified_file_with_two_hunks
     files = Diff.parse(MODIFIED)
     assert_equal 1, files.size

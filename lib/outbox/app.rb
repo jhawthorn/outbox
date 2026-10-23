@@ -236,11 +236,14 @@ module Outbox
 
       # Renders the summary and one placeholder per file; the browser fetches
       # patch_url and draws the diffs (assets/diffs.js).
-      def render_patch(patch, patch_url)
-        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url }
+      # rev is the commit whose files the summary links to, if any.
+      def render_patch(patch, patch_url, rev = nil)
+        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev }
       end
 
       def diffs_built? = File.exist?(DIFFS_BUNDLE)
+
+      def file_url(repo, sha, path) = "#{repo_url(repo)}/files/#{sha}/#{path.split("/").map { |s| Rack::Utils.escape_path(s) }.join("/")}"
 
       def branch_patch_url(repo, branch) = "#{branch_url(repo, branch)}.patch"
 
@@ -384,6 +387,17 @@ module Outbox
       content_type "text/plain", charset: "utf-8"
       headers "Cache-Control" => "private, max-age=31536000, immutable"
       Repo.find!(params[:name]).blob(params[:id])
+    end
+
+    # A file as it is in a commit, drawn in the browser by assets/diffs.js
+    # from the blob.
+    get "/repos/:name/files/:sha/*" do
+      @repo = Repo.find!(params[:name])
+      @sha = params[:sha]
+      @path = params[:splat].first
+      @blob = @repo.file_blob(@sha, @path)
+      @binary = @repo.blob(@blob).include?("\0")
+      erb :file
     end
 
     # Raw patches, as the browser fetches them for the diff viewer and as

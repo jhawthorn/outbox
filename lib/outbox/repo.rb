@@ -686,6 +686,19 @@ module Outbox
 
     MAX_BLOB_BYTES = 5_000_000
 
+    # The id of the blob at path in a commit, for showing a file as it was
+    # then. Anything in the repo can be named, as with blob.
+    def file_blob(sha, path)
+      raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)
+      raise NotFound, "no file named #{path.inspect}" if path.empty?
+      entry = git("ls-tree", "-z", sha, "--", path).split("\0").first
+      _mode, type, id = entry&.split(/[ \t]/, 4)
+      raise NotFound, "no file #{path} in #{sha[0, 7]}" unless type == "blob" && entry.end_with?("\t#{path}")
+      id
+    rescue GitError
+      raise NotFound, "no file #{path} in #{sha[0, 7]}"
+    end
+
     private
 
     def resolve(branch) = branch.is_a?(Branch) ? branch : branch(branch)

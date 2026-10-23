@@ -95,7 +95,9 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
   their slots, from data attributes on the server's file sections. Each file can be
   shown whole, and selected line numbers go in the URL (`#f1-R10-R14`, `L` for the old
-  side), so lines can be linked to. `rake assets` bundles
+  side), so lines can be linked to. "view file" beside each file in a summary opens
+  `/repos/<name>/files/<commit>/<path>`: that file as it is in the commit, in a CodeView
+  with one file item (`#L10-L14` selects lines). `rake assets` bundles
   it with esbuild into `public/diffs/` (gitignored; needs pnpm). Without it the pages
   still work, with a notice and a link to the raw patch instead of rendered diffs.
 - `lib/outbox/git.rb` — git wrapper. Arguments as arrays, never a shell. Subprocesses get

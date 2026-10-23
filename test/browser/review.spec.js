@@ -347,3 +347,21 @@ test("a rebase that conflicted shows how it was resolved", async ({ page }) => {
   await expect(diff(page, 0).getByText("<<<<<<<")).toBeVisible();
   await expect(diff(page, 0).getByText("setting_6 = 45")).toBeVisible();
 });
+
+test("a file can be viewed whole, with lines selected from the URL", async ({ page }) => {
+  await page.goto(BRANCH);
+  await page.locator(".patch-summary li", { hasText: "lib/long.rb" }).getByText("view file").click();
+  await expect(page).toHaveURL(/\/repos\/review\/files\/[0-9a-f]{40}\/lib\/long\.rb$/);
+  await expect(page.locator("h1")).toHaveText("lib/long.rb");
+
+  const file = page.locator("main.codeview diffs-container");
+  await expect(file.locator("[data-diffs-header] [data-title]")).toHaveText("lib/long.rb");
+  await expect(file.getByText("line 1", { exact: true })).toBeVisible();
+
+  // Opening a URL with lines scrolls to them and selects them.
+  await page.goto(`${page.url()}#L90-L92`);
+  await page.reload();
+  await expect(file.getByText("line one hundred")).toHaveCount(0);
+  await expect(file.getByText("line 91", { exact: true })).toBeInViewport();
+  await expect(file.locator("[data-line][data-selected-line]")).toHaveCount(3);
+});

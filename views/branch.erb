@@ -97,5 +97,5 @@
   <% elsif @branch.status == :diverged %>
     <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>
   <% end %>
-  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name)) %>
+  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name), @branch.staged) %>
 <% end %>

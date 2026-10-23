@@ -1,0 +1,16 @@
+<% @title = "#{File.basename(@path)} · #{@repo.name}" %>
+<p class="muted">
+  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
+  <code><%= h @sha[0, 7] %></code>
+</p>
+<h1><%= hv @path %></h1>
+<p class="muted"><a href="<%= repo_url(@repo) %>/blobs/<%= @blob %>">raw</a></p>
+
+<% if @binary %>
+  <p class="muted">Binary file not shown.</p>
+<% else %>
+  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= repo_url(@repo) %>/blobs/<%= @blob %>">
+    <noscript>JavaScript is off. <a href="<%= repo_url(@repo) %>/blobs/<%= @blob %>">View the raw file.</a></noscript>
+  </div>
+  <% if File.exist?(DIFFS_BUNDLE) %><script type="module" src="/diffs/diffs.js"></script><% end %>
+<% end %>
