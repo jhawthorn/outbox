@@ -243,7 +243,34 @@ module Outbox
 
       def diffs_built? = File.exist?(DIFFS_BUNDLE)
 
-      def file_url(repo, sha, path) = "#{repo_url(repo)}/files/#{sha}/#{path.split("/").map { |s| Rack::Utils.escape_path(s) }.join("/")}"
+      # Files and directories share one URL shape: /tree/<commit>/<path>.
+      def tree_url(repo, sha, path = "")
+        [repo_url(repo), "tree", sha, *path.split("/").map { |s| Rack::Utils.escape_path(s) }].join("/")
+      end
+
+      # The links of a path's breadcrumbs: the commit's root, then each
+      # directory; the last name, which is the page itself, is not a link.
+      def path_crumbs(repo, sha, path)
+        names = path.split("/")
+        links = names.each_index.map do |i|
+          dir = names[0..i].join("/")
+          i == names.size - 1 ? %(<b>#{hv names[i]}</b>) : %(<a class="crumb" href="#{tree_url(repo, sha, dir)}">#{hv names[i]}</a>)
+        end
+        root = %(<a class="crumb" href="#{repo_url(repo)}">#{h repo.name}</a>) <<
+               (names.empty? ? %(<span class="sep">/</span><b><code>#{h sha[0, 7]}</code></b>) : %(<span class="sep">/</span><a class="crumb" href="#{tree_url(repo, sha)}"><code>#{h sha[0, 7]}</code></a>))
+        [root, *links].join(%(<span class="sep">/</span>))
+      end
+
+      # "12 bytes", "3.4 KB", "1.2 MB".
+      def byte_size(n)
+        return pluralize(n, "byte") if n < 1000
+        units = %w[KB MB GB]
+        value = n.to_f
+        unit = units.shift
+        value /= 1000
+        (value /= 1000; unit = units.shift) while value >= 1000 && !units.empty?
+        format("%.#{value < 10 ? 1 : 0}f %s", value, unit)
+      end
 
       def branch_patch_url(repo, branch) = "#{branch_url(repo, branch)}.patch"
 
@@ -263,6 +290,28 @@ module Outbox
       # request without it would approve whatever happens to be staged.
       def expected_sha!
         params[:expected] or raise ArgumentError, "missing expected: the staged sha that was reviewed"
+      end
+
+      def show_path(name, sha, path)
+        @repo = Repo.find!(name)
+        @sha = sha
+        @path = path.delete_suffix("/")
+        case @repo.object_type(@sha, @path)
+        when "blob"
+          @blob = @repo.file_blob(@sha, @path)
+          contents = @repo.blob(@blob)
+          @binary = contents.include?("\0")
+          @size = contents.bytesize
+          @lines = contents.count("\n") + (contents.empty? || contents.end_with?("\n") ? 0 : 1)
+          @commit = @repo.commit_detail(@sha)
+          erb :file
+        when "tree"
+          @entries = @repo.tree_entries(@sha, @path)
+          @commit = @repo.commit_detail(@sha)
+          erb :tree
+        else
+          raise NotFound, "no #{@path.empty? ? "commit" : "file or directory #{@path}"} #{@sha[0, 7]}"
+        end
       end
 
       def send_patch(patch)
@@ -389,15 +438,15 @@ module Outbox
       Repo.find!(params[:name]).blob(params[:id])
     end
 
-    # A file as it is in a commit, drawn in the browser by assets/diffs.js
-    # from the blob.
-    get "/repos/:name/files/:sha/*" do
-      @repo = Repo.find!(params[:name])
-      @sha = params[:sha]
-      @path = params[:splat].first
-      @blob = @repo.file_blob(@sha, @path)
-      @binary = @repo.blob(@blob).include?("\0")
-      erb :file
+    # A file or a directory as it is in a commit, at one URL shape whichever
+    # the path is: /tree/<commit>/<path>, the commit's root when the path is
+    # empty. A file is drawn in the browser by assets/diffs.js from the blob.
+    get "/repos/:name/tree/:sha/*" do
+      show_path(params[:name], params[:sha], params[:splat].first)
+    end
+
+    get "/repos/:name/tree/:sha" do
+      show_path(params[:name], params[:sha], "")
     end
 
     # Raw patches, as the browser fetches them for the diff viewer and as

@@ -2,6 +2,7 @@
 <div class="page-head">
   <h1><a class="crumb" href="<%= repo_url(@repo) %>"><%= h @repo.name %></a><span class="sep">/</span><%= h @branch.name %>
     <span class="badge <%= @branch.status %>"><%= status_label(@branch) %></span></h1>
+  <% if @branch.staged %><a class="button" href="<%= tree_url(@repo, @branch.staged) %>">Browse files</a><% end %>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">
     <button type="submit">Fetch upstream</button>

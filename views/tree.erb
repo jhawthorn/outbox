@@ -1,0 +1,29 @@
+<% @title = "#{@path.empty? ? "/" : @path} · #{@repo.name}" %>
+<div class="page-head">
+  <h1 class="path"><%= path_crumbs(@repo, @sha, @path) %></h1>
+</div>
+<p class="muted path-meta">
+  commit <code><%= h @commit.short %></code> <%= hv @commit.subject %>
+  · <%= hv @commit.author %> · <%= when_label(@commit.date) %>
+</p>
+
+<table class="tree">
+  <% unless @path.empty? %>
+    <tr><td class="icon"></td><td colspan="2"><a href="<%= tree_url(@repo, @sha, File.dirname(@path).sub(/\A\.\z/, "")) %>">..</a></td></tr>
+  <% end %>
+  <% @entries.each do |e| %>
+    <% full = [@path, e.name].reject(&:empty?).join("/") %>
+    <tr>
+      <td class="icon" title="<%= e.dir? ? "directory" : e.submodule? ? "submodule" : e.symlink? ? "symbolic link" : "file" %>"><%= e.dir? ? "▸" : e.symlink? ? "↗" : "" %></td>
+      <td>
+        <% if e.submodule? %>
+          <%= hv e.name %> <span class="badge same">submodule</span>
+        <% else %>
+          <a href="<%= tree_url(@repo, @sha, full) %>"><%= hv e.name %><%= "/" if e.dir? %></a>
+        <% end %>
+      </td>
+      <td class="size muted"><%= byte_size(e.size) if e.size %></td>
+    </tr>
+  <% end %>
+  <% if @entries.empty? %><tr><td colspan="3" class="muted">Empty directory.</td></tr><% end %>
+</table>

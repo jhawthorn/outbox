@@ -686,17 +686,55 @@ module Outbox
 
     MAX_BLOB_BYTES = 5_000_000
 
-    # The id of the blob at path in a commit, for showing a file as it was
-    # then. Anything in the repo can be named, as with blob.
-    def file_blob(sha, path)
+    # One name in a directory of a commit. type is "blob", "tree" or
+    # "commit" (a submodule); size is only known for blobs.
+    class Entry
+      attr_reader :name, :mode, :type, :id, :size
+
+      def initialize(name:, mode:, type:, id:, size:)
+        @name = name
+        @mode = mode
+        @type = type
+        @id = id
+        @size = size
+      end
+
+      def dir? = type == "tree"
+      def submodule? = type == "commit"
+      def symlink? = mode == "120000"
+    end
+
+    # What path is in a commit: "blob", "tree" or "commit" (a submodule),
+    # or nil when there is nothing there. The empty path is the root.
+    # Anything in the repo can be named, as with blob.
+    def object_type(sha, path)
       raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)
-      raise NotFound, "no file named #{path.inspect}" if path.empty?
-      entry = git("ls-tree", "-z", sha, "--", path).split("\0").first
-      _mode, type, id = entry&.split(/[ \t]/, 4)
-      raise NotFound, "no file #{path} in #{sha[0, 7]}" unless type == "blob" && entry.end_with?("\t#{path}")
-      id
+      segments = path.split("/", -1)
+      return nil if path.empty? ? false : segments.any? { |s| s.empty? || s == "." || s == ".." }
+      git("cat-file", "-t", path.empty? ? "#{sha}^{tree}" : "#{sha}:#{path}").strip
     rescue GitError
-      raise NotFound, "no file #{path} in #{sha[0, 7]}"
+      nil
+    end
+
+    # The id of the blob at path in a commit, for showing a file as it was
+    # then.
+    def file_blob(sha, path)
+      raise NotFound, "no file named #{path.inspect}" if path.empty?
+      raise NotFound, "no file #{path} in #{sha[0, 7]}" unless object_type(sha, path) == "blob"
+      git("rev-parse", "#{sha}:#{path}").strip
+    end
+
+    # The entries of a directory in a commit, directories first, each group
+    # by name.
+    def tree_entries(sha, path)
+      raise NotFound, "no directory #{path} in #{sha[0, 7]}" unless object_type(sha, path) == "tree"
+      out = git("ls-tree", "-z", "-l", path.empty? ? "#{sha}^{tree}" : "#{sha}:#{path}")
+      entries = out.split("\0").map do |record|
+        meta, name = record.split("\t", 2)
+        mode, type, id, size = meta.split
+        Entry.new(name: name.force_encoding("UTF-8").scrub, mode: mode, type: type, id: id, size: size == "-" ? nil : size.to_i)
+      end
+      entries.sort_by { |e| [e.dir? ? 0 : 1, e.name] }
     end
 
     private

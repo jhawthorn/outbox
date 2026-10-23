@@ -351,8 +351,10 @@ test("a rebase that conflicted shows how it was resolved", async ({ page }) => {
 test("a file can be viewed whole, with lines selected from the URL", async ({ page }) => {
   await page.goto(BRANCH);
   await page.locator(".patch-summary li", { hasText: "lib/long.rb" }).getByText("view file").click();
-  await expect(page).toHaveURL(/\/repos\/review\/files\/[0-9a-f]{40}\/lib\/long\.rb$/);
-  await expect(page.locator("h1")).toHaveText("lib/long.rb");
+  await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}\/lib\/long\.rb$/);
+  await expect(page.locator("h1.path")).toHaveText("review/" + (await page.locator("h1.path code").textContent()) + "/lib/long.rb");
+  await expect(page.locator(".path-meta")).toContainText("120 lines");
+  await expect(page.getByRole("link", { name: "Raw" })).toBeVisible();
 
   const file = page.locator("main.codeview diffs-container");
   await expect(file.locator("[data-diffs-header] [data-title]")).toHaveText("lib/long.rb");
@@ -364,4 +366,17 @@ test("a file can be viewed whole, with lines selected from the URL", async ({ pa
   await expect(file.getByText("line one hundred")).toHaveCount(0);
   await expect(file.getByText("line 91", { exact: true })).toBeInViewport();
   await expect(file.locator("[data-line][data-selected-line]")).toHaveCount(3);
+});
+
+test("a directory is browsed at the same kind of URL", async ({ page }) => {
+  await page.goto(BRANCH);
+  await page.getByRole("link", { name: "Browse files" }).click();
+  await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}$/);
+  await expect(page.locator("table.tree td a")).toHaveText(["lib/", "README"]);
+  await page.locator("table.tree").getByRole("link", { name: "lib/" }).click();
+  await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib$/);
+  await expect(page.locator("table.tree td a")).toHaveText(["..", "long.rb", "thing.rb"]);
+  await page.locator("table.tree").getByRole("link", { name: "thing.rb" }).click();
+  await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib\/thing\.rb$/);
+  await expect(page.locator("main.codeview diffs-container").getByText("class Thing")).toBeVisible();
 });

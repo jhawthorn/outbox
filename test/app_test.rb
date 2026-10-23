@@ -233,30 +233,54 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/demo/blobs/HEAD").status
   end
 
-  def test_file_page_shows_a_file_as_it_is_in_a_commit
+  def test_tree_url_shows_a_file_as_it_is_in_a_commit
     sha = stage_commit("lib/a b.rb", "x = 1\ny = 2\n", "Add a")
     blob = @repo.file_blob(sha, "lib/a b.rb")
 
-    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/files/#{sha}/lib/a%20b.rb">view file</a>)
-    assert_includes get("/repos/demo/branches/main/commits/#{sha}"), %(href="/repos/demo/files/#{sha}/lib/a%20b.rb")
-    body = get("/repos/demo/files/#{sha}/lib/a%20b.rb")
-    assert_includes body, "<h1>lib/a b.rb</h1>"
+    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb">view file</a>)
+    assert_includes get("/repos/demo/branches/main/commits/#{sha}"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb")
+    body = get("/repos/demo/tree/#{sha}/lib/a%20b.rb")
+    assert_includes body, %(<a class="crumb" href="/repos/demo/tree/#{sha}/lib">lib</a>)
+    assert_includes body, "<b>a b.rb</b>"
+    assert_includes body, "2 lines · 12 bytes"
+    assert_includes body, %(href="/repos/demo/blobs/#{blob}">Raw</a>)
     assert_includes body, %(data-file-name="lib/a b.rb" data-blob-url="/repos/demo/blobs/#{blob}")
     refute_includes body, "x = 1"
   end
 
-  def test_file_page_refuses_what_is_not_a_file_in_a_commit
-    sha = stage_commit("lib/a.rb", "x = 1\n", "Add a")
+  def test_tree_url_lists_a_directory_the_same_way
+    commit(@stage, "lib/deep/c.rb", "c\n", "Add c")
+    commit(@stage, "lib/a.rb", "x = 1\n", "Add a")
+    commit(@stage, "z.txt", "z\n", "Add z")
+    sha = push(@stage, "main") && @repo.branch("main").staged
 
-    assert_equal 404, @request.get("/repos/demo/files/#{sha}/lib").status
-    assert_equal 404, @request.get("/repos/demo/files/#{sha}/nope.rb").status
-    assert_equal 404, @request.get("/repos/demo/files/main/lib/a.rb").status
-    assert_equal 404, @request.get("/repos/demo/files/#{"0" * 40}/lib/a.rb").status
+    root = get("/repos/demo/tree/#{sha}")
+    assert_operator root.index(">lib/<"), :<, root.index(">z.txt<"), "directories first"
+    assert_includes root, %(href="/repos/demo/tree/#{sha}/lib")
+    refute_includes root, ">..<"
+    lib = get("/repos/demo/tree/#{sha}/lib/")
+    assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/a.rb">a.rb</a>)
+    assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/deep">deep/</a>)
+    assert_includes lib, %(<a href="/repos/demo/tree/#{sha}">..</a>)
+    assert_includes lib, "6 bytes"
+    assert_includes get("/repos/demo/tree/#{sha}/lib/deep"), %(<a href="/repos/demo/tree/#{sha}/lib">..</a>)
+    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}">Browse files</a>)
   end
 
-  def test_file_page_does_not_draw_binary_files
+  def test_tree_url_refuses_what_is_not_in_a_commit
+    sha = stage_commit("lib/a.rb", "x = 1\n", "Add a")
+
+    assert_equal 404, @request.get("/repos/demo/tree/#{sha}/nope.rb").status
+    assert_nil @repo.object_type(sha, "lib/../lib")
+    assert_nil @repo.object_type(sha, "lib//a.rb")
+    assert_equal "blob", @repo.object_type(sha, "lib/a.rb")
+    assert_equal 404, @request.get("/repos/demo/tree/main/lib/a.rb").status
+    assert_equal 404, @request.get("/repos/demo/tree/#{"0" * 40}/lib/a.rb").status
+  end
+
+  def test_tree_url_does_not_draw_binary_files
     sha = stage_commit("logo.bin", "a\0b\0c", "Add binary")
-    body = get("/repos/demo/files/#{sha}/logo.bin")
+    body = get("/repos/demo/tree/#{sha}/logo.bin")
     assert_includes body, "Binary file not shown."
     refute_includes body, "data-file-name"
   end

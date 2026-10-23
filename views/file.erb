@@ -1,16 +1,20 @@
 <% @title = "#{File.basename(@path)} · #{@repo.name}" %>
-<p class="muted">
-  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
-  <code><%= h @sha[0, 7] %></code>
+<% raw = "#{repo_url(@repo)}/blobs/#{@blob}" %>
+<div class="page-head">
+  <h1 class="path"><%= path_crumbs(@repo, @sha, @path) %></h1>
+  <a class="button" href="<%= raw %>">Raw</a>
+</div>
+<p class="muted path-meta">
+  <%= pluralize(@lines, "line") %> · <%= byte_size(@size) %> ·
+  commit <code><%= h @commit.short %></code> <%= hv @commit.subject %>
+  · <%= hv @commit.author %> · <%= when_label(@commit.date) %>
 </p>
-<h1><%= hv @path %></h1>
-<p class="muted"><a href="<%= repo_url(@repo) %>/blobs/<%= @blob %>">raw</a></p>
 
 <% if @binary %>
   <p class="muted">Binary file not shown.</p>
 <% else %>
-  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= repo_url(@repo) %>/blobs/<%= @blob %>">
-    <noscript>JavaScript is off. <a href="<%= repo_url(@repo) %>/blobs/<%= @blob %>">View the raw file.</a></noscript>
+  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= raw %>">
+    <noscript>JavaScript is off. <a href="<%= raw %>">View the raw file.</a></noscript>
   </div>
   <% if File.exist?(DIFFS_BUNDLE) %><script type="module" src="/diffs/diffs.js"></script><% end %>
 <% end %>

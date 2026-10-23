@@ -9,7 +9,7 @@
     <% files.each_with_index do |f, i| %>
       <li>
         <a href="#f<%= i %>"><%= hv f.path %></a>
-        <% if rev && f.new_blob && !f.binary? %><a class="muted" href="<%= file_url(@repo, rev, f.path) %>">view file</a><% end %>
+        <% if rev && f.new_blob && !f.binary? %><a class="muted" href="<%= tree_url(@repo, rev, f.path) %>">view file</a><% end %>
         <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
         <% if f.binary? %><span class="muted">binary</span><% else %>
           <span class="count add">+<%= f.additions %></span>

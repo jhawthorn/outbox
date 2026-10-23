@@ -12,6 +12,7 @@
     <% if @commit.root? %>· root commit<% end %>
   </span>
   <span class="spacer"></span>
+  <a class="button" href="<%= tree_url(@repo, @commit.sha) %>">Browse files</a>
   <nav class="actions">
     <% if @older %>
       <a href="<%= commit_url(@repo, @branch.name, @older) %>">← older: <%= h @older.subject %></a>

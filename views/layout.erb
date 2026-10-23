@@ -211,6 +211,22 @@
   .commit .subject { font-weight: 600; color: var(--fg); text-decoration: none; }
   .commit .subject:hover { text-decoration: underline; }
   .empty { color: var(--muted); padding: 24px 0; }
+  /* A file or directory in a commit: the path as breadcrumbs, then what it
+     is and where it came from. */
+  h1.path { font-size: 20px; overflow-wrap: anywhere; }
+  h1.path b { font-weight: 600; }
+  h1.path code { font-size: 15px; }
+  .path-meta { margin: -8px 0 16px; font-size: 13px; }
+  a.button { font-size: 13px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
+             background: var(--meta-bg); color: var(--fg); text-decoration: none; white-space: nowrap; }
+  a.button:hover { border-color: var(--muted); }
+  table.tree { border: 1px solid var(--line); border-radius: 8px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+  table.tree tr:last-child td { border-bottom: 0; }
+  table.tree td { padding: 6px 12px; }
+  table.tree td.icon { width: 1%; color: var(--muted); padding-right: 0; }
+  table.tree td.size { width: 1%; white-space: nowrap; text-align: right; font-size: 13px; }
+  table.tree a { text-decoration: none; }
+  table.tree a:hover { text-decoration: underline; }
   details.add { margin-top: 24px; }
   details.add summary { cursor: pointer; color: var(--accent); }
   /* Shown over a branch or commit page whose branch has moved. Fixed, so it
