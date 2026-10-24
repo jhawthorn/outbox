@@ -23,6 +23,8 @@
 #             after a delay, so a fetch can be watched running and failing.
 #   headers   one staged commit: a rename, a binary file, a mode change, a
 #             hidden character and a long file. Read-only.
+#   huge      one staged commit of about 20 MB: 400 added files and a
+#             lockfile of 100,000 lines. Read-only; the large diff tests.
 #   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
 #             watches open pages follow.
 require "fileutils"
@@ -181,6 +183,11 @@ def seed(dir)
   stage(work, "Exercise the file headers",
         "new_name.rb" => body.sub("line 6\n", "line six\n"), "logo.bin" => "\x00\x02binary",
         "plain.txt" => "pla​in\n", "big.rb" => big.gsub(/= (\d*[05])$/) { "= #{$1.to_i * 2}" })
+
+  upstream, = make_upstream(dir, "huge", "README" => "hello\n")
+  files = (1..400).to_h { |n| ["vendor/gem_#{n}/lib.rb", (1..1200).map { |i| "def method_#{n}_#{i}(a, b) = a + b * #{i}\n" }.join] }
+  files["yarn.lock"] = (1..100_000).map { |i| "package-#{i}@^1.0.#{i}:\n" }.join
+  stage(add_repo(dir, "huge", upstream), "Vendor everything", files)
 
   Outbox::Config.add("slow","http://127.0.0.1:#{start_stub}/slow.git")
   Outbox::Config.apply!

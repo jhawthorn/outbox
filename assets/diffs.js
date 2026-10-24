@@ -5,7 +5,10 @@
 // what a page without this script shows.
 //
 // This fetches the patch, parses it, and replaces the files with a single
-// @pierre/diffs CodeView. CodeView owns its scroll container, so once it
+// @pierre/diffs CodeView. The patch is read as it arrives and parsed a file
+// at a time in slices of a few milliseconds, the way diffshub.com does, so
+// a diff of any size shows its first files at once and the page never
+// freezes; the rest are added to the view as they are parsed. CodeView owns its scroll container, so once it
 // mounts the page below the site header becomes that container: everything
 // above the files (title, review panel, commits, summary) is its header
 // element and scrolls with them, so there is still one scrollbar. It draws
@@ -16,7 +19,7 @@
 // File headers are pierre's: change icon, old → new name on a rename, and
 // line counts. The slots around the name carry what pierre does not know: a
 // fold toggle, mode changes, binary files, and lines with hidden characters.
-import { CodeView, parsePatchFiles } from "@pierre/diffs";
+import { CodeView, processFile } from "@pierre/diffs";
 import { getOrCreateWorkerPoolSingleton } from "@pierre/diffs/worker";
 
 const THEME = { light: "pierre-light", dark: "pierre-dark" };
@@ -80,41 +83,78 @@ function button(label, title, onclick) {
   return b;
 }
 
+// The patch's files as text, one at a time, as they arrive. A file ends where
+// the next "diff --git" line starts, which the diff lines themselves cannot
+// contain: they begin with a space, + or -. Chunks are searched on their
+// own, with the last few characters held back in case the line is split
+// between two, so a file of many megabytes is not searched over and over.
+const FILE_BREAK = "\ndiff --git ";
+
+async function* patchFiles(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pieces = [];
+  let held = "";
+  const next = (text) => {
+    pieces.push(text);
+    const file = pieces.join("");
+    pieces = [];
+    return file;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    let text = held + (done ? decoder.decode() : decoder.decode(value, { stream: true }));
+    held = "";
+    for (let i; (i = text.indexOf(FILE_BREAK)) >= 0; ) {
+      const file = next(text.slice(0, i + 1));
+      text = text.slice(i + 1);
+      if (file.startsWith("diff --git ")) yield file;
+    }
+    if (done) {
+      const file = next(text);
+      if (file.startsWith("diff --git ")) yield file;
+      return;
+    }
+    const keep = Math.max(0, text.length - FILE_BREAK.length + 1);
+    pieces.push(text.slice(0, keep));
+    held = text.slice(keep);
+  }
+}
+
+const yieldToBrowser = () => (globalThis.scheduler?.yield ? scheduler.yield() : new Promise((resolve) => setTimeout(resolve)));
+// How long the parser runs before the page gets a turn.
+const SLICE_MS = 8;
+
 async function mount(root) {
-  const patch = await fetchText(root.dataset.patchUrl).catch((err) => {
+  const res = await fetch(root.dataset.patchUrl, { headers: { accept: "text/plain" } }).catch((err) => {
     throw new Error(`patch ${err.message}`);
   });
-  const parsed = parsePatchFiles(patch).flatMap((p) => p.files);
-  const byPath = new Map();
-  for (const f of parsed) {
-    byPath.set(f.name, f);
-    if (f.prevName && !byPath.has(f.prevName)) byPath.set(f.prevName, f);
-  }
+  if (!res.ok) throw new Error(`patch request failed with status ${res.status}`);
 
   // One entry per server-rendered file, in the server's order and with its
-  // id (f0, f1, …), so the summary's links keep working.
+  // id (f0, f1, …), so the summary's links keep working. A file is added to
+  // the view once the patch has reached it.
+  const slots = new Map();
+  for (const details of root.querySelectorAll("details.file")) slots.set(details.dataset.path, { id: details.id, data: details.dataset });
+  const slotIds = new Set([...slots.values()].map((s) => s.id));
   const files = [];
-  const missing = [];
-  for (const details of root.querySelectorAll("details.file")) {
-    const fileDiff = byPath.get(details.dataset.path);
-    if (fileDiff == null) missing.push(details.dataset.path);
-    else files.push({ id: details.id, data: details.dataset, fileDiff, collapsed: false, version: 0, whole: false, instance: null });
-  }
-  const byId = new Map(files.map((f) => [f.id, f]));
-  const blobs = new WeakMap(files.map((f) => [f.fileDiff, f.data]));
+  const byId = new Map();
+  const blobs = new WeakMap();
   const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, collapsed: f.collapsed, version: f.version });
+  // Whether the reader has collapsed everything, which files still to come join.
+  let collapsedAll = false;
 
   // Everything on the page above the files becomes CodeView's header, and
   // a note about any file the patch lacks (it was truncated) its footer.
   const main = root.closest("main");
   const header = el("div", "codeview-head");
   const footer = el("div", "codeview-foot");
-  if (missing.length) {
-    footer.append(`Not in the patch, so not shown: ${missing.join(", ")}. `);
+  const footnote = (text) => {
+    footer.replaceChildren(text);
     const a = el("a", null, "View raw patch");
     a.href = root.dataset.patchUrl;
     footer.append(a);
-  }
+  };
 
   const options = {
     ...OPTIONS,
@@ -122,7 +162,7 @@ async function mount(root) {
     // Patches only carry a few lines of context. The full files are fetched
     // by blob id the first time a separator is clicked.
     loadDiffFiles: async (diff) => {
-      const { oldBlob, newBlob } = blobs.get(diff) ?? byPath.get(diff.name)?.data ?? {};
+      const { oldBlob, newBlob } = blobs.get(diff) ?? slots.get(diff.name)?.data ?? {};
       if (!oldBlob || !newBlob) return undefined;
       const blob = (id) => fetchText(`${root.dataset.blobUrl}/${id}`);
       const [oldContents, newContents] = await Promise.all([blob(oldBlob), blob(newBlob)]);
@@ -160,11 +200,12 @@ async function mount(root) {
       history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
     },
     renderCodeViewHeader: () => header,
-    renderCodeViewFooter: () => (missing.length ? footer : undefined),
+    renderCodeViewFooter: () => footer,
   };
   const view = new CodeView(options, workerPool());
 
   const setCollapsed = (list, collapsed) => {
+    if (list === files) collapsedAll = collapsed;
     for (const f of list) {
       if (f.collapsed === collapsed) continue;
       f.collapsed = collapsed;
@@ -190,18 +231,61 @@ async function mount(root) {
       setCollapsed([f], false);
       openWhole(f);
     } else {
-      f.fileDiff = parsePatchFiles(patch).flatMap((p) => p.files).find((d) => d.name === f.fileDiff.name);
+      f.fileDiff = processFile(f.text, { isGitDiff: true });
       blobs.set(f.fileDiff, f.data);
     }
     view.updateItem(item(f));
   };
 
+  // Parses files until a slice of time is used up (or the patch ends) and
+  // returns them. Waiting for the network does not count, but a slice never
+  // lasts more than a moment longer than that.
+  const stream = patchFiles(res);
+  let finished = false;
+  let failure = null;
+  const readSlice = async () => {
+    const batch = [];
+    let worked = 0;
+    const began = performance.now();
+    while (worked < SLICE_MS && performance.now() - began < 250) {
+      let done, text;
+      try {
+        ({ done, value: text } = await stream.next());
+      } catch (err) {
+        failure = err;
+        done = true;
+      }
+      if (done) {
+        finished = true;
+        break;
+      }
+      const t = performance.now();
+      const fileDiff = processFile(text, { isGitDiff: true });
+      const slot = fileDiff && (slots.get(fileDiff.name) ?? slots.get(fileDiff.prevName));
+      if (slot) batch.push({ id: slot.id, data: slot.data, fileDiff, text, collapsed: false, version: 0, whole: false, instance: null });
+      worked += performance.now() - t;
+    }
+    return batch;
+  };
+  // Files count as there once the view has them.
+  const commit = (batch) => {
+    for (const f of batch) {
+      f.collapsed = collapsedAll;
+      files.push(f);
+      byId.set(f.id, f);
+      blobs.set(f.fileDiff, f.data);
+    }
+    return batch.map(item);
+  };
+
+  const first = await readSlice();
+  if (failure && !first.length) throw new Error(`patch ${failure.message}`);
   root.replaceChildren(diffControls(view, options, files, setCollapsed));
   header.append(...main.childNodes);
   main.classList.add("codeview");
   document.body.classList.add("codeview");
   view.setup(main);
-  view.setItems(files.map(item));
+  view.setItems(commit(first));
 
   const top = (i) => view.getTopForItem(files[i].id);
   // The file last moved to is outlined, since one near the end may not
@@ -218,13 +302,27 @@ async function mount(root) {
   // The summary's links point at files that may not be in the DOM.
   main.addEventListener("click", (e) => {
     const a = e.target.closest?.("a[href^='#']");
-    const i = a ? files.findIndex((f) => `#${f.id}` === a.getAttribute("href")) : -1;
-    if (i < 0) return;
+    const href = a?.getAttribute("href");
+    const i = a ? files.findIndex((f) => `#${f.id}` === href) : -1;
+    if (i < 0) {
+      // A file the patch has not reached yet: go there once it has.
+      if (a && notYet(href.slice(1))) {
+        e.preventDefault();
+        onceAdded(href.slice(1), () => a.click());
+      }
+      return;
+    }
     e.preventDefault();
     setCollapsed([files[i]], false);
     go(i, "smooth");
     navigated(i);
   });
+
+  // Files are added as the patch is parsed. Something aimed at one that is
+  // not there yet waits for it.
+  const waiting = [];
+  const notYet = (id) => !finished && slotIds.has(id) && !byId.has(id);
+  const onceAdded = (id, fn) => waiting.push([id, fn]);
 
   // The window no longer scrolls, so the browser cannot put the reader back
   // where they were on reload or back/forward; this does. The place is kept
@@ -254,6 +352,8 @@ async function mount(root) {
   // #f2 is a file, #f2-R10 a line on its new side (L the old), #f2-R10-R14
   // a range. A line the patch does not show opens the whole file.
   const follow = (hash, scroll) => {
+    const id = /^#(f\d+)/.exec(hash)?.[1];
+    if (id && notYet(id)) return onceAdded(id, () => follow(hash, scroll));
     const i = files.findIndex((f) => `#${f.id}` === hash);
     if (i >= 0) {
       if (scroll) { go(i); navigated(i); }
@@ -277,10 +377,44 @@ async function mount(root) {
   };
   window.addEventListener("hashchange", () => follow(location.hash, true));
 
+  // Where the page was opened to: the file in the URL, or where the reader
+  // was before a reload. Once the files that takes are in the view.
   const place = history.state?.place;
-  follow(location.hash, !(place && byId.has(place.id)));
-  if (place && byId.has(place.id)) view.scrollTo({ type: "item", id: place.id, align: "start", offset: -place.offset });
+  const opened = () => {
+    follow(location.hash, !(place && byId.has(place.id)));
+    if (place && byId.has(place.id)) view.scrollTo({ type: "item", id: place.id, align: "start", offset: -place.offset });
+  };
+  const wanted = [/^#(f\d+)/.exec(location.hash)?.[1], place?.id].filter(Boolean);
+  let arrived = false;
+  const arrive = () => {
+    if (arrived || !(finished || wanted.every((id) => !notYet(id)))) return;
+    arrived = true;
+    opened();
+  };
+  arrive();
   main.focus({ preventScroll: true });
+
+  // The rest of the patch, a slice at a time.
+  const progress = () => footer.replaceChildren(`Reading the patch: ${files.length} of ${slotIds.size} files…`);
+  while (!finished) {
+    progress();
+    await yieldToBrowser();
+    const batch = await readSlice();
+    if (batch.length) view.addItems(commit(batch));
+    for (const entry of waiting.splice(0)) {
+      if (!notYet(entry[0])) entry[1]();
+      else waiting.push(entry);
+    }
+    arrive();
+  }
+  footer.replaceChildren();
+  const missing = [...slots].filter(([, slot]) => !byId.has(slot.id)).map(([path]) => path);
+  if (failure) {
+    console.error(failure);
+    footnote(`The patch could not be read to the end (${failure.message}), so files after ${files.at(-1)?.data.path ?? "the start"} are not shown. `);
+  } else if (missing.length) {
+    footnote(`Not in the patch, so not shown: ${missing.join(", ")}. `);
+  }
 }
 
 const SIDES = { L: "deletions", R: "additions" };
