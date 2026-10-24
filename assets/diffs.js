@@ -72,21 +72,6 @@ const DEFAULT_PREFS = { diffStyle: "unified" };
 // the reader has said otherwise.
 const TREE_FROM = 5;
 
-// Files the reader has marked viewed, kept across pages. The key is the
-// repository, the file's path, both blob ids and any mode change, so a
-// file that changes after it was viewed (a new push) is unviewed again, as
-// on GitHub.
-const REPO = /^\/repos\/([^/]+)/.exec(location.pathname)?.[1] ?? "";
-const viewed = {
-  key: (data) => `outbox:viewed:${REPO}:${data.path}:${data.oldBlob ?? ""}:${data.newBlob ?? ""}:${data.mode ?? ""}`,
-  get(data) {
-    try { return localStorage.getItem(this.key(data)) === "1"; } catch { return false; }
-  },
-  set(data, on) {
-    try { on ? localStorage.setItem(this.key(data), "1") : localStorage.removeItem(this.key(data)); } catch {}
-  },
-};
-
 function el(tag, className, text) {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -197,7 +182,7 @@ async function mount(root) {
     renderHeaderFilenameSuffix: (diff, ctx) => fileNotes(byId.get(ctx.item.id), diff),
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
-      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole)), viewedToggle(f, () => markViewed(f, !f.viewed))].filter(Boolean);
+      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole))].filter(Boolean);
       if (!notes.length) return undefined;
       const span = el("span", "file-actions");
       span.append(...notes);
@@ -289,8 +274,7 @@ async function mount(root) {
   // Files count as there once the view has them.
   const commit = (batch) => {
     for (const f of batch) {
-      f.viewed = viewed.get(f.data);
-      f.collapsed = collapsedAll || f.viewed;
+      f.collapsed = collapsedAll;
       files.push(f);
       byId.set(f.id, f);
       blobs.set(f.fileDiff, f.data);
@@ -347,16 +331,6 @@ async function mount(root) {
   };
   main.addEventListener("click", jump);
 
-  // Viewed files fold away, and the tree and its count say so.
-  const markViewed = (f, on) => {
-    f.viewed = on;
-    viewed.set(f.data, on);
-    f.version++;
-    setCollapsed([f], on);
-    view.updateItem(item(f));
-    tree?.viewed(f.id, on);
-  };
-
   // The files as a tree beside the diff, for a diff of more than one.
   let tree = null;
   function toggleTree(show) {
@@ -365,8 +339,6 @@ async function mount(root) {
     if (show && !tree) {
       tree = fileTree([...slots.values()], jump);
       document.body.insertBefore(tree.element, main);
-      for (const f of files) if (f.viewed) tree.viewed(f.id, true);
-      for (const [, slot] of slots) if (viewed.get(slot.data)) tree.viewed(slot.id, true);
     }
   }
   const treeShown = () => (prefs.get("fileTree") ?? (slots.size >= TREE_FROM ? "shown" : "hidden")) === "shown";
@@ -518,23 +490,10 @@ function wholeToggle(file, onclick) {
   return b;
 }
 
-function viewedToggle(file, onchange) {
-  const label = el("label", "viewed");
-  label.title = "Mark the file viewed: it folds away until it changes";
-  const box = el("input");
-  box.type = "checkbox";
-  box.checked = file.viewed;
-  box.addEventListener("click", (e) => e.stopPropagation());
-  box.addEventListener("change", () => onchange());
-  label.addEventListener("click", (e) => e.stopPropagation());
-  label.append(box, "Viewed");
-  return label;
-}
-
 // The files of a diff as a tree of directories, a directory with one child
 // directory drawn as one ("lib/active_record"). Each file links to its
-// place in the diff (#f3). Returns the element and what updates it: the
-// current file, and whether a file is viewed.
+// place in the diff (#f3). Returns the element and what marks the current
+// file.
 function fileTree(slots, jump) {
   // Directories and files in the order they first appear, which is the
   // diff's, so the tree reads down the way j does.
@@ -595,24 +554,11 @@ function fileTree(slots, jump) {
   filter.type = "search";
   filter.placeholder = "Filter files";
   filter.setAttribute("aria-label", "Filter files");
-  const progress = el("div", "progress-line");
-  const meter = el("span", "meter");
-  const fill = el("i");
-  meter.append(fill);
-  const count = el("span");
-  progress.append(meter, count);
-  head.append(filter, progress);
+  head.append(filter);
   const list = draw(root);
   element.append(head, list);
   element.addEventListener("click", jump);
 
-  const seen = new Set();
-  const total = slots.length;
-  const tally = () => {
-    count.textContent = `${seen.size} / ${total} viewed`;
-    fill.style.width = `${(100 * seen.size) / total}%`;
-  };
-  tally();
   filter.addEventListener("input", () => {
     const q = filter.value.trim().toLowerCase();
     for (const [, a] of links) a.parentElement.hidden = q && !a.title.toLowerCase().includes(q);
@@ -631,13 +577,6 @@ function fileTree(slots, jump) {
       current = a;
       for (let li = a.closest("li.closed"); li; li = li.parentElement.closest("li.closed")) li.classList.remove("closed");
       a.scrollIntoView({ block: "nearest" });
-    },
-    viewed(id, on) {
-      const a = links.get(id);
-      if (!a) return;
-      a.classList.toggle("viewed", on);
-      on ? seen.add(id) : seen.delete(id);
-      tally();
     },
   };
 }

@@ -386,7 +386,7 @@ test("a directory is browsed at the same kind of URL", async ({ page }) => {
   await expect(page.locator("main.codeview diffs-container").getByText("class Thing")).toBeVisible();
 });
 
-test("the files sit in a tree beside the diff, and viewed ones fold away", async ({ page }) => {
+test("the files sit in a tree beside the diff", async ({ page }) => {
   await page.goto(BRANCH);
   const tree = page.getByRole("complementary", { name: "Files in this diff" });
   // Four files is not enough for the tree to open by itself.
@@ -395,24 +395,13 @@ test("the files sit in a tree beside the diff, and viewed ones fold away", async
   await page.getByRole("button", { name: "Files" }).click();
   await expect(tree.locator("a")).toHaveText([/README/, /long\.rb/, /thing\.rb/, /notes\.md/]);
   await expect(tree.locator(".dir")).toHaveText(["lib"]);
-  await expect(tree).toContainText("0 / 4 viewed");
+  // Nothing to tick off: a file is reviewed by reading it.
+  await expect(tree).not.toContainText("viewed");
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
 
   await tree.getByRole("link", { name: /thing\.rb/ }).click();
   await expect(diff(page, 2)).toBeInViewport();
   await expect(tree.getByRole("link", { name: /thing\.rb/ })).toHaveAttribute("aria-current", "true");
-
-  // Viewed: the file folds, the tree counts it, and it stays so on reload.
-  await reveal(page, 0);
-  await diff(page, 0).getByRole("checkbox", { name: "Viewed" }).check();
-  await expect(tree).toContainText("1 / 4 viewed");
-  await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
-  await page.reload();
-  await expect(tree).toContainText("1 / 4 viewed");
-  // The reload puts the reader back where they were, which may be past it;
-  // scroll up rather than follow its link, which would unfold it.
-  await page.locator("main").evaluate((m) => m.scrollTo(0, 0));
-  await expect(diff(page, 0).getByRole("checkbox", { name: "Viewed" })).toBeChecked();
-  await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
 
   await tree.getByRole("searchbox", { name: "Filter files" }).fill("long");
   await expect(tree.locator("a:visible")).toHaveText([/long\.rb/]);

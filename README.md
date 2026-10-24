@@ -97,11 +97,10 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
   their slots, from data attributes on the server's file sections. Each file can be
   shown whole, and selected line numbers go in the URL (`#f1-R10-R14`, `L` for the old
-  side), so lines can be linked to. Beside a diff of more than one file, its files as a
-  tree, in the diff's order, following the file being read; each file can be marked
-  viewed, which folds it and is remembered (in localStorage, by path and blob ids, so a
-  file that changes is unviewed). A file page is the same CodeView with one file item
-  (`#L10-L14` selects lines). `rake assets` bundles it with esbuild into `public/diffs/`
+  side), so lines can be linked to. Beside a diff of five files or more, its files as a
+  tree, in the diff's order, following the file being read (a button shows or hides it
+  for any diff). A file page is the same CodeView with one file item (`#L10-L14` selects
+  lines). `rake assets` bundles it with esbuild into `public/diffs/`
   (gitignored; needs pnpm). Without it the pages still work, with a notice and a link to
   the raw patch instead of rendered diffs.
 - `assets/browse.js` — the rest of what pages do in the browser: the branch picker, the
