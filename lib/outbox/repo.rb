@@ -939,7 +939,6 @@ module Outbox
     end
 
     def patch(from, to, max_bytes)
-      stat = git("diff", "--shortstat", "-M", from, to).strip
       text = git("diff", "-M", "--full-index", from, to)
       truncated = false
       if text.bytesize > max_bytes
@@ -948,7 +947,7 @@ module Outbox
         text = text.scrub
         truncated = true
       end
-      Diff::Patch.new(stat:, text:, truncated:)
+      Diff::Patch.new(text:, truncated:) { git("diff", "--shortstat", "-M", from, to).strip }
     end
 
     def default_branch

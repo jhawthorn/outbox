@@ -13,15 +13,19 @@ module Outbox
     INVISIBLE_RE = /[​-‏‪-‮⁠-⁤⁦-⁩﻿­\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
 
     # The raw output of one git diff plus its short stat, with the parsed
-    # form computed on demand.
+    # form computed on demand. The stat may be given as a block, run only if
+    # something asks: raw patches are served without it.
     class Patch
-      attr_reader :stat, :text
+      attr_reader :text
 
-      def initialize(stat:, text:, truncated: false)
+      def initialize(text:, stat: nil, truncated: false, &stat_block)
         @stat = stat
+        @stat_block = stat_block
         @text = text
         @truncated = truncated
       end
+
+      def stat = @stat ||= @stat_block ? @stat_block.call : ""
 
       def truncated? = @truncated
       def empty? = text.empty?
@@ -33,7 +37,7 @@ module Outbox
 
     class File
       attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary, :old_blob, :new_blob
-      attr_reader :hunks
+      attr_reader :hunks, :hidden_lines
 
       def initialize(old_path, new_path)
         @old_path = old_path
@@ -41,31 +45,66 @@ module Outbox
         @status = :modified
         @binary = false
         @hunks = []
+        @hidden_lines = []
       end
 
       def path = new_path || old_path
       def binary? = binary
       def renamed? = status == :renamed
-      def line_count = hunks.sum { |h| h.lines.size }
+      def line_count = hunks.sum(&:size)
       def additions = hunks.sum(&:additions)
       def deletions = hunks.sum(&:deletions)
-
-      # Lines whose text contains characters a reviewer cannot see.
-      def hidden_lines
-        @hidden_lines ||= hunks.flat_map(&:lines).select(&:hidden?)
-      end
     end
 
+    # A hunk is counted as the patch is parsed and keeps only where its
+    # lines are in the text: a patch can have millions of them and the page
+    # only needs the counts. #lines reads them when something asks.
     class Hunk
-      attr_reader :header, :lines
+      attr_reader :header, :additions, :deletions, :size
 
-      def initialize(header)
+      def initialize(header, old_no, new_no, text, start)
         @header = header
-        @lines = []
+        @old_no = old_no
+        @new_no = new_no
+        @text = text
+        @start = start
+        @additions = @deletions = @size = 0
       end
 
-      def additions = lines.count(&:add?)
-      def deletions = lines.count(&:del?)
+      # Called as the parser reads a line of the hunk, with the byte offset
+      # just past the hunk once it is known (see #close).
+      def count(kind)
+        @size += 1
+        @additions += 1 if kind == :add
+        @deletions += 1 if kind == :del
+      end
+
+      def close(stop)
+        @stop = stop
+      end
+
+      def lines
+        @lines ||= begin
+          old_no = @old_no
+          new_no = @new_no
+          @text.byteslice(@start, @stop - @start).each_line(chomp: true).map do |line|
+            case line[0]
+            when "+"
+              new_no += 1
+              Line.new(:add, nil, new_no - 1, line[1..])
+            when "-"
+              old_no += 1
+              Line.new(:del, old_no - 1, nil, line[1..])
+            when "\\"
+              Line.new(:note, nil, nil, line[1..].strip)
+            else
+              old_no += 1
+              new_no += 1
+              Line.new(:ctx, old_no - 1, new_no - 1, line[1..] || "")
+            end
+          end
+        end
+      end
     end
 
     class Line
@@ -91,45 +130,63 @@ module Outbox
 
     HUNK_RE = /\A@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
+    # Bytes an invisible character can start with: the ASCII controls, and
+    # the lead bytes of U+00AD (C2), U+200B..U+2069 (E2) and U+FEFF (EF).
+    # Searching bytes for them is many times faster than INVISIBLE_RE, which
+    # then only looks at the lines they are on.
+    MAYBE_INVISIBLE_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\xC2\xE2\xEF]/n
+
+    # The text is walked by byte offsets and only header lines become
+    # strings, so a patch of many megabytes takes a fraction of a second.
     def self.parse(text)
       files = []
       file = nil
       hunk = nil
       old_no = new_no = 0
+      size = text.bytesize
+      bytes = text.b
+      invisible_at = bytes.byteindex(MAYBE_INVISIBLE_RE, 0)
+      pos = 0
 
-      text.each_line(chomp: true) do |line|
-        if line.start_with?("diff --git ")
-          file = File.new(*git_header_paths(line))
+      while pos < size
+        nl = text.byteindex("\n", pos) || size
+        invisible = !invisible_at.nil? && invisible_at < nl
+        invisible_at = nl + 1 < size ? bytes.byteindex(MAYBE_INVISIBLE_RE, nl + 1) : nil if invisible
+        first = text.getbyte(pos)
+
+        if first == 100 && text.byteslice(pos, 11) == "diff --git " # d
+          hunk&.close(pos)
+          file = File.new(*git_header_paths(text.byteslice(pos, nl - pos).chomp))
           files << file
           hunk = nil
-          next
-        end
-        next if file.nil?
-
-        if (m = HUNK_RE.match(line))
-          hunk = Hunk.new(line)
-          file.hunks << hunk
+        elsif file.nil?
+          # before the first file
+        elsif first == 64 && (m = HUNK_RE.match(line = text.byteslice(pos, nl - pos).chomp)) # @
+          hunk&.close(pos)
           old_no = m[1].to_i
           new_no = m[2].to_i
+          hunk = Hunk.new(line, old_no, new_no, text, nl + 1)
+          file.hunks << hunk
         elsif hunk
-          case line[0]
-          when "+"
-            hunk.lines << Line.new(:add, nil, new_no, line[1..])
-            new_no += 1
-          when "-"
-            hunk.lines << Line.new(:del, old_no, nil, line[1..])
-            old_no += 1
-          when "\\"
-            hunk.lines << Line.new(:note, nil, nil, line[1..].strip)
-          else
-            hunk.lines << Line.new(:ctx, old_no, new_no, line[1..] || "")
-            old_no += 1
-            new_no += 1
+          kind = case first
+                 when 43 then :add  # +
+                 when 45 then :del  # -
+                 when 92 then :note # \
+                 else :ctx
+                 end
+          hunk.count(kind)
+          if invisible && kind != :note
+            body = text.byteslice(pos, nl - pos).chomp[1..] || ""
+            file.hidden_lines << Line.new(kind, kind == :add ? nil : old_no, kind == :del ? nil : new_no, body) if INVISIBLE_RE.match?(body)
           end
+          old_no += 1 unless kind == :add || kind == :note
+          new_no += 1 unless kind == :del || kind == :note
         else
-          header(file, line)
+          header(file, text.byteslice(pos, nl - pos).chomp)
         end
+        pos = nl + 1
       end
+      hunk&.close(size)
 
       files
     end

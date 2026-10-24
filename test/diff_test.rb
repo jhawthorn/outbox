@@ -210,6 +210,30 @@ class DiffTest < Minitest::Test
     assert_empty Diff.parse(MODIFIED).first.hidden_lines
   end
 
+  def test_the_byte_prefilter_passes_every_invisible_character
+    (0..0xFFFF).reject { |c| (0xD800..0xDFFF).cover?(c) }.each do |c|
+      char = [c].pack("U")
+      next unless Diff::INVISIBLE_RE.match?(char)
+      assert Diff::MAYBE_INVISIBLE_RE.match?(char.b), "U+#{c.to_s(16)} would be skipped"
+    end
+  end
+
+  def test_visible_non_ascii_is_not_flagged
+    text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-café “quoted” — ©\n+naïve ’text’ ®\n"
+    assert_empty Diff.parse(text).first.hidden_lines
+  end
+
+  def test_hunk_lines_are_read_from_the_text_when_asked
+    text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n" \
+           "@@ -9 +9 @@\n-x\n+y\ndiff --git a/g b/g\n--- a/g\n+++ b/g\n@@ -1 +1 @@\n-1\n+2\n"
+    f, g = Diff.parse(text)
+    assert_equal [[3, 1, 1], [2, 1, 1]], f.hunks.map { |h| [h.size, h.additions, h.deletions] }
+    assert_equal %w[a b c], f.hunks[0].lines.map(&:text)
+    assert_equal %w[x y], f.hunks[1].lines.map(&:text)
+    assert_equal [9, 9], [f.hunks[1].lines[0].old_no, f.hunks[1].lines[1].new_no]
+    assert_equal %w[1 2], g.hunks[0].lines.map(&:text)
+  end
+
   def test_empty_and_garbage_input
     assert_empty Diff.parse("")
     assert_empty Diff.parse("not a diff at all\n+++ nope\n")
