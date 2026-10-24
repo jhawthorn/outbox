@@ -1,0 +1,40 @@
+<% @title = "#{rev_label(@base)}...#{rev_label(@head)} · #{@repo.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "branches" } %>
+<form class="compare-form" action="<%= repo_url(@repo) %>/compare">
+  <label>base <input type="text" name="base" value="<%= h @base.commit? ? @base.sha : @base.name %>" list="compare-refs" spellcheck="false" aria-label="Base"></label>
+  <span class="muted">←</span>
+  <label>compare <input type="text" name="head" value="<%= h @head.commit? ? @head.sha : @head.name %>" list="compare-refs" spellcheck="false" aria-label="Compare"></label>
+  <button type="submit">Compare</button>
+  <a class="button" href="<%= compare_url(@repo, @head.commit? ? @head.sha : @head.name, @base.commit? ? @base.sha : @base.name) %>" title="Swap base and compare">Swap</a>
+  <span class="spacer"></span>
+  <a class="button" href="<%= tree_url(@repo, @head.commit? ? @head.sha : @head.name) %>">Browse <%= h rev_label(@head) %></a>
+</form>
+<datalist id="compare-refs" data-refs-url="<%= repo_url(@repo) %>/refs.json"></datalist>
+
+<% if @fork.nil? %>
+  <div class="panel warn"><%= h rev_label(@base) %> and <%= h rev_label(@head) %> share no history; this is everything in <%= h rev_label(@head) %>.</div>
+<% elsif @count.zero? %>
+  <p class="empty"><b><%= h rev_label(@head) %></b> has nothing that <b><%= h rev_label(@base) %></b> does not.</p>
+<% end %>
+
+<% unless @commits.empty? %>
+  <h2>Commits (<%= commit_total(@commits.size, @count) %>)</h2>
+  <div class="box log">
+    <% @commits.each do |c| %>
+      <div class="log-row">
+        <div class="main">
+          <a class="subject" href="<%= show_commit_url(@repo, c.sha) %>"><%= hv c.subject %></a>
+          <% if c.merge? %><span class="badge merge">merge</span><% end %>
+          <div class="muted meta"><b><%= hv c.author %></b> committed <%= committed_label(Time.iso8601(c.commit_date)) %></div>
+        </div>
+        <div class="row-actions"><a class="sha" href="<%= show_commit_url(@repo, c.sha) %>"><code><%= c.short[0, 7] %></code></a></div>
+      </div>
+    <% end %>
+  </div>
+<% end %>
+
+<% unless @patch.empty? %>
+  <h2>Files changed (<%= @patch.files.size %>)</h2>
+  <p class="muted">From where they part<% if @fork %>, <a href="<%= show_commit_url(@repo, @fork) %>"><code><%= @fork[0, 7] %></code></a>,<% end %> to <%= h rev_label(@head) %>.</p>
+  <%= render_patch(@patch, "#{compare_url(@repo, @base.commit? ? @base.sha : @base.name, @head.commit? ? @head.sha : @head.name)}.patch", @head.sha) %>
+<% end %>

@@ -5,6 +5,8 @@
   <%= erb :_refpick, layout: false, locals: { kind: "tree" } %>
   <% unless @path.empty? %><h2 class="path"><%= path_crumbs(@repo, @rev.name, @path) %></h2><% end %>
   <span class="spacer"></span>
+  <% default = @repo.default_rev&.name %>
+  <% if default && !@rev.commit? && @rev.name != default %><a class="button" href="<%= compare_url(@repo, default, @rev.name) %>" title="What <%= h @rev.name %> has that <%= h default %> does not">Compare with <%= h default %></a><% end %>
   <button type="button" class="button" data-finder="<%= repo_url(@repo) %>/files/<%= @sha %>" data-tree-base="<%= tree_url(@repo, @rev.name) %>" title="Find a file by name (t)">Go to file</button>
   <% if @path.empty? %>
     <details class="clone">

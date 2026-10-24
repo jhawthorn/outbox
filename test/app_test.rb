@@ -406,6 +406,21 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/tree/main/lib"), %(data-commits-url="/repos/demo/tree-commits/#{sha}/lib")
   end
 
+  def test_compare_shows_what_one_branch_has_that_another_does_not
+    add_upstream_branch("feature")
+    body = get("/repos/demo/compare/main...feature")
+    assert_includes body, ">feature commit<"
+    assert_includes body, "Commits (1)"
+    assert_includes body, %(data-patch-url="/repos/demo/compare/main...feature.patch")
+    assert_includes get("/repos/demo/compare/main...feature.patch"), "+feature"
+    assert_includes get("/repos/demo/compare/feature"), ">feature commit<", "against the default branch"
+    assert_includes get("/repos/demo/compare/feature...main"), "has nothing that"
+    assert_includes get("/repos/demo/tree/feature"), %(href="/repos/demo/compare/main...feature")
+    assert_includes get("/repos/demo/branches"), %(href="/repos/demo/compare/main...feature")
+    assert_equal 302, @request.get("/repos/demo/compare?base=main&head=feature").status
+    assert_equal 404, @request.get("/repos/demo/compare/main...nope").status
+  end
+
   def test_file_finder_lists_every_file
     sha = stage_commit("lib/deep/a.rb", "1\n", "Add a")
     assert_equal ["README", "lib/deep/a.rb"], get("/repos/demo/files/#{sha}").split("\0")

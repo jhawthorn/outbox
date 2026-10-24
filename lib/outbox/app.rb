@@ -434,6 +434,17 @@ module Outbox
         JSON.generate(found.transform_values { |c| { sha: c.sha, subject: c.subject, author: c.author, date: c.commit_date } })
       end
 
+      # The two revs of a compare URL: "base...head", or a head alone
+      # against the default branch.
+      def compare_revs!(repo, spec)
+        base_name, head_name = spec.include?("...") ? spec.split("...", 2) : [repo.default_rev&.name, spec]
+        base = repo.rev(base_name.to_s) or raise NotFound, "no branch, tag or commit named #{base_name.inspect}"
+        head = repo.rev(head_name.to_s) or raise NotFound, "no branch, tag or commit named #{head_name.inspect}"
+        [base, head]
+      end
+
+      def compare_url(repo, base, head) = "#{repo_url(repo)}/compare/#{url_path(base)}...#{url_path(head)}"
+
       def send_patch(patch)
         content_type "text/plain", charset: "utf-8"
         patch.text
@@ -663,6 +674,33 @@ module Outbox
       @patch = @repo.commit_diff(sha)
       @rev = Repo::Rev.new(name: sha, sha:, kind: :commit)
       erb :show_commit
+    end
+
+    # What one rev has that another does not: /compare/<base>...<head>, or
+    # /compare/<head> against the default branch. Names cannot hold "..",
+    # so the "..." is unambiguous.
+    get "/repos/:name/compare/*.patch" do
+      repo = Repo.find!(params[:name])
+      base, head = compare_revs!(repo, params[:splat].first)
+      send_patch(repo.compare(base.sha, head.sha)[2])
+    end
+
+    get "/repos/:name/compare" do
+      repo = Repo.find!(params[:name])
+      if params[:head].to_s.empty?
+        redirect "#{repo_url(repo)}/branches"
+      else
+        redirect "#{repo_url(repo)}/compare/#{url_path(params[:base].to_s)}...#{url_path(params[:head].to_s)}"
+      end
+    end
+
+    get "/repos/:name/compare/*" do
+      @repo = Repo.find!(params[:name])
+      @base, @head = compare_revs!(@repo, params[:splat].first)
+      @rev = @head
+      @commits, @count, @patch, @fork = @repo.compare(@base.sha, @head.sha)
+      @stats = {}
+      erb :compare
     end
 
     get "/repos/:name/branches" do

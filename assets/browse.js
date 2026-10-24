@@ -431,7 +431,15 @@ async function treeCommits(table) {
   }
 }
 
+// The compare page's inputs suggest every branch and tag.
+async function fillRefs(list) {
+  if (list.dataset.filled) return;
+  list.dataset.filled = "1";
+  for (const r of await refs(list.dataset.refsUrl)) list.append(el("option", { value: r.name }));
+}
+
 function hydrate() {
+  for (const list of $$("datalist[data-refs-url]")) fillRefs(list).catch(() => {});
   for (const table of $$("table.tree[data-commits-url]")) treeCommits(table).catch((err) => console.error("tree commits", err));
   for (const article of $$("[data-markdown]")) {
     renderMarkdown(article).catch((err) => console.error("markdown", err));

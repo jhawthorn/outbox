@@ -157,6 +157,17 @@ module Outbox
 
     TREE_COMMITS_TIMEOUT = 5
 
+    # What head has that base does not, as a code host's compare shows it:
+    # the commits, newest first, up to limit, how many there are, and the
+    # diff from where they part to head. Returns [commits, count, patch, fork].
+    def compare(base, head, limit: 250)
+      fork = git("merge-base", base, head, ok: [0, 1]).strip
+      range = fork.empty? ? [head] : ["#{base}..#{head}"]
+      commits = log(limit, *range)
+      count = count(*range)
+      [commits, count, patch(fork.empty? ? empty_tree : fork, head, MAX_PATCH_BYTES), fork.empty? ? nil : fork]
+    end
+
     # Every file in a commit, as paths, for finding one by name.
     def file_list(sha)
       raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)

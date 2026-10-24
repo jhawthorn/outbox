@@ -105,3 +105,12 @@ test("? lists the keyboard shortcuts", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("a branch compares with the default branch", async ({ page }) => {
+  await page.goto("/repos/browse/tree/topic/x");
+  await page.getByRole("link", { name: "Compare with main" }).click();
+  await expect(page).toHaveURL("/repos/browse/compare/main...topic/x");
+  await expect(page.locator(".log-row .subject")).toHaveText(["Add a topic"]);
+  await expect(page.locator(".patch-summary")).toContainText("lib/topic.rb");
+  await expect(page.locator("main.codeview diffs-container").getByText("TOPIC = 1")).toBeVisible();
+});

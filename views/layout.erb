@@ -404,6 +404,11 @@
   .ref-row a:hover { text-decoration: underline; }
   .ref-row .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 13px; }
   .ref-row .who, .ref-row .when { white-space: nowrap; font-size: 13px; }
+  /* Compare. */
+  .compare-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 16px; font-size: 14px; }
+  .compare-form label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  .compare-form input { font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 4px 8px; width: 220px;
+                        border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
   /* Search. */
   .search-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
   .search-form input[type=search] { flex: 1; min-width: 240px; font: inherit; padding: 5px 10px; border: 1px solid var(--line);
@@ -484,6 +489,7 @@
   @media (max-width: 700px) {
     .code-search input, .code-search input:focus { width: 100%; }
     .code-search { flex: 1; }
+    .code-search .hint { display: none; }
     .last-commit .who, .last-commit .when { display: none; }
     .ref-row .who, .ref-row .subject { display: none; }
     table.blame td.who { width: 120px; max-width: 120px; }

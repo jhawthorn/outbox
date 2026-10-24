@@ -22,6 +22,7 @@
           <span class="muted who"><%= hv r.author %></span>
           <span class="muted when"><%= committed_label(r.time) %></span>
           <a class="muted" href="<%= history_url(@repo, r.name) %>" title="History">history</a>
+          <% if @default && r.name != @default %><a class="muted" href="<%= compare_url(@repo, @default, r.name) %>" title="What it has that <%= h @default %> does not">compare</a><% end %>
         </div>
       <% end %>
     </div>
