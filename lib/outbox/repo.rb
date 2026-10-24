@@ -671,7 +671,7 @@ module Outbox
       patch(c.parents.first || empty_tree, c.sha, max_bytes)
     end
 
-    MAX_PATCH_BYTES = 2_000_000
+    MAX_PATCH_BYTES = 100_000_000
 
     # One file's contents by blob id, for expanding the unchanged lines
     # around a hunk. Blob ids come from the index lines of a patch.
