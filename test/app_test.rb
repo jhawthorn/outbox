@@ -423,6 +423,19 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/demo/compare/main...nope").status
   end
 
+  def test_whitespace_changes_can_be_hidden
+    stage_commit("a.rb", "if x\n  y\nend\n", "Add a")
+    stage_commit("a.rb", "if x\n    y\nend\n", "Reindent a")
+    sha = @repo.branch("main").staged
+    assert_includes get("/repos/demo/commit/#{sha}.patch"), "+    y"
+    assert_equal "", get("/repos/demo/commit/#{sha}.patch?w=1")
+    body = get("/repos/demo/commit/#{sha}?w=1")
+    assert_includes body, "Whitespace changes are hidden"
+    assert_includes get("/repos/demo/commit/#{sha}"), %(href="/repos/demo/commit/#{sha}?w=1")
+    branch = get("/repos/demo/branches/main?w=1")
+    assert_includes branch, %(data-patch-url="/repos/demo/branches/main.patch?w=1")
+  end
+
   def test_file_finder_lists_every_file
     sha = stage_commit("lib/deep/a.rb", "1\n", "Add a")
     assert_equal ["README", "lib/deep/a.rb"], get("/repos/demo/files/#{sha}").split("\0")

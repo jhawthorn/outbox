@@ -1,10 +1,14 @@
 <% files = patch.files %>
 <% blob_url = "#{repo_url(@repo)}/blobs" %>
+<% if ignore_whitespace? %>
+  <div class="panel warn ws-note">Whitespace changes are hidden, including indentation, which can change what code means. <a href="<%= h whitespace_url(false) %>">Show them</a></div>
+<% end %>
 <% if files.empty? %>
-  <p class="empty">No changes.</p>
+  <p class="empty">No changes<%= " besides whitespace" if ignore_whitespace? %>.</p>
 <% else %>
   <div class="patch-summary">
     <span class="muted"><%= h patch.stat %></span> · <a href="<%= patch_url %>">raw patch</a>
+    · <% if ignore_whitespace? %><a href="<%= h whitespace_url(false) %>">show whitespace changes</a><% else %><a href="<%= h whitespace_url(true) %>" title="Diff with git diff -w">hide whitespace changes</a><% end %>
     <details class="file-list"<%= " open" if files.size <= 12 %>>
       <summary><%= files.size <= 12 ? "Files" : "All #{files.size} files" %></summary>
       <ul>

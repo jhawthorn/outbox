@@ -609,11 +609,11 @@ module Outbox
     # Everything approving this branch would change on upstream, as one
     # patch: from what upstream has now to the staged tip. For a new branch,
     # from where it forked off the default branch.
-    def diff(branch, max_bytes: MAX_PATCH_BYTES)
+    def diff(branch, max_bytes: MAX_PATCH_BYTES, ignore_whitespace: false)
       b = resolve(branch)
       from, to = diff_endpoints(b)
       return Diff::Patch.new(text: "") if from.nil?
-      patch(from, to, max_bytes)
+      patch(from, to, max_bytes, ignore_whitespace:)
     end
 
     # Where a rebased branch went (Rebase), or nil when the branch is not
@@ -666,9 +666,9 @@ module Outbox
 
     # What one commit changed relative to its first parent (or to nothing,
     # for a root commit).
-    def commit_diff(sha, max_bytes: MAX_PATCH_BYTES)
+    def commit_diff(sha, max_bytes: MAX_PATCH_BYTES, ignore_whitespace: false)
       c = commit_detail(sha)
-      patch(c.parents.first || empty_tree, c.sha, max_bytes)
+      patch(c.parents.first || empty_tree, c.sha, max_bytes, ignore_whitespace:)
     end
 
     MAX_PATCH_BYTES = 100_000_000
@@ -938,8 +938,10 @@ module Outbox
       end
     end
 
-    def patch(from, to, max_bytes)
-      text = git("diff", "-M", "--full-index", from, to)
+    # ignore_whitespace: git diff -w, for a reader who asks for it.
+    def patch(from, to, max_bytes, ignore_whitespace: false)
+      ws = ignore_whitespace ? ["-w"] : []
+      text = git("diff", "-M", "--full-index", *ws, from, to)
       truncated = false
       if text.bytesize > max_bytes
         text = text.byteslice(0, max_bytes)
@@ -947,7 +949,7 @@ module Outbox
         text = text.scrub
         truncated = true
       end
-      Diff::Patch.new(text:, truncated:) { git("diff", *Diff::LISTING_ARGS, from, to) }
+      Diff::Patch.new(text:, truncated:) { git("diff", *Diff::LISTING_ARGS, *ws, from, to) }
     end
 
     def default_branch

@@ -160,12 +160,12 @@ module Outbox
     # What head has that base does not, as a code host's compare shows it:
     # the commits, newest first, up to limit, how many there are, and the
     # diff from where they part to head. Returns [commits, count, patch, fork].
-    def compare(base, head, limit: 250)
+    def compare(base, head, limit: 250, ignore_whitespace: false)
       fork = git("merge-base", base, head, ok: [0, 1]).strip
       range = fork.empty? ? [head] : ["#{base}..#{head}"]
       commits = log(limit, *range)
       count = count(*range)
-      [commits, count, patch(fork.empty? ? empty_tree : fork, head, MAX_PATCH_BYTES), fork.empty? ? nil : fork]
+      [commits, count, patch(fork.empty? ? empty_tree : fork, head, MAX_PATCH_BYTES, ignore_whitespace:), fork.empty? ? nil : fork]
     end
 
     # Every file in a commit, as paths, for finding one by name.

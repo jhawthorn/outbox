@@ -241,10 +241,21 @@ module Outbox
       # patch_url and draws the diffs (assets/diffs.js).
       # rev is the commit whose files the summary links to, if any.
       def render_patch(patch, patch_url, rev = nil)
+        patch_url = "#{patch_url}?w=1" if ignore_whitespace?
         erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev }
       end
 
       def diffs_built? = File.exist?(DIFFS_BUNDLE)
+
+      # Whether the reader asked for diffs without whitespace changes (?w=1).
+      def ignore_whitespace? = params[:w] == "1"
+
+      # This page's URL with ?w= set or not.
+      def whitespace_url(on)
+        query = request.GET.except("w")
+        query["w"] = "1" if on
+        query.empty? ? request.path : "#{request.path}?#{Rack::Utils.build_query(query)}"
+      end
 
       def browse_built? = File.exist?(BROWSE_BUNDLE)
 
@@ -663,7 +674,7 @@ module Outbox
     get "/repos/:name/commit/:sha.patch" do
       repo = Repo.find!(params[:name])
       sha = repo.commit_sha(params[:sha]) or raise NotFound, "no commit #{params[:sha]}"
-      send_patch(repo.commit_diff(sha))
+      send_patch(repo.commit_diff(sha, ignore_whitespace: ignore_whitespace?))
     end
 
     get "/repos/:name/commit/:sha" do
@@ -671,7 +682,7 @@ module Outbox
       sha = @repo.commit_sha(params[:sha]) or raise NotFound, "no commit #{params[:sha]}"
       redirect show_commit_url(@repo, sha) unless sha == params[:sha]
       @commit = @repo.commit_detail(sha)
-      @patch = @repo.commit_diff(sha)
+      @patch = @repo.commit_diff(sha, ignore_whitespace: ignore_whitespace?)
       @rev = Repo::Rev.new(name: sha, sha:, kind: :commit)
       erb :show_commit
     end
@@ -682,7 +693,7 @@ module Outbox
     get "/repos/:name/compare/*.patch" do
       repo = Repo.find!(params[:name])
       base, head = compare_revs!(repo, params[:splat].first)
-      send_patch(repo.compare(base.sha, head.sha)[2])
+      send_patch(repo.compare(base.sha, head.sha, ignore_whitespace: ignore_whitespace?)[2])
     end
 
     get "/repos/:name/compare" do
@@ -698,7 +709,7 @@ module Outbox
       @repo = Repo.find!(params[:name])
       @base, @head = compare_revs!(@repo, params[:splat].first)
       @rev = @head
-      @commits, @count, @patch, @fork = @repo.compare(@base.sha, @head.sha)
+      @commits, @count, @patch, @fork = @repo.compare(@base.sha, @head.sha, ignore_whitespace: ignore_whitespace?)
       @stats = {}
       erb :compare
     end
@@ -731,13 +742,13 @@ module Outbox
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
       staged_commit!(repo, branch, params[:sha])
-      send_patch(repo.commit_diff(params[:sha]))
+      send_patch(repo.commit_diff(params[:sha], ignore_whitespace: ignore_whitespace?))
     end
 
     get "/repos/:name/branches/*.patch" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      send_patch(repo.diff(branch))
+      send_patch(repo.diff(branch, ignore_whitespace: ignore_whitespace?))
     end
 
     # Must be defined before the branch route, whose splat would otherwise
@@ -748,7 +759,7 @@ module Outbox
       @branch = @repo.branch(params[:splat].first)
       list, index = staged_commit!(@repo, @branch, params[:sha])
       @commit = @repo.commit_detail(params[:sha])
-      @patch = @repo.commit_diff(params[:sha])
+      @patch = @repo.commit_diff(params[:sha], ignore_whitespace: ignore_whitespace?)
       # list is newest first; present as oldest = 1 of N.
       @newer = index.positive? ? list[index - 1] : nil
       @older = list[index + 1]
@@ -769,7 +780,7 @@ module Outbox
       @base = @repo.base(@branch) if @commits.size == @commit_count
       @outgoing_count = @repo.outgoing_commit_count(@branch)
       @outgoing_stats = @repo.outgoing_commit_stats(@branch)
-      @patch = @repo.diff(@branch)
+      @patch = @repo.diff(@branch, ignore_whitespace: ignore_whitespace?)
       @rebase = @repo.rebase(@branch)
       # Upstream commits that live on in a staged one are marked on that
       # one rather than listed as dropped. The pairing covers every commit

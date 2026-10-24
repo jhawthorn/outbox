@@ -164,6 +164,9 @@ query has a capital; `/repos/<name>/compare/<base>...<head>` what one rev has th
 does not, commits and diff, the way a pull request shows it. GitHub's `/blob/` URLs redirect
 to `/tree/`.
 
+Any diff can be read with whitespace changes hidden (`?w=1`, `git diff -w`, on the page and
+its `.patch`); the page then says so, since indentation can matter.
+
 A directory lists the last commit to touch each entry, filled in after the page is drawn
 from one walk of the history (`tree-commits/`), which stops once every entry has one or
 after five seconds. Blame is coloured in the browser with the file view's highlighter,
