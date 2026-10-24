@@ -420,6 +420,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/tree/feature"), %(href="/repos/demo/compare/main...feature")
     assert_includes get("/repos/demo/branches"), %(href="/repos/demo/compare/main...feature")
     assert_equal 302, @request.get("/repos/demo/compare?base=main&head=feature").status
+    assert_equal "/repos/demo/compare/feature", URI(@request.get("/repos/demo/compare?base=&head=feature").headers["location"]).path
     assert_equal 404, @request.get("/repos/demo/compare/main...nope").status
   end
 
@@ -434,6 +435,77 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/commit/#{sha}"), %(href="/repos/demo/commit/#{sha}?w=1")
     branch = get("/repos/demo/branches/main?w=1")
     assert_includes branch, %(data-patch-url="/repos/demo/branches/main.patch?w=1")
+  end
+
+  # Branch names are the pusher's. Whatever git allows in one stays text on
+  # every page: in links, in forms, in the questions they ask.
+  def test_branch_names_cannot_inject_markup_or_script
+    names = ['x"><svg/onload=alert(1)>', "y');alert(1);('", "q#x%y"]
+    names.each { |name| commit(@stage, "f.txt", name, "On #{name}") && push(@stage, "HEAD:refs/heads/#{name}") }
+    pages = ["/repos/demo", "/repos/demo/branches", "/", "/repos/demo/branches/#{ERB::Util.url_encode(names[0])}",
+             "/repos/demo/tree/#{ERB::Util.url_encode(names[1])}", "/repos/demo/branches/#{ERB::Util.url_encode(names[1])}"]
+    pages.each do |page|
+      body = get(page)
+      refute_includes body, "<svg/onload", page
+      refute_includes body, "onsubmit", page
+      refute_match(%r{href="(?!data:)[^"]*[<>' ]}, body, page)
+    end
+    assert_includes get("/repos/demo/branches"), %(href="/repos/demo/branches/x%22%3E%3Csvg/onload%3Dalert%281%29%3E")
+    assert_includes get("/repos/demo/branches/q%23x%25y"), %(data-confirm="Discard staged changes on q#x%y?")
+    assert_includes get("/repos/demo/branches/y%27%29%3Balert%281%29%3B%28%27"), 'data-confirm="Discard staged changes on y&#39;);alert(1);(&#39;?"'
+  end
+
+  # A staged branch is the pusher's to name. Named like a sha, or like a
+  # remote's branch, it must not stand in for that commit or that branch.
+  def test_staged_branches_cannot_shadow_commits_or_remote_branches
+    upstream = @repo.branch("main").upstream
+    commit(@stage, "README", "forged\n", "Forge")
+    push(@stage, "HEAD:refs/heads/#{upstream}", "HEAD:refs/heads/upstream/main")
+    assert_equal "hello\n", get("/repos/demo/raw/#{upstream}/README")
+    assert_equal "hello\n", get("/repos/demo/raw/upstream/main/README")
+    names = JSON.parse(get("/repos/demo/refs.json")).map { |r| [r["name"], r["kind"]] }
+    refute_includes names, ["upstream/main", "branch"]
+    assert_includes names, ["upstream/main", "remote"]
+  end
+
+  # What was pushed cannot take down the page that lists it for review.
+  def test_the_repository_page_survives_odd_commits
+    git("update-index", "--add", "--cacheinfo", "160000,#{rev(@stage, "HEAD")},README.md", chdir: @stage)
+    git("commit", "--quiet", "-m", "A gitlink called README.md", chdir: @stage)
+    tree = git("rev-parse", "HEAD^{tree}", chdir: @stage).strip
+    parent = rev(@stage, "HEAD")
+    odd = "tree #{tree}\nparent #{parent}\nauthor A <a@x> 1700000000 +9999\ncommitter A <a@x> 1700000000 +9999\n\nBad zone\n"
+    sha = IO.popen(["git", "hash-object", "-t", "commit", "-w", "--literally", "--stdin"], "r+", chdir: @stage) { |io| io.write(odd); io.close_write; io.read.strip }
+    push(@stage, "#{sha}:refs/heads/main")
+    body = get("/repos/demo")
+    assert_includes body, "Awaiting review"
+    assert_includes body, ">README.md<"
+    get("/repos/demo/commits/main")
+    get("/repos/demo/tree/main")
+    get("/repos/demo/branches/main")
+  end
+
+  def test_tree_commits_cannot_be_spoofed_by_file_names
+    evil = "0\x01#{"f" * 40}\x1fEvil\x1fe@x\x1f2020-01-01T00:00:00Z\x1f2020-01-01T00:00:00Z\x1fSpoofed"
+    commit(@stage, "a", "1\n", "Touch a")
+    commit(@stage, "a ", "1\n", "Touch a-space")
+    commit(@stage, evil, "1\n", "Add evil")
+    sha = push(@stage, "main") && @repo.branch("main").staged
+    found = JSON.parse(get("/repos/demo/tree-commits/#{sha}")).transform_values { |c| c["subject"] }
+    assert_equal "Touch a", found["a"]
+    assert_equal "Touch a-space", found["a "]
+    assert_equal "Add evil", found[evil]
+    refute_includes found.values, "Spoofed"
+  end
+
+  def test_paths_with_question_marks_and_newlines
+    commit(@stage, "q?x.txt", "needle\n", "Add q")
+    commit(@stage, "a\nb.txt", "needle\n", "Add newline")
+    push(@stage, "main")
+    assert_includes get("/repos/demo/tree/main"), %(href="/repos/demo/tree/main/q%3Fx.txt">q?x.txt</a>)
+    assert_includes get("/repos/demo/tree/main/q%3Fx.txt"), "1 line"
+    body = get("/repos/demo/search?q=needle")
+    assert_includes body, "2 matching lines in 2 files"
   end
 
   def test_file_finder_lists_every_file
@@ -615,7 +687,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "What changed besides the rebase"
     assert_includes body, "two.txt"
     refute_includes body, "up.txt", "what the new base brought in is not part of the review"
-    assert_includes body, "confirm('Force-push feature to upstream? All 2 upstream commits are carried over.')"
+    assert_includes body, 'data-confirm="Force-push feature to upstream? All 2 upstream commits are carried over."'
     patch = get("/repos/demo/branches/feature.patch")
     assert_includes patch, "+two fixed"
     refute_includes patch, "up.txt"
@@ -659,7 +731,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "Dropped from upstream (1)"
     assert_includes body, "not even reworked: the 1 commit it carries over is marked below"
     assert_match(%r{<div class="history dropped">.*<span class="subject">Add two</span>.*</div>\s*<h2>Commits \(1\)}m, body)
-    assert_includes body, "confirm('Force-push feature to upstream? 1 upstream commit will be dropped.')"
+    assert_includes body, 'data-confirm="Force-push feature to upstream? 1 upstream commit will be dropped."'
     assert_includes body, "Force approve (drops 1 commit)"
     assert_includes body, '<div class="note rebase drops">'
     assert_includes body, "two.txt"
@@ -688,7 +760,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/repos/demo/branches/extra")
     assert_includes body, "deleted here · upstream <code>"
     assert_includes body, "Approve and delete from upstream"
-    assert_includes body, "confirm('Delete extra from upstream?')"
+    assert_includes body, 'data-confirm="Delete extra from upstream?"'
     refute_includes body, "Approve and push to upstream"
     assert_includes body, "Dropped from upstream (1)"
   end

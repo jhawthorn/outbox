@@ -8,11 +8,11 @@
   <a class="button" href="<%= history_url(@repo, @rev.name, @path) %>">History</a>
 </div>
 <% now = Time.now %>
-<% oldest = @hunks.map { |hk| Time.iso8601(hk.commit.date) }.min || now %>
+<% oldest = @hunks.filter_map { |hk| commit_time(hk.commit.date) }.min || now %>
 <div class="box blame" data-blame-file="<%= h @path %>">
   <table class="blame">
     <% @hunks.each do |hk| %>
-      <% t = Time.iso8601(hk.commit.date) %>
+      <% t = commit_time(hk.commit.date) || now %>
       <% age = oldest == now ? 0 : ((now - t) / (now - oldest) * 9).round.clamp(0, 9) %>
       <% hk.lines.each_with_index do |line, i| %>
         <% n = hk.start + i %>

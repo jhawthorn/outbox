@@ -175,8 +175,15 @@ and each run of lines links to the blame before the commit that last changed it.
 Markdown, READMEs and `.md` files, is rendered in the browser and sanitised there with
 DOMPurify. What a pusher writes runs on a page behind the reviewer's password, so besides
 scripts and handlers, forms and buttons are removed too: one could post an approval from
-this origin. Relative links go to the file's page here, images to `raw/`. `?plain=1` shows a
-markdown file as code.
+this origin. Relative links go to the file's page here, images to `raw/`; images from
+anywhere else are not loaded until clicked, since loading one tells its author when the
+file was read and from where. `?plain=1` shows a markdown file as code.
+
+Every name a pusher chooses (branches, paths) is percent-encoded in every URL and escaped
+everywhere else, and no page builds script from one: the confirm questions on approve and
+discard are `data-confirm` attributes. A staged branch cannot stand in for anything else by
+its name: a full sha in a URL is that commit, and a remote's branch or a tag wins over a
+staged branch of the same name, which the branch picker then leaves out.
 
 Keys: `/` search, `t` find a file by name, `y` turn the URL into a permalink (the branch
 replaced by its sha), `b` blame, `h` history, `j`/`k` next and previous file in a diff, `?`

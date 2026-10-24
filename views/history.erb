@@ -10,7 +10,7 @@
 <% if @commits.empty? %>
   <p class="empty">No commits.</p>
 <% end %>
-<% @commits.chunk { |c| Time.iso8601(c.commit_date).strftime("%b %-d, %Y") }.each do |day, commits| %>
+<% @commits.chunk { |c| commit_time(c.commit_date)&.strftime("%b %-d, %Y") || "an unreadable date" }.each do |day, commits| %>
   <h3 class="day">Commits on <%= day %></h3>
   <div class="box log">
     <% commits.each do |c| %>
@@ -24,7 +24,7 @@
               <pre class="message"><%= hv c.body %></pre>
             </details>
           <% end %>
-          <div class="muted meta"><b><%= hv c.author %></b> <% if c.committer_differs? %>authored, <%= hv c.committer %> committed<% else %>committed<% end %> <%= committed_label(Time.iso8601(c.commit_date)) %></div>
+          <div class="muted meta"><b><%= hv c.author %></b> <% if c.committer_differs? %>authored, <%= hv c.committer %> committed<% else %>committed<% end %> <%= committed_label(commit_time(c.commit_date)) %></div>
         </div>
         <div class="row-actions">
           <a class="sha" href="<%= show_commit_url(@repo, c.sha) %>"><code><%= c.short[0, 7] %></code></a>

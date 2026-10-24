@@ -68,7 +68,7 @@
             </form>
           <% end %>
           <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
-                onsubmit="return confirm('Discard staged changes on <%= h b.name %>?')">
+                data-confirm="Discard staged changes on <%= h b.name %>?">
             <input type="hidden" name="expected" value="<%= b.staged %>">
             <button type="submit" class="danger">Discard</button>
           </form>
@@ -82,6 +82,10 @@
   <% end %>
 <% end %>
 
+<% if @tree_error %>
+  <h2 id="code">Code</h2>
+  <div class="panel warn">The code could not be shown: <%= h @tree_error %></div>
+<% end %>
 <% if @rev %>
   <h2 id="code">Code</h2>
   <%= erb :_tree, layout: false %>

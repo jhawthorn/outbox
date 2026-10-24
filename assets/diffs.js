@@ -69,10 +69,12 @@ const prefs = {
 const DEFAULT_PREFS = { diffStyle: "unified", fileTree: "shown" };
 
 // Files the reader has marked viewed, kept across pages. The key is the
-// file's path and both blob ids, so a file that changes after it was
-// viewed (a new push) is unviewed again, as on GitHub.
+// repository, the file's path, both blob ids and any mode change, so a
+// file that changes after it was viewed (a new push) is unviewed again, as
+// on GitHub.
+const REPO = /^\/repos\/([^/]+)/.exec(location.pathname)?.[1] ?? "";
 const viewed = {
-  key: (data) => `outbox:viewed:${data.path}:${data.oldBlob ?? ""}:${data.newBlob ?? ""}`,
+  key: (data) => `outbox:viewed:${REPO}:${data.path}:${data.oldBlob ?? ""}:${data.newBlob ?? ""}:${data.mode ?? ""}`,
   get(data) {
     try { return localStorage.getItem(this.key(data)) === "1"; } catch { return false; }
   },

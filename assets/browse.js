@@ -337,7 +337,8 @@ document.addEventListener("input", (e) => {
 // reviewer's password, so it goes through DOMPurify with anything that can
 // act removed: scripts and handlers (DOMPurify's own job), and forms, which
 // could post an approval from this origin.
-const FORBID_TAGS = ["form", "input", "button", "textarea", "select", "option", "style", "iframe", "frame", "object", "embed", "base", "link", "meta", "dialog"];
+const FORBID_TAGS = ["form", "input", "button", "textarea", "select", "option", "style", "iframe", "frame", "object", "embed", "base", "link", "meta", "dialog",
+  "video", "audio", "source", "picture", "track"];
 
 function slug(text) {
   return text.trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
@@ -347,14 +348,17 @@ function slug(text) {
 // links, raw for images. Absolute URLs and anchors stay as they are.
 function resolveRelative(href, base, root) {
   if (!href || /^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)) return null;
-  const [path, rest = ""] = href.split(/(?=[?#])/, 2);
-  // A leading slash is the top of the repository, as on GitHub.
-  const parts = (path.startsWith("/") ? root : base).split("/");
+  const cut = href.search(/[?#]/);
+  const path = cut < 0 ? href : href.slice(0, cut);
+  const rest = cut < 0 ? "" : href.slice(cut);
+  // A leading slash is the top of the repository, as on GitHub, and ".."
+  // stops there: it cannot climb out of the branch into the URL.
+  const parts = path.startsWith("/") ? [] : base.slice(root.length).split("/").filter(Boolean);
   for (const seg of path.split("/")) {
     if (seg === "..") parts.pop();
     else if (seg !== "." && seg !== "") parts.push(encodeURIComponent(decodeURIComponentSafe(seg)));
   }
-  return parts.join("/") + rest;
+  return [root, ...parts].join("/") + rest;
 }
 
 function decodeURIComponentSafe(s) {
@@ -372,7 +376,7 @@ async function renderMarkdown(article) {
     .replace(/<input [^>]*type="checkbox"[^>]*>/g, (box) => (/checked/.test(box) ? "☑" : "☐"));
   const clean = DOMPurify.sanitize(html, {
     FORBID_TAGS,
-    FORBID_ATTR: ["style", "class", "id", "name", "form", "formaction"],
+    FORBID_ATTR: ["style", "class", "id", "name", "form", "formaction", "srcset", "poster", "background"],
     ADD_ATTR: ["target"],
     RETURN_DOM_FRAGMENT: true,
   });
@@ -385,11 +389,25 @@ async function renderMarkdown(article) {
     else if (href.startsWith("#")) a.setAttribute("href", `#user-content-${href.slice(1)}`);
     else a.removeAttribute("target");
   }
+  // Images from elsewhere wait to be asked for: loading one would tell
+  // whoever wrote the file when it was read, and from where.
   for (const img of clean.querySelectorAll("img[src]")) {
-    const local = resolveRelative(img.getAttribute("src"), rawBase, rawRoot);
-    if (local) img.setAttribute("src", local);
+    const src = img.getAttribute("src");
+    const local = resolveRelative(src, rawBase, rawRoot);
     img.setAttribute("referrerpolicy", "no-referrer");
     img.setAttribute("loading", "lazy");
+    if (local) img.setAttribute("src", local);
+    else if (/^(https?:)?\/\//i.test(src)) {
+      let host = src;
+      try { host = new URL(src, location.href).host; } catch {}
+      const stand = el("a", { href: src, class: "ext-img", title: `Load ${src}`, text: `${img.getAttribute("alt") || "image"} (from ${host}; click to load)` });
+      stand.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        stand.replaceWith(img);
+      }, { once: true });
+      img.replaceWith(stand);
+    }
   }
   const seen = new Map();
   for (const h of clean.querySelectorAll("h1, h2, h3, h4, h5, h6")) {

@@ -467,6 +467,7 @@
   .markdown-body table th, .markdown-body table td { padding: 6px 13px; border: 1px solid var(--line); text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--fg); }
   .markdown-body table tr:nth-child(2n) td { background: var(--meta-bg); }
   .markdown-body img { max-width: 100%; }
+  .markdown-body a.ext-img { display: inline-block; font-size: 12px; padding: 0 6px; border: 1px dashed var(--line); border-radius: 4px; color: var(--muted); }
   .markdown-body hr { height: 4px; border: 0; background: var(--line); margin: 24px 0; }
   .markdown-body input[type=checkbox] { margin: 0 .3em 0 -1.3em; vertical-align: middle; }
   .markdown-body li:has(> input[type=checkbox]) { list-style: none; }
@@ -519,6 +520,13 @@
 <%= yield %>
 </main>
 <script>
+// Forms that do something hard to undo ask first. The question is data, not
+// script: it can hold a branch name, which is the pusher's.
+document.addEventListener("submit", function (e) {
+  var question = e.target.getAttribute("data-confirm");
+  if (question && !confirm(question)) e.preventDefault();
+});
+
 // Live pages (App#live!) follow what happens elsewhere: pushes, jobs, other
 // tabs. GET /events names each repository that changes (Notifier); the
 // index cares about all of them, a repository's pages about their own. On

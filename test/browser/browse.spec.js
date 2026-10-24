@@ -18,6 +18,11 @@ test("the repository page shows the code and renders the README safely", async (
   await expect(readme.getByRole("link", { name: "below" })).toHaveAttribute("href", "#user-content-usage");
   await expect(readme.locator("img[alt=logo]")).toHaveAttribute("src", "/repos/browse/raw/main/docs/logo.svg");
   await expect.poll(() => readme.locator("img[alt=logo]").evaluate((img) => img.naturalWidth)).toBe(10);
+  // Images from elsewhere wait to be asked for; ".." stops at the top.
+  await expect(readme.locator("img[alt=tracker]")).toHaveCount(0);
+  await expect(readme.locator("a.ext-img")).toContainText("tracker (from example.invalid; click to load)");
+  await expect(readme.getByRole("link", { name: "climb" })).toHaveAttribute("href", "/repos/browse/tree/main/etc/passwd");
+  await expect(readme.getByRole("link", { name: "both" })).toHaveAttribute("href", "/repos/browse/tree/main/docs/guide.md?x=1#guide");
   await expect(readme).toContainText("☑ done");
   await expect(readme).toContainText("☐ to do");
 

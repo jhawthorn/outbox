@@ -201,6 +201,8 @@ def seed(dir)
     See [the guide](docs/guide.md), [the top](/lib/app.rb) and [below](#usage).
 
     ![logo](docs/logo.svg)
+    ![tracker](https://example.invalid/pixel.png)
+    [climb](../../../../../etc/passwd) and [both](docs/guide.md?x=1#guide)
 
     <script>window.pwned = 1</script>
     <img src="x" onerror="window.pwned = 2">

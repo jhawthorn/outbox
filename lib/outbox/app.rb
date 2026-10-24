@@ -3,6 +3,7 @@
 require "sinatra/base"
 require "json"
 require "time"
+require "erb"
 
 module Outbox
   class App < Sinatra::Base
@@ -73,7 +74,9 @@ module Outbox
 
       def repo_url(repo) = "/repos/#{repo.name}"
 
-      def branch_url(repo, branch) = "#{repo_url(repo)}/branches/#{branch}"
+      # Branch names are the pusher's, and may hold anything git allows,
+      # quotes and angle brackets included: escaped like any path.
+      def branch_url(repo, branch) = "#{repo_url(repo)}/branches/#{url_path(branch)}"
 
       def clone_url(repo) = "#{request.base_url}/#{repo.name}.git"
 
@@ -115,8 +118,7 @@ module Outbox
 
       # The question the force approve button asks, with what the force
       # drops; when a rebase carries every upstream commit over, that it
-      # drops nothing. Goes inside a single-quoted script string, so no
-      # apostrophes.
+      # drops nothing.
       def force_confirm(branch, dropped)
         what =
           if dropped.positive? then "#{pluralize(dropped, "upstream commit")} will be dropped."
@@ -153,7 +155,17 @@ module Outbox
         end
       end
 
+      # A commit's time as git gave it (%cI), or nil when it cannot be read:
+      # a commit can say anything about its zone, and one page's worth of
+      # bad dates must not take the page down.
+      def commit_time(iso)
+        Time.iso8601(iso.to_s)
+      rescue ArgumentError
+        nil
+      end
+
       def committed_label(time)
+        return %(<span class="muted">an unreadable date</span>) if time.nil?
         %(<span title="#{h time.utc.strftime("%Y-%m-%d %H:%M:%S UTC")}">#{time_ago(time)}</span>)
       end
 
@@ -190,7 +202,7 @@ module Outbox
       # clock time of whoever recorded it, with their offset, dimmed. The full
       # timestamp is the tooltip.
       def when_label(iso)
-        t = Time.iso8601(iso)
+        t = commit_time(iso) or return h(iso)
         %(<span title="#{h iso}">#{t.strftime("%Y-%m-%d %H:%M")} <span class="off">#{utc_offset_label(t.utc_offset)}</span></span>)
       end
 
@@ -287,7 +299,9 @@ module Outbox
 
       # A path in a URL, each segment escaped and the slashes kept. Branch
       # names have slashes too, and are written the same way.
-      def url_path(path) = path.to_s.split("/").map { |s| Rack::Utils.escape_path(s) }.join("/")
+      # Everything but unreserved characters is percent-encoded, so the
+      # result is safe in any attribute and never ends early at a "?" or "#".
+      def url_path(path) = path.to_s.split("/", -1).map { |s| ERB::Util.url_encode(s) }.join("/")
 
       # Files and directories share one URL shape: /tree/<rev>/<path>, where
       # rev is a branch, a remote's branch, a tag or a sha (Repo#resolve_path).
@@ -365,6 +379,8 @@ module Outbox
           @readme_path = [@path, entry.name].reject(&:empty?).join("/")
           @readme = @repo.blob(entry.id) if entry.size.to_i <= Repo::MAX_BLOB_BYTES
         end
+      rescue NotFound
+        @readme = nil
       end
 
       # The rev a URL path starts with, and the rest of the path.
@@ -439,9 +455,10 @@ module Outbox
       def tree_commits(name, sha, path)
         repo = Repo.find!(name)
         raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)
-        found = repo.tree_commits(sha, path.delete_suffix("/"))
+        found, complete = repo.tree_commits(sha, path.delete_suffix("/"))
         content_type :json
-        headers "Cache-Control" => "private, max-age=31536000, immutable"
+        # A walk cut short may find more another time.
+        headers "Cache-Control" => complete ? "private, max-age=31536000, immutable" : "no-cache"
         JSON.generate(found.transform_values { |c| { sha: c.sha, subject: c.subject, author: c.author, date: c.commit_date } })
       end
 
@@ -557,7 +574,14 @@ module Outbox
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)
       @branches = @repo.branches
-      load_tree(@repo.default_rev, "") if @repo.default_rev
+      # The code is what was pushed, so it must not be able to take the
+      # review list down with it.
+      begin
+        load_tree(@repo.default_rev, "") if @repo.default_rev
+      rescue NotFound, GitError, ArgumentError => e
+        @rev = nil
+        @tree_error = e.message
+      end
       @hide_pending_note = true # the page lists what is pending already
       erb :repo
     end
@@ -633,7 +657,12 @@ module Outbox
     get "/repos/:name/refs.json" do
       repo = Repo.find!(params[:name])
       default = repo.default_rev&.name
-      refs = repo.ref_list.sort_by.with_index { |r, i| [r.name == default ? 0 : 1, REV_PRECEDENCE_ORDER.index(r.kind), i] }
+      list = repo.ref_list
+      # A staged branch named like a remote's branch or a tag cannot be
+      # reached by that name (Repo#revs), so it is not offered.
+      taken = list.reject { |r| r.kind == :branch }.to_h { |r| [r.name, true] }
+      list.reject! { |r| r.kind == :branch && taken[r.name] }
+      refs = list.sort_by.with_index { |r, i| [r.name == default ? 0 : 1, REV_PRECEDENCE_ORDER.index(r.kind), i] }
       content_type :json
       JSON.generate(refs.map { |r| { name: r.name, kind: r.kind, default: r.name == default } })
     end
@@ -700,6 +729,8 @@ module Outbox
       repo = Repo.find!(params[:name])
       if params[:head].to_s.empty?
         redirect "#{repo_url(repo)}/branches"
+      elsif params[:base].to_s.empty?
+        redirect "#{repo_url(repo)}/compare/#{url_path(params[:head].to_s)}"
       else
         redirect "#{repo_url(repo)}/compare/#{url_path(params[:base].to_s)}...#{url_path(params[:head].to_s)}"
       end

@@ -25,7 +25,7 @@
         <div class="main">
           <a class="subject" href="<%= show_commit_url(@repo, c.sha) %>"><%= hv c.subject %></a>
           <% if c.merge? %><span class="badge merge">merge</span><% end %>
-          <div class="muted meta"><b><%= hv c.author %></b> committed <%= committed_label(Time.iso8601(c.commit_date)) %></div>
+          <div class="muted meta"><b><%= hv c.author %></b> committed <%= committed_label(commit_time(c.commit_date)) %></div>
         </div>
         <div class="row-actions"><a class="sha" href="<%= show_commit_url(@repo, c.sha) %>"><code><%= c.short[0, 7] %></code></a></div>
       </div>

@@ -41,8 +41,10 @@ module Outbox
     end
 
     # The refs a URL can name, { name => Rev }, read once per Repo object (one
-    # request). Staged branches win over tags, and tags over remote
-    # branches, when two have the same name.
+    # request). Remote branches win over tags, and tags over staged
+    # branches, when two have the same name: staged branch names are the
+    # pusher's, so one called "upstream/main" must not stand in for what
+    # upstream has.
     def revs
       @revs ||= begin
         found = {}
@@ -56,15 +58,20 @@ module Outbox
       end
     end
 
-    REV_PRECEDENCE = %i[branch tag remote].freeze
+    REV_PRECEDENCE = %i[remote tag branch].freeze
 
-    # The commit a URL path starts with, and the rest of the path. Branch
+    # The commit a URL path starts with, and the rest of the path. A full
+    # sha is that commit, whatever a branch is called (as with git, and so a
+    # branch named like a sha cannot stand in for one). Otherwise branch
     # names can have slashes, so the longest leading run of segments that
-    # names a ref wins; a full sha, or an abbreviated one when no ref has
-    # that name, names a commit. nil when nothing does.
+    # names a ref wins, and an abbreviated sha that no ref is named names a
+    # commit. nil when nothing does.
     def resolve_path(path)
       segments = path.split("/")
       return nil if segments.empty?
+      if full_sha?(segments.first) && (sha = commit_sha(segments.first))
+        return [Rev.new(name: sha, sha:, kind: :commit), segments.drop(1).join("/")]
+      end
       segments.size.downto(1) do |n|
         name = segments.first(n).join("/")
         rev = revs[name]
@@ -77,8 +84,11 @@ module Outbox
     # A Rev by name alone: a ref, or a sha.
     def rev(name)
       return nil if name.to_s.empty?
+      return (sha = commit_sha(name)) && Rev.new(name: sha, sha:, kind: :commit) if full_sha?(name)
       revs[name] || ((sha = commit_sha(name)) && Rev.new(name: sha, sha:, kind: :commit))
     end
+
+    def full_sha?(s) = s.match?(/\A(\h{40}|\h{64})\z/)
 
     # The full sha of a commit given as hex, at least 7 digits, or nil.
     def commit_sha(hex)
@@ -92,7 +102,9 @@ module Outbox
     # The branch HEAD names, as a Rev: the default branch. nil before
     # anything has been fetched or pushed.
     def default_rev
-      revs[default_branch]
+      name = default_branch
+      rev = revs[name]
+      rev if rev&.branch?
     rescue GitError
       nil
     end
@@ -129,30 +141,46 @@ module Outbox
     # The last commit to touch each name in a directory, as { name =>
     # Commit (subject only) }: what a tree listing shows beside each entry.
     # Read from one walk of the history, newest first, which stops once
-    # every name has one or after TREE_COMMITS_TIMEOUT seconds; names not
-    # reached by then are left out.
+    # every name has one or after TREE_COMMITS_TIMEOUT seconds. Returns
+    # [found, complete]: names not reached are left out of found.
+    #
+    # Each commit is a line starting with \x01, then the paths it touched,
+    # one a line. Paths are the pusher's, so they are left for git to quote:
+    # a quoted path has no control characters, and no line of one can pass
+    # for a commit's.
     def tree_commits(sha, path)
       names = tree_entries(sha, path).to_h { |e| [e.name, true] }
       prefix = path.empty? ? "" : "#{path}/"
       found = {}
       commit = nil
-      Git.each_line("log", "--format=%x01%H%x1f%an%x1f%ae%x1f%aI%x1f%cI%x1f%s", "--name-only", "-z", sha, "--", *(path.empty? ? [] : [path]),
-                    chdir: self.path, timeout: TREE_COMMITS_TIMEOUT, sep: "\0") do |field|
-        field = field.chomp("\0")
-        if field.include?("\x01")
-          paths_before, header = field.split("\x01", 2)
-          note(found, names, commit, prefix, paths_before)
-          sha_, author, email, date, cdate, subject = header.split("\x1f", 6)
-          subject, first_path = subject.to_s.split("\n", 2)
+      complete = false
+      Git.each_line("-c", "core.quotePath=true", "log", "--format=%x01%H%x1f%an%x1f%ae%x1f%aI%x1f%cI%x1f%s", "--name-only", sha,
+                    "--", *(path.empty? ? [] : [path]), chdir: self.path, timeout: TREE_COMMITS_TIMEOUT) do |line|
+        line = line.chomp
+        if line.start_with?("\x01")
+          sha_, author, email, date, cdate, subject = line[1..].split("\x1f", 6)
           commit = Commit.new(sha: sha_, short: sha_[0, 10], author:, author_email: email, date:, committer: author,
                               committer_email: email, commit_date: cdate, parents: [], message: subject.to_s)
-          note(found, names, commit, prefix, first_path)
-        else
-          note(found, names, commit, prefix, field)
+        elsif !line.empty? && commit
+          file = Repo.unquote_path(line)
+          next unless file.start_with?(prefix)
+          name = file.delete_prefix(prefix).split("/", 2).first
+          found[name] ||= commit if names.key?(name)
+          if found.size >= names.size
+            complete = true
+            break
+          end
         end
-        break if found.size >= names.size
       end
-      found
+      [found, complete || found.size >= names.size]
+    end
+
+    # A path as git writes it with core.quotePath: as is, or in double
+    # quotes with C escapes (\t, \", \\, \ooo for each byte past ASCII).
+    def self.unquote_path(text)
+      return text unless text.start_with?('"') && text.end_with?('"') && text.size >= 2
+      escapes = { "a" => "\a", "b" => "\b", "t" => "\t", "n" => "\n", "v" => "\v", "f" => "\f", "r" => "\r", '"' => '"', "\\" => "\\" }
+      text[1..-2].b.gsub(/\\([0-7]{3}|.)/n) { |m| (c = m[1..]).size == 3 ? c.to_i(8).chr : escapes.fetch(c, c) }.force_encoding(Encoding::UTF_8).scrub
     end
 
     TREE_COMMITS_TIMEOUT = 5
@@ -211,14 +239,20 @@ module Outbox
       args << "-i" unless query.match?(/[[:upper:]]/)
       args += ["-e", query, sha, "--"]
       args << path unless path.empty?
-      out = git(*args, ok: [0, 1], timeout: GREP_TIMEOUT)
       found = {}
       more = {}
       truncated = false
-      out.each_line(chomp: true) do |line|
-        # sha:path\0line\0text with -z
-        where, number, text = line.split("\0", 3)
-        file = where.to_s.delete_prefix("#{sha}:").scrub
+      # With -z each match is "<sha>:<path>\0<line>\0<text>\n": the path
+      # can hold newlines, the text cannot. Read as git writes, and stop
+      # once there are enough files: a search for "e" in a big repository
+      # would otherwise be read whole.
+      record = +""
+      Git.each_line(*args, chdir: self.path, timeout: GREP_TIMEOUT) do |line|
+        record << line
+        next if record.count("\0") < 2
+        where, number, text = record.chomp.split("\0", 3)
+        record = +""
+        file = where.to_s.delete_prefix("#{sha}:")
         list = found[file]
         unless list
           if found.size >= GREP_FILES
@@ -231,13 +265,14 @@ module Outbox
           more[file] = true
           next
         end
-        list << Match.new(path: file, line: number.to_i, text: text.to_s.scrub)
+        list << Match.new(path: file, line: number.to_i, text: text.to_s[0, GREP_LINE_CHARS])
       end
       [found, more, truncated]
     end
 
     GREP_PER_FILE = 20
     GREP_ONE_FILE = 2000
+    GREP_LINE_CHARS = 1000
     GREP_FILES = 200
     GREP_TIMEOUT = 20
 
@@ -258,6 +293,8 @@ module Outbox
     # commit is a Commit without its body (git blame gives the subject).
     def blame(sha, path)
       raise NotFound, "no file #{path} in #{sha[0, 7]}" unless object_type(sha, path) == "blob"
+      size = git("cat-file", "-s", "#{sha}:#{path}").to_i
+      raise NotFound, "#{path} is too large to blame (#{size} bytes)" if size > MAX_BLOB_BYTES
       out = git("blame", "--porcelain", sha, "--", path, timeout: GREP_TIMEOUT)
       commits = {}
       hunks = []
@@ -295,7 +332,7 @@ module Outbox
     # The README of a directory, from its entries: README.md before other
     # kinds, any case. nil when there is none.
     def self.readme(entries)
-      files = entries.reject(&:dir?).select { |e| e.name.match?(/\Areadme(\.[a-z0-9]+)?\z/i) }
+      files = entries.select { |e| e.type == "blob" && !e.symlink? && e.name.match?(/\Areadme(\.[a-z0-9]+)?\z/i) }
       files.min_by { |e| [README_KINDS.index(File.extname(e.name).downcase) || README_KINDS.size, e.name] }
     end
 
@@ -306,20 +343,10 @@ module Outbox
 
     private
 
-    # Records commit against the entry of the directory that file is in,
-    # if it is one of names (a name can be gone from the directory now).
-    def note(found, names, commit, prefix, file)
-      return if commit.nil? || file.nil? || file.empty?
-      file = file.strip
-      return unless file.start_with?(prefix)
-      name = file.delete_prefix(prefix).split("/", 2).first
-      found[name] ||= commit if names.key?(name)
-    end
-
     # git blame's time and zone ("1700000000", "+0900") as ISO 8601 in that
     # zone, like git log's %aI.
     def blame_time(time, zone)
-      zone = zone.to_s.match?(/\A[+-]\d{4}\z/) ? "#{zone[0, 3]}:#{zone[3, 2]}" : "+00:00"
+      zone = zone.to_s.match?(/\A[+-]([01]\d|2[0-3])[0-5]\d\z/) ? "#{zone[0, 3]}:#{zone[3, 2]}" : "+00:00"
       Time.at(time.to_i).getlocal(zone).iso8601
     end
 
