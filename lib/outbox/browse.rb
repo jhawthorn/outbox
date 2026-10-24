@@ -343,15 +343,6 @@ module Outbox
       end
     end
 
-    # The README of a directory, from its entries: README.md before other
-    # kinds, any case. nil when there is none.
-    def self.readme(entries)
-      files = entries.select { |e| e.type == "blob" && !e.symlink? && e.name.match?(/\Areadme(\.[a-z0-9]+)?\z/i) }
-      files.min_by { |e| [README_KINDS.index(File.extname(e.name).downcase) || README_KINDS.size, e.name] }
-    end
-
-    README_KINDS = [".md", ".markdown", ".mdown", "", ".txt", ".rdoc", ".rst", ".org"].freeze
-
     # Whether a file is markdown, by name.
     def self.markdown?(path) = path.match?(/\.(md|markdown|mdown|mkd)\z/i)
 

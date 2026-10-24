@@ -375,7 +375,7 @@ module Outbox
 
       def image?(path) = IMAGE_TYPES.key?(File.extname(path).downcase)
 
-      # Reads the directory and its README for the code browser
+      # Reads the directory for the code browser
       # (views/_tree.erb).
       def load_tree(rev, path)
         @rev = rev
@@ -383,12 +383,6 @@ module Outbox
         @path = path
         @entries = @repo.tree_entries(@sha, @path)
         @last = @repo.last_commit(@sha, @path)
-        if (entry = Repo.readme(@entries))
-          @readme_path = [@path, entry.name].reject(&:empty?).join("/")
-          @readme = @repo.blob(entry.id) if entry.size.to_i <= Repo::MAX_BLOB_BYTES
-        end
-      rescue NotFound
-        @readme = nil
       end
 
       # The rev a URL path starts with, and the rest of the path.

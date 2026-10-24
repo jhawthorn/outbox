@@ -199,6 +199,8 @@ test("the toggle in a file's header folds just that file", async ({ page }) => {
 
   await reveal(page, 1);
   await fold.click();
+  await expect(fold).toHaveAttribute("aria-expanded", "true");
+  await reveal(page, 1);
   await expect(diff(page, 1).getByText("line ten")).toBeVisible();
 });
 
@@ -406,6 +408,9 @@ test("the files sit in a tree beside the diff, and viewed ones fold away", async
   await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
   await page.reload();
   await expect(tree).toContainText("1 / 4 viewed");
+  // The reload puts the reader back where they were, which may be past it;
+  // scroll up rather than follow its link, which would unfold it.
+  await page.locator("main").evaluate((m) => m.scrollTo(0, 0));
   await expect(diff(page, 0).getByRole("checkbox", { name: "Viewed" })).toBeChecked();
   await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
 

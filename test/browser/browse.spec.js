@@ -1,10 +1,10 @@
 // @ts-check
-// Reading a repository: the code at a branch, its README, finding files,
+// Reading a repository: the code at a branch, markdown, finding files,
 // switching branches, history, blame and search. The "browse" repository
 // (server.rb) is read-only.
 const { test, expect } = require("@playwright/test");
 
-test("the repository page shows the code and renders the README safely", async ({ page }) => {
+test("the code is a tab away from the review list, and markdown is drawn safely", async ({ page }) => {
   const outside = [];
   page.on("request", (r) => { if (!r.url().startsWith("http://127.0.0.1")) outside.push(r.url()); });
   await page.goto("/repos/browse");
@@ -17,8 +17,11 @@ test("the repository page shows the code and renders the README safely", async (
   await expect(page.locator("table.tree td.name a")).toHaveText(["docs", "lib", "README.md"]);
   await expect(page.locator(".last-commit")).toContainText("Make the app answer");
   await expect(page.locator("table.tree td.msg")).toHaveText(["Initial commit", "Make the app answer", "Initial commit"]);
+  await expect(page.locator(".markdown-body")).toHaveCount(0); // the README is a file like any other
 
-  const readme = page.locator(".readme .markdown-body");
+  await page.locator("table.tree").getByRole("link", { name: "README.md" }).click();
+  await expect(page).toHaveURL("/repos/browse/tree/main/README.md");
+  const readme = page.locator(".markdown-body");
   await expect(readme.locator("h1")).toContainText("Browse me");
   await expect(readme.getByRole("link", { name: "the guide" })).toHaveAttribute("href", "/repos/browse/tree/main/docs/guide.md");
   await expect(readme.getByRole("link", { name: "the top" })).toHaveAttribute("href", "/repos/browse/tree/main/lib/app.rb");

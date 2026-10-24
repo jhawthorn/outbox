@@ -320,7 +320,9 @@ class AppTest < OutboxTest::RepoCase
     assert_operator root.index(">lib<"), :<, root.index(">z.txt<"), "directories first"
     assert_includes root, %(href="/repos/demo/tree/#{sha}/lib")
     refute_includes root, ">..<"
-    assert_includes root, %(<pre class="md-source"># Hello &lt;script&gt;x&lt;/script&gt;), "the README, for the browser to draw"
+    assert_includes root, %(href="/repos/demo/tree/#{sha}/README.md">README.md</a>)
+    refute_includes root, "data-markdown", "the README is listed, not shown"
+    assert_includes get("/repos/demo/tree/#{sha}/README.md"), %(<pre class="md-source"># Hello &lt;script&gt;x&lt;/script&gt;), "for the browser to draw"
     lib = get("/repos/demo/tree/#{sha}/lib/")
     assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/a.rb">a.rb</a>)
     assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/deep">deep</a>)
@@ -356,6 +358,14 @@ class AppTest < OutboxTest::RepoCase
     assert_equal "text/plain; charset=utf-8", res.headers["content-type"]
     assert_equal "<script>alert(1)</script>", res.body
     assert_includes get("/repos/demo/tree/main/pic.svg"), %(<img src="/repos/demo/raw/main/pic.svg")
+  end
+
+  def test_history_is_one_list_with_each_commits_date
+    stage_commit("b.rb", "1\n", "Touch b")
+    body = get("/repos/demo/commits/main")
+    refute_includes body, "Commits on"
+    assert_equal 2, body.scan('<div class="log-row">').size
+    assert_match %r{<b>Test</b> · <span title="\d{4}-\d\d-\d\dT[^"]*">\d{4}-\d\d-\d\d \d\d:\d\d <span class="off">}, body
   end
 
   def test_history_lists_commits_and_those_that_touched_a_path

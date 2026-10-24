@@ -369,7 +369,6 @@
   table.tree tr:hover td { background: var(--meta-bg); }
   table.tree td { padding: 6px 16px; font-size: 14px; }
   table.tree td.icon { width: 1%; color: var(--muted); padding-right: 0; line-height: 0; vertical-align: middle; }
-  table.tree td.icon .dir { color: #54aeff; }
   table.tree td.size { width: 1%; white-space: nowrap; text-align: right; font-size: 13px; }
   table.tree td.name { width: 30%; white-space: nowrap; }
   table.tree td.msg { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -384,10 +383,8 @@
   .image-view { padding: 24px; text-align: center;
                 background: repeating-conic-gradient(var(--meta-bg) 0 25%, var(--bg) 0 50%) 0 0 / 20px 20px; }
   .image-view img { max-width: 100%; }
-  pre.plain-readme { margin: 0; padding: 16px; white-space: pre-wrap; }
-  /* History: a day at a time. */
-  h3.day { font-size: 14px; font-weight: 400; color: var(--muted); margin: 20px 0 8px; display: flex; gap: 8px; align-items: center; }
-  h3.day::before { content: ""; width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--muted); }
+  /* History. */
+  .log-row .meta .off { opacity: .55; }
   .log-row { display: flex; gap: 16px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
   .log-row:last-child { border-bottom: 0; }
   .log-row:hover { background: var(--meta-bg); }

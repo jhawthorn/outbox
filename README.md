@@ -149,7 +149,8 @@ upstream commits nothing carries over are listed as dropped. The pairing is skip
 Each repository's pages read like a code host's, under four tabs. Review comes first, since
 reviewing is what the outbox is for: `/repos/<name>` lists the branches awaiting review,
 each with its latest commit, and approve and discard come back to it. Code is the default
-branch's files, the last commit to touch each, and the README; Commits is the history;
+branch's files and the last commit to touch each (a README is a file like any other, not
+drawn beneath them); Commits is the history, one list, newest first;
 Branches every branch of every remote.
 
 URLs name a commit the way people do: `/repos/<name>/tree/<rev>/<path>`, where `<rev>` is a
@@ -174,7 +175,7 @@ from one walk of the history (`tree-commits/`), which stops once every entry has
 after five seconds. Blame is coloured in the browser with the file view's highlighter,
 and each run of lines links to the blame before the commit that last changed it.
 
-Markdown, READMEs and `.md` files, is rendered in the browser and sanitised there with
+Markdown files are rendered in the browser and sanitised there with
 DOMPurify. What a pusher writes runs on a page behind the reviewer's password, so besides
 scripts and handlers, forms and buttons are removed too: one could post an approval from
 this origin. Relative links go to the file's page here, images to `raw/`; images from
