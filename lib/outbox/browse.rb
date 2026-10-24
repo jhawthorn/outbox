@@ -241,14 +241,16 @@ module Outbox
     GREP_FILES = 200
     GREP_TIMEOUT = 20
 
-    # A run of lines git blame gives to one commit.
+    # A run of lines git blame gives to one commit. previous is where to
+    # look before that commit, [sha, path], or nil where it added them.
     class BlameHunk
-      attr_reader :commit, :start, :lines
+      attr_reader :commit, :start, :lines, :previous
 
-      def initialize(commit:, start:, lines:)
+      def initialize(commit:, start:, lines:, previous: nil)
         @commit = commit
         @start = start
         @lines = lines
+        @previous = previous
       end
     end
 
@@ -285,7 +287,8 @@ module Outbox
                             date: blame_time(c["author-time"], c["author-tz"]), committer: c["committer"].to_s,
                             committer_email: c["committer-mail"].to_s.delete("<>"), commit_date: blame_time(c["committer-time"], c["committer-tz"]),
                             parents: [], message: c["summary"].to_s)
-        BlameHunk.new(commit:, start: hunk[:start], lines: hunk[:lines])
+        previous = c["previous"]&.split(" ", 2)
+        BlameHunk.new(commit:, start: hunk[:start], lines: hunk[:lines], previous:)
       end
     end
 

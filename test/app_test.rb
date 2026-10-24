@@ -388,6 +388,8 @@ class AppTest < OutboxTest::RepoCase
     assert_operator body.index(">First version<"), :<, body.index(">Second version<")
     assert_includes body, %(<tr id="L2" class="hunk-start">)
     assert_includes body, %(<td class="code">2</td>)
+    first = @repo.branch("main").staged.then { |sha| git("rev-parse", "#{sha}~1", chdir: @repo.path).strip }
+    assert_includes body, %(href="/repos/demo/blame/#{first}/a.rb" title="Blame prior to this change")
     assert_equal 404, @request.get("/repos/demo/blame/main/nope.rb").status
   end
 

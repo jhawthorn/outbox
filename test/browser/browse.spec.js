@@ -71,6 +71,10 @@ test("a file's history, blame and permalink", async ({ page }) => {
   await expect(page).toHaveURL("/repos/browse/blame/main/lib/app.rb");
   await expect(page.locator("table.blame tr#L2 td.code")).toHaveText("  def call = :answer");
   await expect(page.locator("table.blame td.who")).toContainText(["Initial commit", "Make the app answer", "Initial commit"]);
+  await expect(page.locator("table.blame tr#L1 td.code span[style]").first()).toHaveText("class"); // highlighted
+  await page.locator("table.blame tr#L2").getByRole("link", { name: "Blame prior to this change" }).click();
+  await expect(page.locator("table.blame tr#L2 td.code")).toHaveText("  def call = :ok");
+  await page.goBack();
 
   await page.getByRole("link", { name: "History" }).click();
   await expect(page).toHaveURL("/repos/browse/commits/main/lib/app.rb");

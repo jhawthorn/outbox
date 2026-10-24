@@ -97,7 +97,10 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
   their slots, from data attributes on the server's file sections. Each file can be
   shown whole, and selected line numbers go in the URL (`#f1-R10-R14`, `L` for the old
-  side), so lines can be linked to. A file page is the same CodeView with one file item
+  side), so lines can be linked to. Beside a diff of more than one file, its files as a
+  tree, in the diff's order, following the file being read; each file can be marked
+  viewed, which folds it and is remembered (in localStorage, by path and blob ids, so a
+  file that changes is unviewed). A file page is the same CodeView with one file item
   (`#L10-L14` selects lines). `rake assets` bundles it with esbuild into `public/diffs/`
   (gitignored; needs pnpm). Without it the pages still work, with a notice and a link to
   the raw patch instead of rendered diffs.
@@ -157,7 +160,14 @@ images as images, all sandboxed), `blame/`, and `commits/` (history, of a path i
 given). `/repos/<name>/commit/<sha>` is any commit in the repository, with its diff;
 `/repos/<name>/branches` every branch of every remote, and tags; `/repos/<name>/search`
 `git grep` in one commit, a fixed string or an extended regexp, ignoring case unless the
-query has a capital. GitHub's `/blob/` URLs redirect to `/tree/`.
+query has a capital; `/repos/<name>/compare/<base>...<head>` what one rev has that another
+does not, commits and diff, the way a pull request shows it. GitHub's `/blob/` URLs redirect
+to `/tree/`.
+
+A directory lists the last commit to touch each entry, filled in after the page is drawn
+from one walk of the history (`tree-commits/`), which stops once every entry has one or
+after five seconds. Blame is coloured in the browser with the file view's highlighter,
+and each run of lines links to the blame before the commit that last changed it.
 
 Markdown, READMEs and `.md` files, is rendered in the browser and sanitised there with
 DOMPurify. What a pusher writes runs on a page behind the reviewer's password, so besides

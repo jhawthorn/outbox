@@ -431,6 +431,35 @@ async function treeCommits(table) {
   }
 }
 
+// --- blame, highlighted -------------------------------------------------
+
+// The blame table is the server's, a row a line; its code is coloured
+// afterwards with the highlighter the file view uses, both themes at once,
+// the dark one in a variable the stylesheet switches to.
+const BLAME_MAX_LINES = 20000;
+
+async function highlightBlame(box) {
+  if (box.dataset.highlighted) return;
+  box.dataset.highlighted = "1";
+  const cells = $$("td.code", box);
+  if (!cells.length || cells.length > BLAME_MAX_LINES) return;
+  const { getSharedHighlighter, getFiletypeFromFileName } = await import("@pierre/diffs");
+  const lang = getFiletypeFromFileName(box.dataset.blameFile);
+  if (!lang || lang === "text") return;
+  const highlighter = await getSharedHighlighter({ themes: ["pierre-light", "pierre-dark"], langs: [lang] });
+  const code = cells.map((td) => td.textContent).join("\n");
+  const { tokens } = highlighter.codeToTokens(code, { lang, themes: { light: "pierre-light", dark: "pierre-dark" } });
+  tokens.forEach((line, i) => {
+    const td = cells[i];
+    if (!td) return;
+    td.replaceChildren(...line.map((t) => {
+      const span = el("span", { text: t.content });
+      for (const [k, v] of Object.entries(t.htmlStyle ?? {})) span.style.setProperty(k, v);
+      return span;
+    }));
+  });
+}
+
 // The compare page's inputs suggest every branch and tag.
 async function fillRefs(list) {
   if (list.dataset.filled) return;
@@ -439,6 +468,7 @@ async function fillRefs(list) {
 }
 
 function hydrate() {
+  for (const box of $$("[data-blame-file]")) highlightBlame(box).catch((err) => console.error("blame", err));
   for (const list of $$("datalist[data-refs-url]")) fillRefs(list).catch(() => {});
   for (const table of $$("table.tree[data-commits-url]")) treeCommits(table).catch((err) => console.error("tree commits", err));
   for (const article of $$("[data-markdown]")) {
