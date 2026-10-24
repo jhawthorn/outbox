@@ -8,6 +8,11 @@ test("the repository page shows the code and renders the README safely", async (
   const outside = [];
   page.on("request", (r) => { if (!r.url().startsWith("http://127.0.0.1")) outside.push(r.url()); });
   await page.goto("/repos/browse");
+  // A repository opens on what awaits review, each branch with its latest commit.
+  await expect(page.locator("table.pending tbody tr")).toHaveCount(1);
+  await expect(page.locator("table.pending td.latest .subject")).toHaveText("Add a topic");
+  await page.getByRole("link", { name: "Code", exact: true }).click();
+  await expect(page).toHaveURL("/repos/browse/tree/main");
   await expect(page.locator("details.refpick summary")).toHaveText("main");
   await expect(page.locator("table.tree td.name a")).toHaveText(["docs", "lib", "README.md"]);
   await expect(page.locator(".last-commit")).toContainText("Make the app answer");
@@ -58,7 +63,7 @@ test("the branch picker moves to another branch at the same path", async ({ page
 });
 
 test("t finds a file by name", async ({ page }) => {
-  await page.goto("/repos/browse");
+  await page.goto("/repos/browse/tree/main");
   await page.keyboard.press("t");
   const finder = page.getByRole("dialog", { name: "Go to file" });
   await expect(finder).toBeVisible();

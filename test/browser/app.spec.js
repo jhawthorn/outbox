@@ -34,13 +34,14 @@ test("the index puts repositories with something to review first", async ({ page
   await expect(page.locator("details.add")).toBeHidden(); // only open when there is nothing but _config
 });
 
-test("the review list and the code are separate tabs, and the code has the clone URL", async ({ page, baseURL }) => {
-  await page.goto("/repos/review/review");
+test("a repository opens on its review list, with the code a tab away", async ({ page, baseURL }) => {
+  await page.goto("/repos/review");
+  await expect(page.locator("nav.tabs a")).toHaveText([/Review\s*1/, "Code", "Commits", "Branches"]);
   await expect(page.locator(".remotes")).toContainText("push upstream /");
   await expect(page.locator("table.pending tbody tr")).toHaveCount(1);
   await expect(page.locator("table.pending tbody tr td").nth(1)).toContainText("2 commits to push");
   await page.getByRole("link", { name: "Code", exact: true }).click();
-  await expect(page).toHaveURL("/repos/review");
+  await expect(page).toHaveURL("/repos/review/tree/main");
   await page.getByText("Clone", { exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Clone URL" })).toHaveValue(`${baseURL}/review.git`);
 });

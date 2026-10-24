@@ -151,23 +151,40 @@ class AppTest < OutboxTest::RepoCase
 
   # A repository's Code and Review tabs are pages of their own: the code
   # at /repos/<name>, with a note of what awaits review, and the list.
-  def test_code_and_review_are_separate_pages
-    stage_commit
-    code = get("/repos/demo")
-    review = get("/repos/demo/review")
-    assert_includes code, %(<a class="tab active" href="/repos/demo" aria-current="page">Code</a>)
-    assert_includes code, %(<a class="tab" href="/repos/demo/review">Review <span class="count-pill">1</span></a>)
-    assert_includes code, "1 branch</b> awaiting review"
-    assert_includes code, %(<table class="tree")
-    refute_includes code, %(<table class="pending">)
-    assert_includes review, %(<a class="tab active" href="/repos/demo/review" aria-current="page">Review)
+  # Reviewing is what the outbox is for, so a repository's home is its
+  # review list, the first tab. Code is the next tab, and a page of its own.
+  def test_review_is_the_home_and_code_a_tab_of_its_own
+    stage_commit("lib/a.rb", "x\n", "Add a\n\nWith a body.")
+    review = get("/repos/demo")
+    assert_includes review, %(<nav class="tabs"><a class="tab active" href="/repos/demo" aria-current="page">Review <span class="count-pill">1</span></a><a class="tab" href="/repos/demo/tree/main">Code</a>)
     assert_includes review, %(<table class="pending">)
+    assert_match %r{<td class="latest">\s*<a class="subject" href="/repos/demo/commit/\h{40}" title="Add a">Add a</a>}, review, "each branch says what it is about"
     refute_includes review, %(<table class="tree")
-    assert_includes get("/repos/demo/branches/main"), %(<a class="crumb" href="/repos/demo/review">Review</a>)
+    code = get("/repos/demo/tree/main")
+    assert_includes code, %(<a class="tab active" href="/repos/demo/tree/main" aria-current="page">Code</a>)
+    assert_includes code, %(<table class="tree")
+    assert_includes code, "has staged work awaiting review"
+    assert_includes get("/repos/demo/branches/main"), %(<a class="crumb" href="/repos/demo">Review</a>)
+    assert_equal "/repos/demo", URI(@request.get("/repos/demo/review").headers["location"]).path
+    assert_equal "/repos/demo/tree/main", URI(@request.get("/repos/demo/code").headers["location"]).path
+  end
+
+  def test_nothing_to_review_points_at_the_code
+    body = get("/repos/demo")
+    assert_includes body, "Nothing to review"
+    assert_includes body, %(<a class="button" href="/repos/demo/tree/main">Browse code</a>)
+  end
+
+  def test_an_empty_repository_says_how_to_fill_it
+    empty = File.join(@dir, "empty.git")
+    git("init", "--quiet", "--bare", empty)
+    Outbox::Repo.create("void", empty)
+    assert_includes get("/repos/void"), "No branches. Push something to"
+    assert_includes get("/repos/void/code"), "No code yet. Push something to"
   end
 
   def test_repo_page_shows_branches
-    body = get("/repos/demo/review")
+    body = get("/repos/demo")
     assert_includes body, "in sync"
     assert_includes body, @upstream
     assert_includes body, "Fetch upstream"
@@ -180,7 +197,7 @@ class AppTest < OutboxTest::RepoCase
     theirs = File.join(@dir, "theirs.git")
     git("clone", "--quiet", "--bare", @upstream, theirs)
     @repo.configure!(push: "upstream", remotes: { "upstream" => @upstream, "theirs" => theirs }, bases: ["theirs/main"])
-    body = get("/repos/demo/review")
+    body = get("/repos/demo")
     assert_includes body, "push <b>upstream</b> <code>#{@upstream}</code>"
     assert_includes body, "fetch <b>theirs</b> <code>#{theirs}</code>"
     assert_includes body, "base <b>theirs/main</b>"
@@ -188,7 +205,7 @@ class AppTest < OutboxTest::RepoCase
 
   def test_config_repo_page
     Outbox::Config.staging.fetch!
-    body = get("/repos/_config/review")
+    body = get("/repos/_config")
     assert_includes body, "the outbox's own configuration"
     assert_includes body, "in sync"
   end
@@ -311,7 +328,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes lib, "6 bytes"
     assert_includes get("/repos/demo/tree/#{sha}/lib/deep"), %(href="/repos/demo/tree/#{sha}/lib" title="Up one directory">..</a>)
     assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}">Browse files</a>)
-    assert_includes get("/repos/demo"), %(href="/repos/demo/tree/main/lib">lib</a>), "the repository page shows the default branch"
+    assert_includes get("/repos/demo/tree/main"), %(href="/repos/demo/tree/main/lib">lib</a>)
   end
 
   def test_tree_url_refuses_what_is_not_in_a_commit
@@ -534,12 +551,12 @@ class AppTest < OutboxTest::RepoCase
     odd = "tree #{tree}\nparent #{parent}\nauthor A <a@x> 1700000000 +9999\ncommitter A <a@x> 1700000000 +9999\n\nBad zone\n"
     sha = IO.popen(["git", "hash-object", "-t", "commit", "-w", "--literally", "--stdin"], "r+", chdir: @stage) { |io| io.write(odd); io.close_write; io.read.strip }
     push(@stage, "#{sha}:refs/heads/main")
-    assert_includes get("/repos/demo/review"), %(<table class="pending">)
-    body = get("/repos/demo")
+    assert_includes get("/repos/demo"), %(<table class="pending">)
+    assert_includes get("/repos/demo"), ">Bad zone<"
+    body = get("/repos/demo/tree/main")
     assert_includes body, "awaiting review"
     assert_includes body, ">README.md<"
     get("/repos/demo/commits/main")
-    get("/repos/demo/tree/main")
     get("/repos/demo/branches/main")
   end
 
@@ -773,7 +790,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes patch, "+two fixed"
     refute_includes patch, "up.txt"
 
-    body = get("/repos/demo/review")
+    body = get("/repos/demo")
     assert_includes body, '<span class="badge diverged">rebased</span>'
     assert_includes body, "2 commits to push, rebased onto 1 newer upstream commit; replaces 2 upstream commits"
     assert_includes get("/"), "rebased onto 1 newer upstream commit"
@@ -951,7 +968,7 @@ class AppTest < OutboxTest::RepoCase
     staged = stage_commit
     res = @request.post("/repos/demo/branches/main/approve", params: { expected: staged })
     assert_equal 303, res.status
-    assert_equal "http://example.org/repos/demo/review", res["location"]
+    assert_equal "http://example.org/repos/demo", res["location"]
     wait_until("approve") { !Outbox.hub.status(@repo).busy? }
     assert_equal staged, rev(@upstream, "main")
 

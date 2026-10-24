@@ -9,5 +9,6 @@
       <span>base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
     <% end %>
   <% end %>
+  <span>clone <code><%= h clone_url(@repo) %></code></span>
 </div>
 

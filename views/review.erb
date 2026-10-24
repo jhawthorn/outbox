@@ -12,20 +12,30 @@
     <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
   <% end %>
 <% elsif pending.empty? %>
-  <p class="empty">Nothing to review: <a href="<%= repo_url(@repo) %>/branches"><%= pluralize(synced, "branch", "branches") %></a> in sync with upstream.</p>
+  <div class="nothing">
+    <p>Nothing to review: <a href="<%= repo_url(@repo) %>/branches"><%= pluralize(synced, "branch", "branches") %></a> in sync with upstream.</p>
+    <% if (code = @repo.default_rev) %>
+      <a class="button" href="<%= tree_url(@repo, code.name) %>">Browse code</a>
+      <a class="button" href="<%= history_url(@repo, code.name) %>">Recent commits</a>
+    <% end %>
+  </div>
 <% else %>
   <table class="pending">
-    <thead><tr><th>Branch</th><th>Status</th><th>Staged</th><th>Upstream</th><th></th></tr></thead>
+    <thead><tr><th>Branch</th><th>Status</th><th class="latest">Latest commit</th><th></th></tr></thead>
     <tbody>
     <% pending.each do |b| %>
       <tr>
-        <td><a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a></td>
-        <td>
+        <td><a class="branch-name" href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a></td>
+        <td class="state">
           <span class="badge <%= b.status %>"><%= status_label(b) %></span>
           <div class="muted" style="font-size:13px"><%= h summary(b) %> · <%= committed_label(b.time) %></div>
         </td>
-        <td><code><%= short(b.staged) %></code></td>
-        <td><code><%= short(b.upstream) %></code></td>
+        <td class="latest">
+          <% if (tip = @latest[b.name]) %>
+            <a class="subject" href="<%= show_commit_url(@repo, tip.sha) %>" title="<%= h tip.subject %>"><%= hv tip.subject %></a>
+            <div class="muted"><%= hv tip.author %> · <code title="<%= tips_label(b).gsub(/<[^>]+>/, "") %>"><%= short(b.staged || b.upstream)[0, 7] %></code></div>
+          <% end %>
+        </td>
         <td><div class="actions">
           <a class="button" href="<%= branch_url(@repo, b.name) %>">Review</a>
           <% unless b.needs_force? %>

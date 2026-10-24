@@ -292,6 +292,20 @@
   .remotes code { font-size: 12px; }
   .empty.compact { padding: 4px 0; }
   .job-done::first-letter { text-transform: uppercase; }
+  /* The review list: a repository's home. */
+  table.pending td.latest { max-width: 0; width: 40%; }
+  table.pending td:first-child { white-space: nowrap; }
+  table.pending td:last-child { width: 1%; }
+  table.pending .actions { flex-wrap: nowrap; }
+  table.pending td.state { min-width: 220px; }
+  @media (max-width: 700px) { table.pending th.latest, table.pending td.latest { display: none; } }
+  table.pending td.latest .subject { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); text-decoration: none; }
+  table.pending td.latest .subject:hover { color: var(--accent); text-decoration: underline; }
+  table.pending td.latest .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.pending td.latest code { background: none; border: 0; padding: 0; font-size: 12px; }
+  table.pending .branch-name { font-weight: 600; }
+  .nothing { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; padding: 16px 0; color: var(--muted); }
+  .nothing p { margin: 0; }
   .browse-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; min-height: 32px; }
   .browse-bar h1.path, .browse-bar h2.path { margin: 0 0 0 4px; font-size: 16px; font-weight: 400; min-width: 0; overflow-wrap: anywhere; }
   .browse-bar .path b { font-weight: 600; }

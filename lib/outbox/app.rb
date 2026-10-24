@@ -74,8 +74,12 @@ module Outbox
 
       def repo_url(repo) = "/repos/#{repo.name}"
 
-      # The branches awaiting review, with what can be done about each.
-      def review_url(repo) = "#{repo_url(repo)}/review"
+      # The branches awaiting review, with what can be done about each: the
+      # repository's home, since reviewing is what the outbox is for.
+      def review_url(repo) = repo_url(repo)
+
+      # The code, on the default branch unless another is being browsed.
+      def code_url(repo) = "#{repo_url(repo)}/code"
 
       # Branch names are the pusher's, and may hold anything git allows,
       # quotes and angle brackets included: escaped like any path.
@@ -348,11 +352,10 @@ module Outbox
       def repo_tabs(active)
         pending = @repo.pending_branches.size
         rev = @rev && !@rev.commit? ? @rev.name : nil
-        # Code is the repository's home, or the branch being browsed.
-        home = rev.nil? || rev == @repo.default_rev&.name
+        code = rev || @repo.default_rev&.name
         tabs = [
-          ["code", "Code", home ? repo_url(@repo) : tree_url(@repo, rev), nil],
           ["review", "Review", review_url(@repo), pending],
+          ["code", "Code", code ? tree_url(@repo, code) : code_url(@repo), nil],
           ["commits", "Commits", rev ? history_url(@repo, rev) : "#{repo_url(@repo)}/commits", nil],
           ["branches", "Branches", "#{repo_url(@repo)}/branches", nil],
         ]
@@ -478,6 +481,20 @@ module Outbox
 
       def compare_url(repo, base, head) = "#{repo_url(repo)}/compare/#{url_path(base)}...#{url_path(head)}"
 
+      # The tip of each branch, as RefInfo by branch name: what is staged, or
+      # for a branch deleted here, what upstream has. Says what each branch
+      # in the review list is about.
+      def latest_commits(repo)
+        upstream = "#{repo.push_remote}/"
+        found = {}
+        repo.ref_list.each do |r|
+          if r.kind == :branch then found[r.name] = r
+          elsif r.kind == :remote && r.name.start_with?(upstream) then found[r.name.delete_prefix(upstream)] ||= r
+          end
+        end
+        found
+      end
+
       def send_patch(patch)
         content_type "text/plain", charset: "utf-8"
         patch.text
@@ -574,29 +591,28 @@ module Outbox
       redirect "/"
     end
 
+    # A repository's home is what awaits review in it.
     get "/repos/:name" do
       live!
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)
       @branches = @repo.branches
-      # The code is what was pushed, so it must not be able to take the
-      # review list down with it.
-      begin
-        load_tree(@repo.default_rev, "") if @repo.default_rev
-      rescue NotFound, GitError, ArgumentError => e
-        @rev = nil
-        @tree_error = e.message
-      end
-      @hide_pending_note = true # the page has its own
-      erb :repo
+      @latest = latest_commits(@repo)
+      erb :review
     end
 
+    # The old address of the review list.
     get "/repos/:name/review" do
-      live!
+      redirect repo_url(Repo.find!(params[:name]))
+    end
+
+    # The code: the default branch's files, once there is one.
+    get "/repos/:name/code" do
       @repo = Repo.find!(params[:name])
+      rev = @repo.default_rev
+      redirect tree_url(@repo, rev.name) if rev
       @status = hub.status(@repo)
-      @branches = @repo.branches
-      erb :review
+      erb :code_empty
     end
 
     post "/repos/:name/fetch" do

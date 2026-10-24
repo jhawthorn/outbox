@@ -1,0 +1,6 @@
+<% @title = "Code · #{@repo.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "code" } %>
+<%= erb :_job_status, layout: false %>
+<% unless @status.busy? %>
+  <p class="empty">No code yet. Push something to <code><%= h clone_url(@repo) %></code>.</p>
+<% end %>

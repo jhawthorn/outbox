@@ -1,6 +1,6 @@
 <%# A directory as it is in @rev: what is in it, the last commit to touch %>
 <%# it, and its README. %>
-<%= erb :_pending_note, layout: false unless @hide_pending_note %>
+<%= erb :_pending_note, layout: false %>
 <div class="browse-bar">
   <%= erb :_refpick, layout: false, locals: { kind: "tree" } %>
   <% unless @path.empty? %><h2 class="path"><%= path_crumbs(@repo, @rev.name, @path) %></h2><% end %>
