@@ -199,7 +199,7 @@ class AppTest < OutboxTest::RepoCase
 
     body = get("/repos/_config/branches/main")
     assert_includes body, "Add demo"
-    assert_includes body, '<a href="#f0">outbox.conf</a>'
+    assert_includes body, '<a class="path" href="#f0" title="outbox.conf">outbox.conf</a>'
     assert_includes get("/repos/_config/branches/main.patch"), "+[repo \"demo\"]"
   end
 
@@ -209,13 +209,13 @@ class AppTest < OutboxTest::RepoCase
 
     assert_includes body, "Add a"
     assert_includes body, "Files changed (1)"
-    assert_includes body, '<a href="#f0">lib/a.rb</a>'
+    assert_includes body, '<a class="path" href="#f0" title="lib/a.rb">lib/a.rb</a>'
     assert_includes body, 'class="badge added"'
     assert_includes body, "+2</span>"
     assert_includes body, "1 file changed"
     # The diff body is drawn in the browser from the raw patch.
     assert_includes body, 'data-patch-url="/repos/demo/branches/main.patch"'
-    assert_match %r{<details class="file" id="f0" open data-path="lib/a.rb" data-new-blob="[0-9a-f]{40}">}, body
+    assert_match %r{<details class="file" id="f0" open data-path="lib/a.rb" data-new-blob="[0-9a-f]{40}" data-status="added" data-add="\d+" data-del="0">}, body
     assert_includes body, '<div class="diff" data-diff-file="lib/a.rb">'
     refute_includes body, "data-old-blob"
     assert_includes body, 'data-blob-url="/repos/demo/blobs"'
@@ -237,7 +237,7 @@ class AppTest < OutboxTest::RepoCase
     sha = stage_commit("lib/a b.rb", "x = 1\ny = 2\n", "Add a")
     blob = @repo.file_blob(sha, "lib/a b.rb")
 
-    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb">view file</a>)
+    assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb" title="View the whole file at this commit">view file</a>)
     assert_includes get("/repos/demo/branches/main/commits/#{sha}"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb")
     body = get("/repos/demo/tree/#{sha}/lib/a%20b.rb")
     assert_includes body, %(<a class="crumb" href="/repos/demo/tree/#{sha}/lib">lib</a>)
@@ -505,7 +505,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, "commit 2 of 2"
     assert_includes body, "Longer explanation here."
     assert_includes body, "b.txt"
-    refute_includes body, '<a href="#f0">a.txt</a>'
+    refute_includes body, '<a class="path" href="#f0" title="a.txt">a.txt</a>'
     assert_includes body, "older: First"
     assert_includes body, "newest →"
   end
@@ -691,11 +691,11 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, '<span class="invis" title="hidden character">U+202E</span>'
     refute_includes body, "‮"
     # Diff bodies are not in the page; the file is badged instead.
-    assert_includes body, '<a href="#f0">a.txt</a>'
+    assert_includes body, '<a class="path" href="#f0" title="a.txt">a.txt</a>'
     assert_includes body, '<span class="badge hidden">hidden characters</span>'
     assert_includes body, 'title="Zero-width, bidi or control characters on lines +1">hidden characters on 1 line</span>'
     # And so is the browser's header for it (diffs.js).
-    assert_match %r{<details class="file" id="f0" open data-path="a.txt" data-new-blob="[0-9a-f]{40}" data-hidden="\+1">}, body
+    assert_match %r{<details class="file" id="f0" open data-path="a.txt" data-new-blob="[0-9a-f]{40}" data-hidden="\+1" data-status="added" data-add="1" data-del="0">}, body
     refute_includes body, "​"
   end
 
@@ -712,8 +712,8 @@ class AppTest < OutboxTest::RepoCase
 
     sha = rev(@stage, "HEAD")
     body = get("/repos/demo/branches/main/commits/#{sha}")
-    assert_match %r{<details class="file" id="f0" open data-path="logo.bin" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-binary>}, body
-    assert_match %r{<details class="file" id="f1" open data-path="run.sh" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-mode="100644 → 100755">}, body
+    assert_match %r{<details class="file" id="f0" open data-path="logo.bin" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-binary data-status="modified">}, body
+    assert_match %r{<details class="file" id="f1" open data-path="run.sh" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-mode="100644 → 100755" data-status="modified" data-add="0" data-del="0">}, body
   end
 
   def test_commit_page_refuses_commits_outside_the_staged_range
@@ -737,7 +737,7 @@ class AppTest < OutboxTest::RepoCase
 
     body = get("/repos/empty/branches/main/commits/#{sha}")
     assert_includes body, "root commit"
-    assert_includes body, '<a href="#f0">f.txt</a>'
+    assert_includes body, '<a class="path" href="#f0" title="f.txt">f.txt</a>'
     assert_includes get("/repos/empty/branches/main/commits/#{sha}.patch"), "+first\n"
   end
 

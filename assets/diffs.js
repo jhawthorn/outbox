@@ -66,7 +66,20 @@ const prefs = {
     try { localStorage.setItem(`outbox:${key}`, value); } catch {}
   },
 };
-const DEFAULT_PREFS = { diffStyle: "unified" };
+const DEFAULT_PREFS = { diffStyle: "unified", fileTree: "shown" };
+
+// Files the reader has marked viewed, kept across pages. The key is the
+// file's path and both blob ids, so a file that changes after it was
+// viewed (a new push) is unviewed again, as on GitHub.
+const viewed = {
+  key: (data) => `outbox:viewed:${data.path}:${data.oldBlob ?? ""}:${data.newBlob ?? ""}`,
+  get(data) {
+    try { return localStorage.getItem(this.key(data)) === "1"; } catch { return false; }
+  },
+  set(data, on) {
+    try { on ? localStorage.setItem(this.key(data), "1") : localStorage.removeItem(this.key(data)); } catch {}
+  },
+};
 
 function el(tag, className, text) {
   const e = document.createElement(tag);
@@ -178,7 +191,7 @@ async function mount(root) {
     renderHeaderFilenameSuffix: (diff, ctx) => fileNotes(byId.get(ctx.item.id), diff),
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
-      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole))].filter(Boolean);
+      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole)), viewedToggle(f, () => markViewed(f, !f.viewed))].filter(Boolean);
       if (!notes.length) return undefined;
       const span = el("span", "file-actions");
       span.append(...notes);
@@ -270,7 +283,8 @@ async function mount(root) {
   // Files count as there once the view has them.
   const commit = (batch) => {
     for (const f of batch) {
-      f.collapsed = collapsedAll;
+      f.viewed = viewed.get(f.data);
+      f.collapsed = collapsedAll || f.viewed;
       files.push(f);
       byId.set(f.id, f);
       blobs.set(f.fileDiff, f.data);
@@ -280,7 +294,7 @@ async function mount(root) {
 
   const first = await readSlice();
   if (failure && !first.length) throw new Error(`patch ${failure.message}`);
-  root.replaceChildren(diffControls(view, options, files, setCollapsed));
+  root.replaceChildren(diffControls(view, options, files, setCollapsed, slots.size > 1 && toggleTree));
   header.append(...main.childNodes);
   main.classList.add("codeview");
   document.body.classList.add("codeview");
@@ -296,12 +310,20 @@ async function mount(root) {
     view.scrollTo({ type: "item", id: files[i].id, align: "start", behavior });
     history.replaceState(history.state, "", `#${files[i].id}`);
     highlight.textContent = `main.codeview diffs-container[data-file="${files[i].id}"] { border-color: var(--accent); }`;
+    // The tree says so, and keeps saying so until the reader scrolls: a
+    // file near the end may never reach the top.
+    pinned = true;
+    tree?.current(files[i].id);
   };
+  let pinned = false;
+  for (const type of ["wheel", "touchstart", "pointerdown"]) main.addEventListener(type, () => { pinned = false; }, { passive: true });
+  document.addEventListener("keydown", (e) => { if (e.key !== "j" && e.key !== "k") pinned = false; });
   const navigated = navigation(main, view, files, top, go);
 
-  // The summary's links point at files that may not be in the DOM.
-  main.addEventListener("click", (e) => {
-    const a = e.target.closest?.("a[href^='#']");
+  // The summary's links, and the tree's, point at files that may not be in
+  // the DOM.
+  const jump = (e) => {
+    const a = e.target.closest?.("a[href^='#f']");
     const href = a?.getAttribute("href");
     const i = a ? files.findIndex((f) => `#${f.id}` === href) : -1;
     if (i < 0) {
@@ -316,6 +338,42 @@ async function mount(root) {
     setCollapsed([files[i]], false);
     go(i, "smooth");
     navigated(i);
+  };
+  main.addEventListener("click", jump);
+
+  // Viewed files fold away, and the tree and its count say so.
+  const markViewed = (f, on) => {
+    f.viewed = on;
+    viewed.set(f.data, on);
+    f.version++;
+    setCollapsed([f], on);
+    view.updateItem(item(f));
+    tree?.viewed(f.id, on);
+  };
+
+  // The files as a tree beside the diff, for a diff of more than one.
+  let tree = null;
+  function toggleTree(show) {
+    prefs.set("fileTree", show ? "shown" : "hidden");
+    document.body.classList.toggle("with-tree", show);
+    if (show && !tree) {
+      tree = fileTree([...slots.values()], jump);
+      document.body.insertBefore(tree.element, main);
+      for (const f of files) if (f.viewed) tree.viewed(f.id, true);
+      for (const [, slot] of slots) if (viewed.get(slot.data)) tree.viewed(slot.id, true);
+    }
+  }
+  if (slots.size > 1 && prefs.get("fileTree") === "shown") toggleTree(true);
+  // The file at the top of the view is the current one in the tree.
+  let tracking = 0;
+  view.subscribeToScroll((scrollTop) => {
+    if (!tree || tracking || pinned) return;
+    tracking = requestAnimationFrame(() => {
+      tracking = 0;
+      let i = files.length - 1;
+      while (i > 0 && top(i) > scrollTop + 1) i--;
+      if (files[i]) tree.current(files[i].id);
+    });
   });
 
   // Files are added as the patch is parsed. Something aimed at one that is
@@ -453,6 +511,130 @@ function wholeToggle(file, onclick) {
   return b;
 }
 
+function viewedToggle(file, onchange) {
+  const label = el("label", "viewed");
+  label.title = "Mark the file viewed: it folds away until it changes";
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = file.viewed;
+  box.addEventListener("click", (e) => e.stopPropagation());
+  box.addEventListener("change", () => onchange());
+  label.addEventListener("click", (e) => e.stopPropagation());
+  label.append(box, "Viewed");
+  return label;
+}
+
+// The files of a diff as a tree of directories, a directory with one child
+// directory drawn as one ("lib/active_record"). Each file links to its
+// place in the diff (#f3). Returns the element and what updates it: the
+// current file, and whether a file is viewed.
+function fileTree(slots, jump) {
+  // Directories and files in the order they first appear, which is the
+  // diff's, so the tree reads down the way j does.
+  const newDir = () => ({ dirs: new Map(), entries: [] });
+  const root = newDir();
+  for (const slot of slots) {
+    const parts = slot.data.path.split("/");
+    const name = parts.pop();
+    let node = root;
+    for (const part of parts) {
+      if (!node.dirs.has(part)) {
+        const dir = newDir();
+        node.dirs.set(part, dir);
+        node.entries.push({ name: part, dir });
+      }
+      node = node.dirs.get(part);
+    }
+    node.entries.push({ name, slot });
+  }
+  const links = new Map();
+  const draw = (node) => {
+    const ul = el("ul");
+    for (const entry of node.entries) {
+      const li = el("li");
+      if (entry.dir) {
+        let { name, dir } = entry;
+        while (dir.entries.length === 1 && dir.entries[0].dir) {
+          name = `${name}/${dir.entries[0].name}`;
+          dir = dir.entries[0].dir;
+        }
+        const head = el("div", "dir");
+        head.append(el("span", "n", name));
+        head.title = name;
+        head.addEventListener("click", () => li.classList.toggle("closed"));
+        li.append(head, draw(dir));
+      } else {
+        const { name, slot } = entry;
+        const a = el("a");
+        a.href = `#${slot.id}`;
+        a.append(el("span", `st ${slot.data.status}`), el("span", "n", name));
+        if (slot.data.add != null) {
+          const counts = el("span", "count");
+          counts.append(el("span", "count add", `+${slot.data.add}`), " ", el("span", "count del", `−${slot.data.del}`));
+          a.append(counts);
+        }
+        a.title = `${slot.data.path} (${slot.data.status})`;
+        links.set(slot.id, a);
+        li.append(a);
+      }
+      ul.append(li);
+    }
+    return ul;
+  };
+  const element = el("aside", "filetree");
+  element.setAttribute("aria-label", "Files in this diff");
+  const head = el("div", "tree-head");
+  const filter = el("input");
+  filter.type = "search";
+  filter.placeholder = "Filter files";
+  filter.setAttribute("aria-label", "Filter files");
+  const progress = el("div", "progress-line");
+  const meter = el("span", "meter");
+  const fill = el("i");
+  meter.append(fill);
+  const count = el("span");
+  progress.append(meter, count);
+  head.append(filter, progress);
+  const list = draw(root);
+  element.append(head, list);
+  element.addEventListener("click", jump);
+
+  const seen = new Set();
+  const total = slots.length;
+  const tally = () => {
+    count.textContent = `${seen.size} / ${total} viewed`;
+    fill.style.width = `${(100 * seen.size) / total}%`;
+  };
+  tally();
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    for (const [, a] of links) a.parentElement.hidden = q && !a.title.toLowerCase().includes(q);
+    for (const li of list.querySelectorAll("li:has(> .dir)")) {
+      li.hidden = !li.querySelector("li:not([hidden]) > a");
+    }
+  });
+  let current = null;
+  return {
+    element,
+    current(id) {
+      const a = links.get(id);
+      if (!a || a === current) return;
+      current?.removeAttribute("aria-current");
+      a.setAttribute("aria-current", "true");
+      current = a;
+      for (let li = a.closest("li.closed"); li; li = li.parentElement.closest("li.closed")) li.classList.remove("closed");
+      a.scrollIntoView({ block: "nearest" });
+    },
+    viewed(id, on) {
+      const a = links.get(id);
+      if (!a) return;
+      a.classList.toggle("viewed", on);
+      on ? seen.add(id) : seen.delete(id);
+      tally();
+    },
+  };
+}
+
 function foldToggle(file, onclick) {
   const b = button("", "", (e) => { e.stopPropagation(); onclick(); });
   b.className = "fold";
@@ -483,7 +665,7 @@ function hiddenBadge(file) {
   return badge;
 }
 
-function diffControls(view, options, files, setCollapsed) {
+function diffControls(view, options, files, setCollapsed, toggleTree) {
   const bar = el("div", "diff-controls");
   const style = el("span", "seg");
   const modes = { unified: "Unified", split: "Split" };
@@ -496,6 +678,16 @@ function diffControls(view, options, files, setCollapsed) {
   const mark = () => segButtons.forEach(([m, b]) => b.setAttribute("aria-pressed", String(m === prefs.get("diffStyle"))));
   mark();
   style.append(...segButtons.map(([, b]) => b));
+  if (toggleTree) {
+    const b = button("Files", "Show or hide the list of files beside the diff", () => {
+      const show = !document.body.classList.contains("with-tree");
+      toggleTree(show);
+      b.setAttribute("aria-pressed", String(show));
+    });
+    b.setAttribute("aria-pressed", String(prefs.get("fileTree") === "shown"));
+    b.className = "tree-toggle";
+    bar.append(b);
+  }
   bar.append(
     style,
     button("Collapse all", "Collapse all files", () => setCollapsed(files, true)),

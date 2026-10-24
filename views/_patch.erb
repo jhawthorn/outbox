@@ -5,32 +5,26 @@
 <% else %>
   <div class="patch-summary">
     <span class="muted"><%= h patch.stat %></span> · <a href="<%= patch_url %>">raw patch</a>
-    <ul>
-    <% files.each_with_index do |f, i| %>
-      <li>
-        <a href="#f<%= i %>"><%= hv f.path %></a>
-        <% if rev && f.new_blob && !f.binary? %><a class="muted" href="<%= tree_url(@repo, rev, f.path) %>">view file</a><% end %>
-        <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
-        <% if f.binary? %><span class="muted">binary</span><% else %>
-          <span class="count add">+<%= f.additions %></span>
-          <span class="count del">−<%= f.deletions %></span>
-        <% end %>
-        <% if f.hidden_lines.any? %><span class="badge hidden">hidden characters</span><% end %>
-      </li>
-    <% end %>
-    </ul>
-    <% if patch.truncated? %>
-      <div class="panel warn" style="margin:10px 0 0">Diff truncated at <%= Outbox::Repo::MAX_PATCH_BYTES / 1_000_000 %> MB.</div>
-    <% end %>
-    <% unless diffs_built? %>
-      <div class="panel warn" style="margin:10px 0 0">The diff viewer is not built. Run <code>rake assets</code> (needs pnpm), or read the <a href="<%= patch_url %>">raw patch</a>.</div>
-    <% end %>
-  </div>
-
+    <details class="file-list"<%= " open" if files.size <= 12 %>>
+      <summary><%= files.size <= 12 ? "Files" : "All #{files.size} files" %></summary>
+      <ul>
+      <% files.each_with_index do |f, i| %>
+        <li>
+          <a class="path" href="#f<%= i %>" title="<%= h f.path %>"><%= hv f.path %></a>
+          <span class="tags">
+            <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
+            <% if f.hidden_lines.any? %><span class="badge hidden">hidden characters</span><% end %>
+          </span>
+          <span class="counts"><% if f.binary? %><span class="muted">binary</span><% else %><span class="count add">+<%= f.additions %></span> <span class="count del">−<%= f.deletions %></span><% end %></span>
+          <span class="view"><% if rev && f.new_blob && !f.binary? %><a class="muted" href="<%= tree_url(@repo, rev, f.path) %>" title="View the whole file at this commit">view file</a><% end %></span>
+        </li>
+      <% end %>
+      </ul>
+    </details>
   <div class="patch" data-patch-url="<%= patch_url %>" data-blob-url="<%= blob_url %>">
   <% files.each_with_index do |f, i| %>
     <%# What the browser's file headers show besides the path and counts (diffs.js). %>
-    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if f.mode_change? %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.join(", ") %>"<% end %>>
+    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if f.mode_change? %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.join(", ") %>"<% end %> data-status="<%= f.status || "modified" %>"<% unless f.binary? %> data-add="<%= f.additions %>" data-del="<%= f.deletions %>"<% end %>>
       <summary>
         <code><%= hv f.path %></code>
         <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= hv f.old_path %></code></span><% end %>

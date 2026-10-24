@@ -65,6 +65,7 @@ test("a file's history, blame and permalink", async ({ page }) => {
   await expect(page).toHaveURL(/\/repos\/browse\/tree\/[0-9a-f]{40}\/lib\/app\.rb$/);
 
   await page.goto("/repos/browse/tree/main/lib/app.rb");
+  await expect(page.locator("main.codeview diffs-container").getByText("class App")).toBeVisible();
   await page.keyboard.press("b");
   await expect(page).toHaveURL("/repos/browse/blame/main/lib/app.rb");
   await expect(page.locator("table.blame tr#L2 td.code")).toHaveText("  def call = :answer");

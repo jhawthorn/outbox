@@ -186,6 +186,7 @@ test("collapse all and expand all fold the files", async ({ page }) => {
 
 test("the toggle in a file's header folds just that file", async ({ page }) => {
   await page.goto(BRANCH);
+  await reveal(page, 1);
   const fold = diff(page, 1).locator("button.fold");
   await expect(diff(page, 1).getByText("line ten")).toBeVisible();
 
@@ -193,8 +194,10 @@ test("the toggle in a file's header folds just that file", async ({ page }) => {
   await expect(fold).toHaveAttribute("aria-expanded", "false");
   await expect(fold).toHaveAttribute("aria-label", "Expand file");
   await expect(diff(page, 1).getByText("line ten")).toHaveCount(0);
+  await reveal(page, 0);
   await expect(diff(page, 0).getByText("hello world")).toBeVisible();
 
+  await reveal(page, 1);
   await fold.click();
   await expect(diff(page, 1).getByText("line ten")).toBeVisible();
 });
@@ -379,4 +382,36 @@ test("a directory is browsed at the same kind of URL", async ({ page }) => {
   await page.locator("table.tree").getByRole("link", { name: "thing.rb" }).click();
   await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib\/thing\.rb$/);
   await expect(page.locator("main.codeview diffs-container").getByText("class Thing")).toBeVisible();
+});
+
+test("the files sit in a tree beside the diff, and viewed ones fold away", async ({ page }) => {
+  await page.goto(BRANCH);
+  const tree = page.getByRole("complementary", { name: "Files in this diff" });
+  await expect(tree.locator("a")).toHaveText([/README/, /long\.rb/, /thing\.rb/, /notes\.md/]);
+  await expect(tree.locator(".dir")).toHaveText(["lib"]);
+  await expect(tree).toContainText("0 / 4 viewed");
+
+  await tree.getByRole("link", { name: /thing\.rb/ }).click();
+  await expect(diff(page, 2)).toBeInViewport();
+  await expect(tree.getByRole("link", { name: /thing\.rb/ })).toHaveAttribute("aria-current", "true");
+
+  // Viewed: the file folds, the tree counts it, and it stays so on reload.
+  await reveal(page, 0);
+  await diff(page, 0).getByRole("checkbox", { name: "Viewed" }).check();
+  await expect(tree).toContainText("1 / 4 viewed");
+  await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
+  await page.reload();
+  await expect(tree).toContainText("1 / 4 viewed");
+  await expect(diff(page, 0).getByRole("checkbox", { name: "Viewed" })).toBeChecked();
+  await expect(diff(page, 0).getByText("hello world")).toHaveCount(0);
+
+  await tree.getByRole("searchbox", { name: "Filter files" }).fill("long");
+  await expect(tree.locator("a:visible")).toHaveText([/long\.rb/]);
+
+  // The tree can be put away, and stays away.
+  await page.getByRole("button", { name: "Files" }).click();
+  await expect(tree).toBeHidden();
+  await page.reload();
+  await expect(page.locator("main.codeview")).toBeVisible();
+  await expect(tree).toBeHidden();
 });

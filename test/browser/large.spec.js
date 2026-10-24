@@ -32,8 +32,8 @@ test("a huge patch is parsed in slices, so the page never freezes", async ({ pag
 test("a file the patch has not reached yet is shown once it has", async ({ page }) => {
   await page.goto(HUGE);
   await expect(page.locator("main.codeview")).toBeVisible();
-  // The last file, from the summary, whether or not it has been parsed.
-  await page.locator('.patch-summary a[href="#f400"]').click();
+  // The last file, from the tree, whether or not it has been parsed.
+  await page.locator('aside.filetree a[href="#f400"]').click();
   await expect(title(page, 400)).toHaveText("yarn.lock", { timeout: 30_000 });
   await expect(diff(page, 400).getByText("package-1@^1.0.1:")).toBeVisible();
   await expect(footer(page)).toBeEmpty();
