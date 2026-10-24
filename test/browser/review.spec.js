@@ -301,14 +301,14 @@ test("a commit's full message unfolds and its page shows only its changes", asyn
   await expect(page.locator("pre.message")).toContainText("two lines of long.rb change");
   await expect(page.locator("main.codeview diffs-container")).toHaveCount(2);
   await expect(diff(page, 0).getByText("hello world")).toBeVisible();
-  await expect(page.locator("nav")).toContainText("← oldest");
+  await expect(page.locator("nav.actions")).toContainText("← oldest");
 
   await page.getByRole("link", { name: /newer: Add thing/ }).click();
   await expect(page.locator("h1")).toHaveText("Add thing");
   await expect(page.locator("main")).toContainText("commit 2 of 2");
   await expect(title(page, 0)).toHaveText("lib/thing.rb");
   await expect(title(page, 1)).toHaveText("notes.md");
-  await expect(page.locator("nav")).toContainText("newest →");
+  await expect(page.locator("nav.actions")).toContainText("newest →");
 });
 
 test("when the patch cannot be fetched each file points at the raw patch", async ({ page }) => {
@@ -352,13 +352,12 @@ test("a file can be viewed whole, with lines selected from the URL", async ({ pa
   await page.goto(BRANCH);
   await page.locator(".patch-summary li", { hasText: "lib/long.rb" }).getByText("view file").click();
   await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}\/lib\/long\.rb$/);
-  await expect(page.locator("h1.path")).toHaveText("root/lib/long.rb");
-  await expect(page.locator(".codeview-head p.muted").first()).toContainText("review / commit");
-  await expect(page.locator(".path-meta")).toContainText("120 lines");
+  await expect(page.locator("h1.path")).toHaveText("review/lib/long.rb");
+  await expect(page.locator("details.refpick summary")).toHaveText(/^\s*[0-9a-f]{10}\s*$/);
+  await expect(page.locator(".file-bar")).toContainText("120 lines");
   await expect(page.getByRole("link", { name: "Raw" })).toBeVisible();
 
   const file = page.locator("main.codeview diffs-container");
-  await expect(file.locator("[data-diffs-header] [data-title]")).toHaveText("lib/long.rb");
   await expect(file.getByText("line 1", { exact: true })).toBeVisible();
 
   // Opening a URL with lines scrolls to them and selects them.
@@ -373,10 +372,10 @@ test("a directory is browsed at the same kind of URL", async ({ page }) => {
   await page.goto(BRANCH);
   await page.getByRole("link", { name: "Browse files" }).click();
   await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}$/);
-  await expect(page.locator("table.tree td a")).toHaveText(["lib/", "README"]);
-  await page.locator("table.tree").getByRole("link", { name: "lib/" }).click();
+  await expect(page.locator("table.tree td.name a")).toHaveText(["lib", "README"]);
+  await page.locator("table.tree").getByRole("link", { name: "lib" }).click();
   await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib$/);
-  await expect(page.locator("table.tree td a")).toHaveText(["..", "long.rb", "thing.rb"]);
+  await expect(page.locator("table.tree td.name a")).toHaveText(["..", "long.rb", "thing.rb"]);
   await page.locator("table.tree").getByRole("link", { name: "thing.rb" }).click();
   await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib\/thing\.rb$/);
   await expect(page.locator("main.codeview diffs-container").getByText("class Thing")).toBeVisible();

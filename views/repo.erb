@@ -1,23 +1,17 @@
 <% @title = @repo.name %>
-<div class="page-head">
-  <h1><%= h @repo.name %></h1>
-  <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
-    <button type="submit" <%= "disabled" if @status.busy? %>>Fetch upstream</button>
-  </form>
-</div>
+<%= erb :_repo_head, layout: false, locals: { tab: "code", actions: %(<form class="inline" method="post" action="#{repo_url(@repo)}/fetch"><button type="submit"#{" disabled" if @status.busy?}>Fetch upstream</button></form>) } %>
 
-<div class="toolbar">
+<div class="remotes muted">
   <% if @repo.config? %>
-    <span class="muted">the outbox's own configuration; approving a change here applies it</span>
+    <span>the outbox's own configuration; approving a change here applies it</span>
   <% else %>
     <% @repo.remotes.each do |remote, url| %>
-      <span class="muted"><%= remote == @repo.push_remote ? "push" : "fetch" %> <b><%= h remote %></b> <code><%= h url %></code></span>
+      <span><%= remote == @repo.push_remote ? "push" : "fetch" %> <b><%= h remote %></b> <code><%= h url %></code></span>
     <% end %>
     <% unless @repo.configured_bases.empty? %>
-      <span class="muted">base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
+      <span>base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
     <% end %>
   <% end %>
-  <span class="muted">clone <code><%= h clone_url(@repo) %></code></span>
 </div>
 
 <% if @status.running? %>
@@ -45,14 +39,15 @@
 <% pending = @branches.select(&:pending?) %>
 <% synced = @branches.size - pending.size %>
 
+<h2 id="review">Awaiting review</h2>
 <% if @branches.empty? %>
   <% unless @status.busy? %>
     <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
   <% end %>
 <% elsif pending.empty? %>
-  <p class="empty"><%= pluralize(synced, "branch", "branches") %> in sync with upstream. Nothing to review.</p>
+  <p class="empty compact"><%= pluralize(synced, "branch", "branches") %> in sync with upstream. Nothing to review.</p>
 <% else %>
-  <table>
+  <table class="pending">
     <thead><tr><th>Branch</th><th>Status</th><th>Staged</th><th>Upstream</th><th></th></tr></thead>
     <tbody>
     <% pending.each do |b| %>
@@ -83,6 +78,11 @@
     </tbody>
   </table>
   <% if synced > 0 %>
-    <p class="muted" style="margin-top:8px"><%= pluralize(synced, "other branch", "other branches") %> in sync with upstream.</p>
+    <p class="muted" style="margin-top:8px"><a href="<%= repo_url(@repo) %>/branches"><%= pluralize(synced, "other branch", "other branches") %></a> in sync with upstream.</p>
   <% end %>
+<% end %>
+
+<% if @rev %>
+  <h2 id="code">Code</h2>
+  <%= erb :_tree, layout: false %>
 <% end %>

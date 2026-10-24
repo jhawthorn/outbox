@@ -543,6 +543,8 @@ async function mountFile(root) {
   const hash = ({ range: { start, end } }) => (start === end ? `#L${start}` : `#L${start}-L${end}`);
   const view = new CodeView({
     ...OPTIONS,
+    // The page above it names the file and says what it is.
+    disableFileHeader: true,
     enableLineSelection: true,
     onSelectedLinesChange: (selection) => {
       history.replaceState(history.state, "", `${location.pathname}${location.search}${selection ? hash(selection) : ""}`);

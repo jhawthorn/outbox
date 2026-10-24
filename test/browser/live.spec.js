@@ -93,7 +93,7 @@ test("a branch page says when the branch moves, and does not change under the re
 
 test("a job started in another tab shows on the page already open", async ({ page, context }) => {
   await page.goto("/repos/live");
-  const row = page.locator("tbody tr", { has: page.locator("a", { hasText: /^main$/ }) });
+  const row = page.locator("table.pending tbody tr", { has: page.locator("a", { hasText: /^main$/ }) });
   await expect(row).toContainText("2 commits to push");
   await mark(page);
 
@@ -123,10 +123,10 @@ test("a page that was hidden catches up when shown", async ({ page }) => {
   await visibility(true);
   push("hidden.txt", "while hidden\n", "Pushed while hidden", "hidden");
   await page.waitForTimeout(2_000);
-  await expect(page.locator("tbody tr")).toHaveCount(1); // only "other", from before
+  await expect(page.locator("table.pending tbody tr")).toHaveCount(1); // only "other", from before
   await visibility(false);
 
-  await expect(page.locator("tbody tr", { has: page.locator("a", { hasText: /^hidden$/ }) })).toHaveCount(1);
+  await expect(page.locator("table.pending tbody tr", { has: page.locator("a", { hasText: /^hidden$/ }) })).toHaveCount(1);
   expect(streams).toBe(1);
   expect(await marked(page)).toBe(true);
 });

@@ -1,4 +1,5 @@
 <% @title = "#{@commit.short} · #{@repo.name} / #{@branch.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "review" } %>
 <p class="muted">
   <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
   <a href="<%= branch_url(@repo, @branch.name) %>"><%= h @branch.name %></a> /

@@ -1,0 +1,30 @@
+<% @title = "Branches · #{@repo.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "branches" } %>
+<% groups = @refs.group_by { |r| r.kind == :remote ? "remote:#{r.remote}" : r.kind.to_s } %>
+<% order = ["branch", *groups.keys.select { |k| k.start_with?("remote:") }.sort_by { |k| [k == "remote:#{@repo.push_remote}" ? 0 : 1, k] }, "tag"] %>
+<div class="browse-bar">
+  <input type="search" class="filter-list" placeholder="Filter branches" aria-label="Filter branches" data-filter=".ref-row" autocomplete="off" spellcheck="false">
+</div>
+<% order.each do |key| %>
+  <% refs = groups[key] or next %>
+  <% title = key == "branch" ? "Staged here" : key == "tag" ? "Tags" : "#{key.delete_prefix("remote:")}#{" (push)" if key == "remote:#{@repo.push_remote}"}" %>
+  <details class="ref-group" <%= "open" if key == "branch" || refs.size <= 30 %>>
+    <summary><h2><%= h title %> <span class="muted">(<%= refs.size %>)</span></h2></summary>
+    <div class="box">
+      <% refs.each do |r| %>
+        <% b = r.kind == :branch ? @status[r.name] : nil %>
+        <div class="ref-row" data-name="<%= h r.name %>">
+          <a class="branch-name" href="<%= tree_url(@repo, r.name) %>"><%= h r.kind == :remote ? r.name.delete_prefix("#{r.remote}/") : r.name %></a>
+          <% if r.name == @default %><span class="badge same">default</span><% end %>
+          <% if b&.pending? %><a class="badge <%= b.status %>" href="<%= branch_url(@repo, b.name) %>" title="<%= h summary(b) %>"><%= status_label(b) %></a><% end %>
+          <span class="subject muted" title="<%= h r.subject %>"><%= hv r.subject %></span>
+          <span class="spacer"></span>
+          <span class="muted who"><%= hv r.author %></span>
+          <span class="muted when"><%= committed_label(r.time) %></span>
+          <a class="muted" href="<%= history_url(@repo, r.name) %>" title="History">history</a>
+        </div>
+      <% end %>
+    </div>
+  </details>
+<% end %>
+<p class="empty" data-filter-empty hidden>No branch matches.</p>

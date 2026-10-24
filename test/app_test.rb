@@ -241,31 +241,60 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/branches/main/commits/#{sha}"), %(href="/repos/demo/tree/#{sha}/lib/a%20b.rb")
     body = get("/repos/demo/tree/#{sha}/lib/a%20b.rb")
     assert_includes body, %(<a class="crumb" href="/repos/demo/tree/#{sha}/lib">lib</a>)
+    assert_includes body, %(<a class="crumb" href="/repos/demo/tree/#{sha}">demo</a>)
     assert_includes body, "<b>a b.rb</b>"
-    assert_includes body, %(<a href="/repos/demo">demo</a> /\n  commit <a href="/repos/demo/tree/#{sha}"><code>#{sha[0, 7]}</code></a>)
+    assert_includes body, %(<span class="name">#{sha[0, 10]}</span>), "the picker names the commit"
     assert_includes body, "2 lines · 12 bytes"
-    assert_includes body, %(href="/repos/demo/blobs/#{blob}">Raw</a>)
+    assert_includes body, %(href="/repos/demo/raw/#{sha}/lib/a%20b.rb">Raw</a>)
+    assert_includes body, %(href="/repos/demo/blame/#{sha}/lib/a%20b.rb")
+    assert_includes body, %(href="/repos/demo/commits/#{sha}/lib/a%20b.rb")
+    assert_includes body, %(href="/repos/demo/commit/#{sha}"), "the last commit to touch it"
     assert_includes body, %(data-file-name="lib/a b.rb" data-blob-url="/repos/demo/blobs/#{blob}")
+    refute_includes body, "data-permalink", "a sha is a permalink already"
     refute_includes body, "x = 1"
+  end
+
+  # A branch, a remote's branch or a tag can stand where the sha does, and
+  # the pages then link on by that name.
+  def test_tree_url_takes_branch_names
+    stage_commit("lib/a.rb", "x = 1\n", "Add a", branch: "main")
+    git("checkout", "--quiet", "-b", "topic/deep", chdir: @stage)
+    sha = stage_commit("lib/b.rb", "y = 1\n", "Add b", branch: "topic/deep")
+    upstream = @repo.branch("main").upstream
+
+    body = get("/repos/demo/tree/topic/deep/lib/b.rb")
+    assert_includes body, %(<span class="name">topic/deep</span>)
+    assert_includes body, %(<a class="crumb" href="/repos/demo/tree/topic/deep/lib">lib</a>)
+    assert_includes body, %(href="/repos/demo/tree/#{sha}/lib/b.rb" data-permalink)
+    assert_includes body, "awaiting review", "staged work is pointed out"
+    assert_includes get("/repos/demo/tree/topic/deep/lib"), %(href="/repos/demo/tree/topic/deep/lib/b.rb">b.rb</a>)
+    assert_includes get("/repos/demo/tree/upstream/main"), %(<span class="name">upstream/main</span>)
+    assert_equal 404, @request.get("/repos/demo/tree/upstream/main/lib/a.rb").status, "not upstream's yet"
+    assert_includes get("/repos/demo/tree/main/lib/a.rb"), "1 line · 6 bytes"
+    assert_includes get("/repos/demo/tree/#{upstream[0, 8]}"), %(<span class="name">#{upstream[0, 10]}</span>), "short shas"
+    assert_equal 302, @request.get("/repos/demo/blob/main/lib/a.rb").status, "GitHub's URLs"
   end
 
   def test_tree_url_lists_a_directory_the_same_way
     commit(@stage, "lib/deep/c.rb", "c\n", "Add c")
     commit(@stage, "lib/a.rb", "x = 1\n", "Add a")
     commit(@stage, "z.txt", "z\n", "Add z")
+    commit(@stage, "README.md", "# Hello <script>x</script>\n", "Add readme")
     sha = push(@stage, "main") && @repo.branch("main").staged
 
     root = get("/repos/demo/tree/#{sha}")
-    assert_operator root.index(">lib/<"), :<, root.index(">z.txt<"), "directories first"
+    assert_operator root.index(">lib<"), :<, root.index(">z.txt<"), "directories first"
     assert_includes root, %(href="/repos/demo/tree/#{sha}/lib")
     refute_includes root, ">..<"
+    assert_includes root, %(<pre class="md-source"># Hello &lt;script&gt;x&lt;/script&gt;), "the README, for the browser to draw"
     lib = get("/repos/demo/tree/#{sha}/lib/")
     assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/a.rb">a.rb</a>)
-    assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/deep">deep/</a>)
-    assert_includes lib, %(<a href="/repos/demo/tree/#{sha}">..</a>)
+    assert_includes lib, %(href="/repos/demo/tree/#{sha}/lib/deep">deep</a>)
+    assert_includes lib, %(href="/repos/demo/tree/#{sha}" title="Up one directory">..</a>)
     assert_includes lib, "6 bytes"
-    assert_includes get("/repos/demo/tree/#{sha}/lib/deep"), %(<a href="/repos/demo/tree/#{sha}/lib">..</a>)
+    assert_includes get("/repos/demo/tree/#{sha}/lib/deep"), %(href="/repos/demo/tree/#{sha}/lib" title="Up one directory">..</a>)
     assert_includes get("/repos/demo/branches/main"), %(href="/repos/demo/tree/#{sha}">Browse files</a>)
+    assert_includes get("/repos/demo"), %(href="/repos/demo/tree/main/lib">lib</a>), "the repository page shows the default branch"
   end
 
   def test_tree_url_refuses_what_is_not_in_a_commit
@@ -275,8 +304,108 @@ class AppTest < OutboxTest::RepoCase
     assert_nil @repo.object_type(sha, "lib/../lib")
     assert_nil @repo.object_type(sha, "lib//a.rb")
     assert_equal "blob", @repo.object_type(sha, "lib/a.rb")
-    assert_equal 404, @request.get("/repos/demo/tree/main/lib/a.rb").status
+    assert_equal 404, @request.get("/repos/demo/tree/nope/lib/a.rb").status
     assert_equal 404, @request.get("/repos/demo/tree/#{"0" * 40}/lib/a.rb").status
+    assert_equal 404, @request.get("/repos/demo/tree/main/../../x").status
+  end
+
+  # Raw files are text, or an image; never anything a browser would run.
+  def test_raw_serves_files_inert
+    stage_commit("pic.svg", %(<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>), "Add svg")
+    stage_commit("page.html", "<script>alert(1)</script>", "Add html")
+    res = @request.get("/repos/demo/raw/main/pic.svg")
+    assert_equal 200, res.status
+    assert_equal "image/svg+xml", res.headers["content-type"]
+    assert_includes res.headers["content-security-policy"], "sandbox"
+    assert_equal "nosniff", res.headers["x-content-type-options"]
+    res = @request.get("/repos/demo/raw/main/page.html")
+    assert_equal "text/plain; charset=utf-8", res.headers["content-type"]
+    assert_equal "<script>alert(1)</script>", res.body
+    assert_includes get("/repos/demo/tree/main/pic.svg"), %(<img src="/repos/demo/raw/main/pic.svg")
+  end
+
+  def test_history_lists_commits_and_those_that_touched_a_path
+    stage_commit("lib/a.rb", "1\n", "Touch a")
+    stage_commit("b.rb", "1\n", "Touch b")
+    body = get("/repos/demo/commits/main")
+    assert_includes body, ">Touch b<"
+    assert_includes body, ">Touch a<"
+    assert_includes body, ">initial<"
+    only = get("/repos/demo/commits/main/lib")
+    assert_includes only, ">Touch a<"
+    refute_includes only, ">Touch b<"
+    assert_includes only, %(History of <a class="crumb" href="/repos/demo/commits/main">demo</a>)
+    assert_equal 302, @request.get("/repos/demo/commits").status
+    assert_includes get("/repos/demo/commits/main?page=1"), "Older</span>", "one page, so no older link"
+    assert_equal 404, @request.get("/repos/demo/commits/main?page=9").status
+  end
+
+  def test_any_commit_has_a_page
+    sha = stage_commit("a.txt", "a\n", "Add a\n\nWith a body.")
+    body = get("/repos/demo/commit/#{sha}")
+    assert_includes body, %(<h1 class="commit-title">Add a</h1>)
+    assert_includes body, "With a body."
+    assert_includes body, %(data-patch-url="/repos/demo/commit/#{sha}.patch")
+    assert_includes get("/repos/demo/commit/#{sha}.patch"), "+a"
+    res = @request.get("/repos/demo/commit/#{sha[0, 8]}")
+    assert_equal 302, res.status
+    assert_equal "/repos/demo/commit/#{sha}", URI(res.headers["location"]).path
+    assert_equal 404, @request.get("/repos/demo/commit/#{"1" * 40}").status
+  end
+
+  def test_branches_page_lists_every_branch_and_remote
+    stage_commit
+    add_upstream_branch("feature")
+    body = get("/repos/demo/branches")
+    assert_includes body, %(href="/repos/demo/tree/main">main</a>)
+    assert_includes body, %(href="/repos/demo/tree/feature">feature</a>)
+    assert_includes body, %(href="/repos/demo/tree/upstream/feature">feature</a>)
+    assert_includes body, %(href="/repos/demo/branches/main")
+    refs = JSON.parse(get("/repos/demo/refs.json"))
+    assert_equal({ "name" => "main", "kind" => "branch", "default" => true }, refs.first)
+    assert_includes refs.map { |r| r["name"] }, "upstream/feature"
+  end
+
+  def test_search_finds_lines_and_marks_them
+    stage_commit("lib/a.rb", "def Greet\n  greet_world\nend\n", "Add a")
+    body = get("/repos/demo/search?q=greet&rev=main")
+    assert_includes body, "2 matching lines in 1 file"
+    assert_includes body, "def <mark>Greet</mark>"
+    assert_includes body, %(href="/repos/demo/tree/main/lib/a.rb?plain=1#L2">2</a>)
+    assert_includes get("/repos/demo/search?q=Greet&rev=main"), "1 matching line in 1 file", "capitals match case"
+    assert_includes get("/repos/demo/search?q=g.eet_w&regex=1"), "<mark>greet_w</mark>orld"
+    assert_includes get("/repos/demo/search?q=nothing+like+this"), "Nothing matches"
+    assert_includes get("/repos/demo/search?q=%3Cb%3E"), "Nothing matches <code>&lt;b&gt;</code>"
+    assert_includes get("/repos/demo/search?q=greet&path=lib"), "2 matching lines"
+    assert_includes get("/repos/demo/search?q=greet&path=other"), "Nothing matches"
+  end
+
+  def test_blame_says_who_changed_each_line
+    commit(@stage, "a.rb", "one\ntwo\n", "First version")
+    commit(@stage, "a.rb", "one\n2\n", "Second version")
+    push(@stage, "main")
+    body = get("/repos/demo/blame/main/a.rb")
+    assert_operator body.index(">First version<"), :<, body.index(">Second version<")
+    assert_includes body, %(<tr id="L2" class="hunk-start">)
+    assert_includes body, %(<td class="code">2</td>)
+    assert_equal 404, @request.get("/repos/demo/blame/main/nope.rb").status
+  end
+
+  def test_file_finder_lists_every_file
+    sha = stage_commit("lib/deep/a.rb", "1\n", "Add a")
+    assert_equal ["README", "lib/deep/a.rb"], get("/repos/demo/files/#{sha}").split("\0")
+    assert_equal 404, @request.get("/repos/demo/files/main").status
+  end
+
+  def test_markdown_files_are_previewed_or_shown_as_code
+    stage_commit("docs/guide.md", "# Guide\n\nSee [a](a.md).\n", "Add guide")
+    body = get("/repos/demo/tree/main/docs/guide.md")
+    assert_includes body, %(data-markdown data-tree-base="/repos/demo/tree/main/docs")
+    assert_includes body, %(data-raw-base="/repos/demo/raw/main/docs")
+    refute_includes body, "data-file-name"
+    plain = get("/repos/demo/tree/main/docs/guide.md?plain=1")
+    assert_includes plain, %(data-file-name="docs/guide.md")
+    refute_includes plain, "data-markdown"
   end
 
   def test_tree_url_does_not_draw_binary_files

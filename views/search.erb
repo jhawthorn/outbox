@@ -1,0 +1,30 @@
+<% @title = "#{@query.empty? ? "Search" : @query} · #{@repo.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "code" } %>
+<form class="search-form" action="<%= search_url(@repo) %>">
+  <input type="search" name="q" value="<%= h @query %>" placeholder="Search code" aria-label="Search code" autofocus spellcheck="false">
+  <input type="text" name="path" value="<%= h @path %>" placeholder="in path (optional)" aria-label="Only under this path" spellcheck="false">
+  <input type="hidden" name="rev" value="<%= h @rev.commit? ? @rev.sha : @rev.name %>">
+  <label class="check"><input type="checkbox" name="regex" value="1"<%= " checked" if @regex %>> Regular expression</label>
+  <button type="submit" class="primary">Search</button>
+</form>
+<p class="muted">In <b><%= h rev_label(@rev) %></b>. Matches ignore case unless the query has a capital letter.</p>
+<% if @matches %>
+  <% total = @matches.values.sum(&:size) %>
+  <% if @matches.empty? %>
+    <p class="empty">Nothing matches <code><%= h @query %></code>.</p>
+  <% else %>
+    <p class="muted"><%= pluralize(total, "matching line") %> in <%= pluralize(@matches.size, "file") %><%= ", and more files not shown: narrow the search" if @truncated %>.</p>
+    <% pattern = search_pattern(@query, @regex) %>
+    <% @matches.each do |path, lines| %>
+      <div class="box result">
+        <div class="box-head"><a href="<%= tree_url(@repo, @rev.name, path) %>"><%= hv path %></a></div>
+        <table class="grep">
+          <% lines.each do |m| %>
+            <tr><td class="num"><a href="<%= tree_url(@repo, @rev.name, path) %>?plain=1#L<%= m.line %>"><%= m.line %></a></td><td class="code"><%= mark_matches(m.text, pattern) %></td></tr>
+          <% end %>
+        </table>
+        <% if @more[path] %><div class="more-matches muted">More matches in this file. <a href="<%= search_url(@repo) %>?<%= h Rack::Utils.build_query(q: @query, rev: @rev.commit? ? @rev.sha : @rev.name, path: path, regex: @regex ? "1" : nil) %>">Search only this file</a></div><% end %>
+      </div>
+    <% end %>
+  <% end %>
+<% end %>

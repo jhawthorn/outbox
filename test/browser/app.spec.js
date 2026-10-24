@@ -36,10 +36,11 @@ test("the index puts repositories with something to review first", async ({ page
 
 test("the repo page shows the clone URL this server is reached at", async ({ page, baseURL }) => {
   await page.goto("/repos/review");
-  await expect(page.locator(".toolbar")).toContainText(`clone ${baseURL}/review.git`);
-  await expect(page.locator(".toolbar")).toContainText("upstream /");
-  await expect(page.locator("tbody tr")).toHaveCount(1);
-  await expect(page.locator("tbody tr td").nth(1)).toContainText("2 commits to push");
+  await expect(page.locator(".remotes")).toContainText("push upstream /");
+  await page.getByText("Clone", { exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Clone URL" })).toHaveValue(`${baseURL}/review.git`);
+  await expect(page.locator("table.pending tbody tr")).toHaveCount(1);
+  await expect(page.locator("table.pending tbody tr td").nth(1)).toContainText("2 commits to push");
 });
 
 test("installs as an app and shows the offline page without a connection", async ({ page, context }) => {

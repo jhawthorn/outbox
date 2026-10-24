@@ -63,7 +63,7 @@ test("discard asks first, and declining changes nothing", async ({ page }) => {
 
 test("a diverged branch needs a confirmed force approve", async ({ page }) => {
   await page.goto("/repos/diverged");
-  const row = page.locator("tbody tr", { hasText: "main" });
+  const row = page.locator("table.pending tbody tr", { hasText: "main" });
   await expect(row.locator(".badge")).toHaveText("diverged");
   await expect(row.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await row.getByRole("link", { name: "Review" }).click();

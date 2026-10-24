@@ -1,24 +1,40 @@
-<% @title = "#{File.basename(@path)} · #{@repo.name}" %>
-<% raw = "#{repo_url(@repo)}/blobs/#{@blob}" %>
-<p class="muted">
-  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
-  commit <a href="<%= tree_url(@repo, @sha) %>"><code><%= h @commit.short %></code></a>
-</p>
-<div class="page-head">
-  <h1 class="path"><%= path_crumbs(@repo, @sha, @path) %></h1>
-  <a class="button" href="<%= raw %>">Raw</a>
+<% @title = "#{@path} at #{rev_label(@rev)} · #{@repo.name}" %>
+<% raw = raw_url(@repo, @rev.name, @path) %>
+<%= erb :_repo_head, layout: false, locals: { tab: "code" } %>
+<%= erb :_pending_note, layout: false %>
+<div class="browse-bar">
+  <%= erb :_refpick, layout: false, locals: { kind: "tree" } %>
+  <h1 class="path"><%= path_crumbs(@repo, @rev.name, @path) %></h1>
+  <button type="button" class="button icon-only" data-copy="<%= h @path %>" title="Copy path" aria-label="Copy path"><svg class="icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path fill="currentColor" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg></button>
+  <span class="spacer"></span>
+  <button type="button" class="button" data-finder="<%= repo_url(@repo) %>/files/<%= @sha %>" data-tree-base="<%= tree_url(@repo, @rev.name) %>" title="Find a file by name (t)">Go to file</button>
 </div>
-<p class="muted path-meta">
-  <%= pluralize(@lines, "line") %> · <%= byte_size(@size) %> ·
-  <%= hv @commit.subject %>
-  · <%= hv @commit.author %> · <%= when_label(@commit.date) %>
-</p>
+<div class="box file-box">
+  <%= erb :_last_commit, layout: false %>
+  <div class="file-bar">
+    <% if @markdown %>
+      <span class="seg">
+        <a class="button<%= " active" unless @plain %>" href="<%= tree_url(@repo, @rev.name, @path) %>"<%= ' aria-current="page"' unless @plain %>>Preview</a><a class="button<%= " active" if @plain %>" href="<%= tree_url(@repo, @rev.name, @path) %>?plain=1"<%= ' aria-current="page"' if @plain %>>Code</a>
+      </span>
+    <% end %>
+    <span class="muted"><% if @lines %><%= pluralize(@lines, "line") %> · <% end %><%= byte_size(@size) %></span>
+    <span class="spacer"></span>
+    <a class="button" href="<%= raw %>">Raw</a>
+    <% unless @binary || @image %><a class="button" href="<%= blame_url(@repo, @rev.name, @path) %>" data-hotkey-blame>Blame</a><% end %>
+    <a class="button" href="<%= history_url(@repo, @rev.name, @path) %>" data-hotkey-history>History</a>
+    <% unless @rev.commit? %><a class="button" href="<%= tree_url(@repo, @sha, @path) %>" data-permalink title="A link to this file at this commit, which will not move (y)">Permalink</a><% end %>
+  </div>
+</div>
 
-<% if @binary %>
-  <p class="muted">Binary file not shown.</p>
+<% if @image %>
+  <div class="box image-view"><img src="<%= raw %>" alt="<%= h File.basename(@path) %>"></div>
+<% elsif @binary %>
+  <p class="muted"><%= @size > Outbox::Repo::MAX_BLOB_BYTES ? "Too large to show." : "Binary file not shown." %> <a href="<%= raw %>">Download it raw</a>.</p>
+<% elsif @source %>
+  <div class="box"><%= erb :_markdown, layout: false, locals: { source: @source, dir: File.dirname(@path).sub(/\A\.\z/, "") } %></div>
 <% else %>
-  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= raw %>">
+  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= repo_url(@repo) %>/blobs/<%= @blob %>">
     <noscript>JavaScript is off. <a href="<%= raw %>">View the raw file.</a></noscript>
   </div>
-  <% if File.exist?(DIFFS_BUNDLE) %><script type="module" src="/diffs/diffs.js"></script><% end %>
+  <% if diffs_built? %><script type="module" src="/diffs/diffs.js"></script><% end %>
 <% end %>

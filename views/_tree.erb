@@ -1,0 +1,54 @@
+<%# A directory as it is in @rev: what is in it, the last commit to touch %>
+<%# it, and its README. %>
+<%= erb :_pending_note, layout: false unless @hide_pending_note %>
+<div class="browse-bar">
+  <%= erb :_refpick, layout: false, locals: { kind: "tree" } %>
+  <% unless @path.empty? %><h2 class="path"><%= path_crumbs(@repo, @rev.name, @path) %></h2><% end %>
+  <span class="spacer"></span>
+  <button type="button" class="button" data-finder="<%= repo_url(@repo) %>/files/<%= @sha %>" data-tree-base="<%= tree_url(@repo, @rev.name) %>" title="Find a file by name (t)">Go to file</button>
+  <% if @path.empty? %>
+    <details class="clone">
+      <summary class="button primary">Clone</summary>
+      <div class="menu">
+        <label>Clone over HTTP</label>
+        <div class="copy-row"><input type="text" readonly value="<%= h clone_url(@repo) %>" aria-label="Clone URL"><button type="button" class="button" data-copy="<%= h clone_url(@repo) %>">Copy</button></div>
+      </div>
+    </details>
+  <% end %>
+</div>
+<div class="box">
+  <%= erb :_last_commit, layout: false, locals: { hotkey: true } %>
+  <table class="tree">
+    <% unless @path.empty? %>
+      <tr><td class="icon"></td><td class="name" colspan="2"><a href="<%= tree_url(@repo, @rev.name, File.dirname(@path).sub(/\A\.\z/, "")) %>" title="Up one directory">..</a></td></tr>
+    <% end %>
+    <% @entries.each do |e| %>
+      <% full = [@path, e.name].reject(&:empty?).join("/") %>
+      <tr>
+        <td class="icon" title="<%= e.dir? ? "directory" : e.submodule? ? "submodule" : e.symlink? ? "symbolic link" : "file" %>"><%= erb :_entry_icon, layout: false, locals: { e: e } %></td>
+        <td class="name">
+          <% if e.submodule? %>
+            <span><%= hv e.name %></span> <span class="muted">@ <code><%= e.id[0, 7] %></code></span>
+          <% else %>
+            <a href="<%= tree_url(@repo, @rev.name, full) %>"><%= hv e.name %></a>
+          <% end %>
+        </td>
+        <td class="size muted"><%= byte_size(e.size) if e.size %></td>
+      </tr>
+    <% end %>
+    <% if @entries.empty? %><tr><td colspan="3" class="muted">Empty directory.</td></tr><% end %>
+  </table>
+</div>
+<% if @readme_path %>
+  <div class="box readme" id="readme">
+    <div class="box-head"><svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
+      <a href="<%= tree_url(@repo, @rev.name, @readme_path) %>"><%= hv File.basename(@readme_path) %></a></div>
+    <% if @readme.nil? %>
+      <p class="muted pad">Too large to show here.</p>
+    <% elsif Outbox::Repo.markdown?(@readme_path) %>
+      <%= erb :_markdown, layout: false, locals: { source: @readme, dir: File.dirname(@readme_path).sub(/\A\.\z/, "") } %>
+    <% else %>
+      <pre class="plain-readme"><%= hv @readme %></pre>
+    <% end %>
+  </div>
+<% end %>

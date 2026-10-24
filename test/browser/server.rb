@@ -25,6 +25,9 @@
 #             hidden character and a long file. Read-only.
 #   huge      one staged commit of about 20 MB: 400 added files and a
 #             lockfile of 100,000 lines. Read-only; the large diff tests.
+#   browse    for browse.spec.js: a README.md with links, an image and
+#             things that must not survive sanitising, docs, an image, a
+#             second staged branch with a slash in its name. Read-only.
 #   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
 #             watches open pages follow.
 require "fileutils"
@@ -191,6 +194,35 @@ def seed(dir)
 
   Outbox::Config.add("slow","http://127.0.0.1:#{start_stub}/slow.git")
   Outbox::Config.apply!
+
+  readme = <<~MD
+    # Browse me
+
+    See [the guide](docs/guide.md), [the top](/lib/app.rb) and [below](#usage).
+
+    ![logo](docs/logo.svg)
+
+    <script>window.pwned = 1</script>
+    <img src="x" onerror="window.pwned = 2">
+    <form method="post" action="/repos/browse/branches/main/approve"><button>Win a prize</button></form>
+    <a href="javascript:window.pwned = 3">click</a>
+
+    - [x] done
+    - [ ] to do
+
+    ## Usage
+
+    Run it.
+  MD
+  upstream, up_work = make_upstream(dir, "browse", "README.md" => readme, "docs/guide.md" => "# Guide\n\nBack to [the readme](../README.md).\n",
+                                    "docs/logo.svg" => %(<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>),
+                                    "lib/app.rb" => "class App\n  def call = :ok\nend\n", "lib/helper.rb" => "module Helper\nend\n")
+  commit(up_work, "Make the app answer", "lib/app.rb" => "class App\n  def call = :answer\nend\n")
+  git("push", "--quiet", "origin", "main", chdir: up_work)
+  work = add_repo(dir, "browse", upstream)
+  git("checkout", "--quiet", "-b", "topic/x", chdir: work)
+  commit(work, "Add a topic", "lib/topic.rb" => "TOPIC = 1\n")
+  git("push", "--quiet", "origin", "topic/x", chdir: work)
 
   upstream, = make_upstream(dir, "live", "README" => "hello\n")
   add_repo(dir, "live", upstream)

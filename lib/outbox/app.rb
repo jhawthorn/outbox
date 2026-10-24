@@ -11,6 +11,9 @@ module Outbox
     # pages say so when it is missing.
     PUBLIC_DIR = File.expand_path("../../public", __dir__)
     DIFFS_BUNDLE = File.join(PUBLIC_DIR, "diffs/diffs.js")
+    # Everything else the pages do in the browser: the ref picker, finding
+    # files, keyboard shortcuts, markdown. Pages work without it.
+    BROWSE_BUNDLE = File.join(PUBLIC_DIR, "diffs/browse.js")
     set :public_folder, PUBLIC_DIR
     # Sinatra's default reaction to a failed check is to drop the session,
     # which with no sessions is nothing at all. Deny instead, so a form
@@ -243,20 +246,121 @@ module Outbox
 
       def diffs_built? = File.exist?(DIFFS_BUNDLE)
 
-      # Files and directories share one URL shape: /tree/<commit>/<path>.
-      def tree_url(repo, sha, path = "")
-        [repo_url(repo), "tree", sha, *path.split("/").map { |s| Rack::Utils.escape_path(s) }].join("/")
+      def browse_built? = File.exist?(BROWSE_BUNDLE)
+
+      # What a search result highlights: the query as a Ruby regexp, ignoring
+      # case as git grep did. nil when it cannot be one (git's extended
+      # regexps are not quite Ruby's), and then nothing is highlighted.
+      def search_pattern(query, regex)
+        flags = query.match?(/[[:upper:]]/) ? nil : Regexp::IGNORECASE
+        Regexp.new(regex ? query : Regexp.escape(query), flags, timeout: 0.05)
+      rescue RegexpError
+        nil
       end
 
-      # The breadcrumbs of a path inside a commit: "root", then each
+      # A line of a result, escaped, with what matched in <mark>.
+      def mark_matches(text, pattern)
+        return hv(text) unless pattern
+        out = +""
+        pos = 0
+        text.scan(pattern) do
+          m = Regexp.last_match
+          next if m[0].empty?
+          out << hv(text[pos...m.begin(0)]) << "<mark>" << hv(m[0]) << "</mark>"
+          pos = m.end(0)
+        end
+        out << hv(text[pos..])
+      rescue Regexp::TimeoutError
+        hv(text)
+      end
+
+      # A path in a URL, each segment escaped and the slashes kept. Branch
+      # names have slashes too, and are written the same way.
+      def url_path(path) = path.to_s.split("/").map { |s| Rack::Utils.escape_path(s) }.join("/")
+
+      # Files and directories share one URL shape: /tree/<rev>/<path>, where
+      # rev is a branch, a remote's branch, a tag or a sha (Repo#resolve_path).
+      def tree_url(repo, rev, path = "") = browse_url(repo, "tree", rev, path)
+      def raw_url(repo, rev, path) = browse_url(repo, "raw", rev, path)
+      def blame_url(repo, rev, path) = browse_url(repo, "blame", rev, path)
+      def history_url(repo, rev, path = "") = browse_url(repo, "commits", rev, path)
+      def search_url(repo) = "#{repo_url(repo)}/search"
+
+      def browse_url(repo, kind, rev, path)
+        [repo_url(repo), kind, url_path(rev), *(path.to_s.empty? ? [] : [url_path(path)])].join("/")
+      end
+
+      # Any commit in the repository, with what it changed.
+      def show_commit_url(repo, sha) = "#{repo_url(repo)}/commit/#{sha}"
+
+      # The breadcrumbs of a path inside a commit: the repository, then each
       # directory as a link; the last name, which is the page itself, is not.
-      def path_crumbs(repo, sha, path)
+      # kind is the page the links go to: "tree", or "commits" for history.
+      def path_crumbs(repo, rev, path, kind: "tree")
         names = path.split("/")
-        root = names.empty? ? %(<b>root</b>) : %(<a class="crumb" href="#{tree_url(repo, sha)}">root</a>)
+        link = ->(text, upto) { %(<a class="crumb" href="#{browse_url(repo, kind, rev, upto)}">#{text}</a>) }
+        root = names.empty? ? %(<b>#{h repo.name}</b>) : link.(h(repo.name), "")
         links = names.each_index.map do |i|
-          i == names.size - 1 ? %(<b>#{hv names[i]}</b>) : %(<a class="crumb" href="#{tree_url(repo, sha, names[0..i].join("/"))}">#{hv names[i]}</a>)
+          i == names.size - 1 ? %(<b>#{hv names[i]}</b>) : link.(hv(names[i]), names[0..i].join("/"))
         end
         [root, *links].join(%(<span class="sep">/</span>))
+      end
+
+      # A rev as the ref picker shows it: the branch or tag name, or a short
+      # sha.
+      def rev_label(rev) = rev.commit? ? rev.sha[0, 10] : rev.name
+
+      REV_KIND_LABELS = { branch: "branch", remote: "remote branch", tag: "tag", commit: "commit" }.freeze
+
+      # Where a page under a rev can go for another rev: the same URL with
+      # {rev} in its place.
+      def rev_template(kind, path) = browse_url(@repo, kind, "rev", path).sub("/#{kind}/rev", "/#{kind}/{rev}")
+
+      # The tabs at the top of a repository's pages.
+      def repo_tabs(active)
+        pending = @repo.pending_branches.size
+        rev = @rev && !@rev.commit? ? @rev.name : nil
+        tabs = [
+          ["code", "Code", rev ? tree_url(@repo, rev) : repo_url(@repo), nil],
+          ["review", "Review", "#{repo_url(@repo)}#review", pending],
+          ["commits", "Commits", rev ? history_url(@repo, rev) : "#{repo_url(@repo)}/commits", nil],
+          ["branches", "Branches", "#{repo_url(@repo)}/branches", nil],
+        ]
+        tabs.map do |key, label, url, count|
+          badge = count&.positive? ? %( <span class="count-pill">#{count}</span>) : ""
+          %(<a class="tab#{" active" if key == active}" href="#{url}"#{%( aria-current="page") if key == active}>#{label}#{badge}</a>)
+        end.join
+      end
+
+      # A file's contents, when the page shows it as text: the size and line
+      # count, and whether it is binary, an image or markdown.
+      IMAGE_TYPES = {
+        ".png" => "image/png", ".jpg" => "image/jpeg", ".jpeg" => "image/jpeg", ".gif" => "image/gif",
+        ".webp" => "image/webp", ".avif" => "image/avif", ".bmp" => "image/bmp", ".ico" => "image/x-icon",
+        ".svg" => "image/svg+xml",
+      }.freeze
+
+      def image?(path) = IMAGE_TYPES.key?(File.extname(path).downcase)
+
+      # Reads the directory and its README for the code browser
+      # (views/_tree.erb).
+      def load_tree(rev, path)
+        @rev = rev
+        @sha = rev.sha
+        @path = path
+        @entries = @repo.tree_entries(@sha, @path)
+        @last = @repo.last_commit(@sha, @path)
+        if (entry = Repo.readme(@entries))
+          @readme_path = [@path, entry.name].reject(&:empty?).join("/")
+          @readme = @repo.blob(entry.id) if entry.size.to_i <= Repo::MAX_BLOB_BYTES
+        end
+      end
+
+      # The rev a URL path starts with, and the rest of the path.
+      def resolve_path!(repo, splat)
+        rev, rest = repo.resolve_path(splat.to_s)
+        raise NotFound, "no branch, tag or commit named #{splat.to_s.split("/").first.inspect}" unless rev
+        [rev, rest]
       end
 
       # "12 bytes", "3.4 KB", "1.2 MB".
@@ -290,25 +394,34 @@ module Outbox
         params[:expected] or raise ArgumentError, "missing expected: the staged sha that was reviewed"
       end
 
-      def show_path(name, sha, path)
+      def show_path(name, splat)
         @repo = Repo.find!(name)
-        @sha = sha
-        @path = path.delete_suffix("/")
-        case @repo.object_type(@sha, @path)
+        rev, path = resolve_path!(@repo, splat)
+        case @repo.object_type(rev.sha, path)
         when "blob"
+          @rev = rev
+          @sha = rev.sha
+          @path = path
           @blob = @repo.file_blob(@sha, @path)
-          contents = @repo.blob(@blob)
-          @binary = contents.include?("\0")
-          @size = contents.bytesize
-          @lines = contents.count("\n") + (contents.empty? || contents.end_with?("\n") ? 0 : 1)
-          @commit = @repo.commit_detail(@sha)
+          @size = @repo.git("cat-file", "-s", @blob).to_i
+          @image = image?(@path)
+          @last = @repo.last_commit(@sha, @path)
+          if @size <= Repo::MAX_BLOB_BYTES && !@image
+            contents = @repo.blob(@blob)
+            @binary = contents.include?("\0")
+            @lines = contents.count("\n") + (contents.empty? || contents.end_with?("\n") ? 0 : 1)
+            @markdown = !@binary && Repo.markdown?(@path)
+            @plain = params[:plain] == "1"
+            @source = contents if @markdown && !@plain
+          else
+            @binary = true
+          end
           erb :file
         when "tree"
-          @entries = @repo.tree_entries(@sha, @path)
-          @commit = @repo.commit_detail(@sha)
+          load_tree(rev, path)
           erb :tree
         else
-          raise NotFound, "no #{@path.empty? ? "commit" : "file or directory #{@path}"} #{@sha[0, 7]}"
+          raise NotFound, "no file or directory #{path} in #{rev_label(rev)}"
         end
       end
 
@@ -413,6 +526,8 @@ module Outbox
       @repo = Repo.find!(params[:name])
       @status = hub.status(@repo)
       @branches = @repo.branches
+      load_tree(@repo.default_rev, "") if @repo.default_rev
+      @hide_pending_note = true # the page lists what is pending already
       erb :repo
     end
 
@@ -437,14 +552,119 @@ module Outbox
     end
 
     # A file or a directory as it is in a commit, at one URL shape whichever
-    # the path is: /tree/<commit>/<path>, the commit's root when the path is
-    # empty. A file is drawn in the browser by assets/diffs.js from the blob.
-    get "/repos/:name/tree/:sha/*" do
-      show_path(params[:name], params[:sha], params[:splat].first)
+    # the path is: /tree/<rev>/<path>, the commit's root when the path is
+    # empty. rev is a branch, a remote's branch ("upstream/main"), a tag or
+    # a sha. A file is drawn in the browser by assets/diffs.js from the blob.
+    get "/repos/:name/tree/*" do
+      show_path(params[:name], params[:splat].first)
     end
 
-    get "/repos/:name/tree/:sha" do
-      show_path(params[:name], params[:sha], "")
+    # GitHub's URL for a file, for links pasted from there.
+    get "/repos/:name/blob/*" do
+      redirect "#{repo_url(Repo.find!(params[:name]))}/tree/#{url_path(params[:splat].first)}"
+    end
+
+    # A file's bytes. Text is served as text, images as images, and nothing
+    # is served as anything a browser would run: an SVG, say, is sandboxed.
+    get "/repos/:name/raw/*" do
+      repo = Repo.find!(params[:name])
+      rev, path = resolve_path!(repo, params[:splat].first)
+      contents, = repo.file_contents(rev.sha, path)
+      type = IMAGE_TYPES[File.extname(path).downcase]
+      type ||= contents.include?("\0") ? "application/octet-stream" : "text/plain; charset=utf-8"
+      headers "Content-Type" => type,
+              "X-Content-Type-Options" => "nosniff",
+              "Content-Security-Policy" => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+              "Content-Disposition" => "inline",
+              "Cache-Control" => rev.commit? ? "private, max-age=31536000, immutable" : "no-cache"
+      contents
+    end
+
+    # Every file in a commit, NUL-separated, for the file finder.
+    get "/repos/:name/files/:sha" do
+      repo = Repo.find!(params[:name])
+      content_type "text/plain", charset: "utf-8"
+      headers "Cache-Control" => "private, max-age=31536000, immutable"
+      repo.file_list(params[:sha]).join("\0")
+    end
+
+    # The branches and tags the ref picker offers, default branch first.
+    get "/repos/:name/refs.json" do
+      repo = Repo.find!(params[:name])
+      default = repo.default_rev&.name
+      refs = repo.ref_list.sort_by.with_index { |r, i| [r.name == default ? 0 : 1, REV_PRECEDENCE_ORDER.index(r.kind), i] }
+      content_type :json
+      JSON.generate(refs.map { |r| { name: r.name, kind: r.kind, default: r.name == default } })
+    end
+
+    REV_PRECEDENCE_ORDER = %i[branch tag remote].freeze
+
+    get "/repos/:name/blame/*" do
+      @repo = Repo.find!(params[:name])
+      @rev, @path = resolve_path!(@repo, params[:splat].first)
+      @sha = @rev.sha
+      @hunks = @repo.blame(@sha, @path)
+      erb :blame
+    end
+
+    # History: the default branch's, or a rev's, or only the commits that
+    # touched a path.
+    HISTORY_PAGE = 50
+
+    get "/repos/:name/commits" do
+      repo = Repo.find!(params[:name])
+      rev = repo.default_rev or raise NotFound, "#{repo.name} has no commits yet"
+      redirect history_url(repo, rev.name)
+    end
+
+    get "/repos/:name/commits/*" do
+      @repo = Repo.find!(params[:name])
+      @rev, @path = resolve_path!(@repo, params[:splat].first)
+      @sha = @rev.sha
+      @page = [params[:page].to_i, 1].max
+      list = @repo.history(@sha, @path, limit: HISTORY_PAGE + 1, skip: (@page - 1) * HISTORY_PAGE)
+      @more = list.size > HISTORY_PAGE
+      @commits = list.first(HISTORY_PAGE)
+      raise NotFound, "nothing in the history of #{@path.empty? ? rev_label(@rev) : @path}" if @commits.empty? && @page > 1
+      erb :history
+    end
+
+    # Any commit in the repository, branch or none.
+    get "/repos/:name/commit/:sha.patch" do
+      repo = Repo.find!(params[:name])
+      sha = repo.commit_sha(params[:sha]) or raise NotFound, "no commit #{params[:sha]}"
+      send_patch(repo.commit_diff(sha))
+    end
+
+    get "/repos/:name/commit/:sha" do
+      @repo = Repo.find!(params[:name])
+      sha = @repo.commit_sha(params[:sha]) or raise NotFound, "no commit #{params[:sha]}"
+      redirect show_commit_url(@repo, sha) unless sha == params[:sha]
+      @commit = @repo.commit_detail(sha)
+      @patch = @repo.commit_diff(sha)
+      @rev = Repo::Rev.new(name: sha, sha:, kind: :commit)
+      erb :show_commit
+    end
+
+    get "/repos/:name/branches" do
+      @repo = Repo.find!(params[:name])
+      @status = {}
+      @repo.branches.each { |b| @status[b.name] = b }
+      @refs = @repo.ref_list
+      @default = @repo.default_rev&.name
+      erb :branches
+    end
+
+    get "/repos/:name/search" do
+      @repo = Repo.find!(params[:name])
+      @rev = params[:rev].to_s.empty? ? @repo.default_rev : @repo.rev(params[:rev])
+      raise NotFound, "no branch, tag or commit named #{params[:rev].inspect}" unless @rev
+      @sha = @rev.sha
+      @query = params[:q].to_s
+      @regex = params[:regex] == "1"
+      @path = params[:path].to_s.delete_prefix("/").delete_suffix("/")
+      @matches, @more, @truncated = @repo.grep(@sha, @query, regex: @regex, path: @path) unless @query.strip.empty?
+      erb :search
     end
 
     # Raw patches, as the browser fetches them for the diff viewer and as

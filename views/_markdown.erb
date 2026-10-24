@@ -1,0 +1,6 @@
+<%# Markdown, rendered in the browser (assets/browse.js) and sanitised %>
+<%# there; the source until then, and without the bundle. Relative links %>
+<%# resolve against dir in @rev. %>
+<article class="markdown-body" data-markdown data-tree-base="<%= tree_url(@repo, @rev.name, dir) %>" data-tree-root="<%= tree_url(@repo, @rev.name) %>" data-raw-base="<%= raw_url(@repo, @rev.name, dir) %>" data-raw-root="<%= raw_url(@repo, @rev.name, "") %>">
+  <pre class="md-source"><%= h source %></pre>
+</article>

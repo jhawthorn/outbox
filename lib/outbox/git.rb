@@ -38,13 +38,14 @@ module Outbox
 
     # extra: additional variables for this one invocation (upstream credentials).
     # ok: the exit statuses that are not failures (merge-tree exits 1 for a
-    # conflict and still writes its tree).
-    def self.run(*args, chdir: nil, input: nil, extra: {}, timeout: nil, ok: [0])
+    # conflict and still writes its tree). binary: the output as git wrote
+    # it, not read as UTF-8 (file contents served raw).
+    def self.run(*args, chdir: nil, input: nil, extra: {}, timeout: nil, ok: [0], binary: false)
       opts = { stdin_data: input || "", unsetenv_others: true }
       opts[:chdir] = chdir if chdir
       out, err, status = timeout ? capture_within(timeout, env.merge(extra), args, opts) : Open3.capture3(env.merge(extra), "git", *args, **opts)
       raise GitError, failure_message(args, err, status) unless ok.include?(status.exitstatus)
-      out.force_encoding(Encoding::UTF_8).scrub
+      binary ? out.b : out.force_encoding(Encoding::UTF_8).scrub
     end
 
     # Open3.capture3 with a deadline: kills git if it is still running after

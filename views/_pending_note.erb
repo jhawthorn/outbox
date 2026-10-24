@@ -1,0 +1,7 @@
+<%# On a staged branch with something to review, say so: what the page %>
+<%# shows is not upstream's yet. %>
+<% if @rev.branch? && (b = (@repo.branch(@rev.name) rescue nil)) && b.pending? %>
+  <div class="pending-note"><span class="badge <%= b.status %>"><%= status_label(b) %></span>
+    <span><b><%= h b.name %></b> has staged work awaiting review: <%= h summary(b) %>.</span>
+    <a href="<%= branch_url(@repo, b.name) %>">Review</a></div>
+<% end %>

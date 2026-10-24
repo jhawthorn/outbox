@@ -3,14 +3,18 @@
   "private": true,
   "description": "Browser bundle for the diff viewer. `rake assets` builds it into public/diffs (gitignored).",
   "scripts": {
-    "build": "esbuild diffs=assets/diffs.js worker=node_modules/@pierre/diffs/dist/worker/worker.js --bundle --format=esm --splitting --minify --outdir=public/diffs --log-level=warning"
+    "build": "esbuild diffs=assets/diffs.js browse=assets/browse.js worker=node_modules/@pierre/diffs/dist/worker/worker.js --bundle --format=esm --splitting --minify --outdir=public/diffs --log-level=warning"
   },
   "devDependencies": {
     "@pierre/diffs": "^1.5.2",
     "@playwright/test": "^1.64.1",
-    "esbuild": "^0.28.2"
+    "dompurify": "^3.4.17",
+    "esbuild": "^0.28.2",
+    "marked": "^18.1.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

@@ -86,7 +86,9 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name`,
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
   plus POST `approve`, `discard`, `fetch`, and `/events`, which keeps pages current
-  (below).
+  (below). The browsing pages are under `/repos/:name` too (Browsing, below).
+- `lib/outbox/browse.rb` — what the browsing pages read: branch names in URLs, history,
+  the file list, `git grep`, `git blame`, every ref with its tip.
 - `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
   lines with hidden characters. The diff body itself is drawn in the browser.
 - `assets/diffs.js` — the diff viewer: [@pierre/diffs](https://diffs.com) (Shiki
@@ -95,12 +97,14 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
   their slots, from data attributes on the server's file sections. Each file can be
   shown whole, and selected line numbers go in the URL (`#f1-R10-R14`, `L` for the old
-  side), so lines can be linked to. "view file" beside each file in a summary, and
-  "Browse files" on a branch or commit, open `/repos/<name>/tree/<commit>/<path>`: a file
-  or a directory as it is in that commit, whichever the path is. A file is a CodeView
-  with one file item (`#L10-L14` selects lines). `rake assets` bundles
-  it with esbuild into `public/diffs/` (gitignored; needs pnpm). Without it the pages
-  still work, with a notice and a link to the raw patch instead of rendered diffs.
+  side), so lines can be linked to. A file page is the same CodeView with one file item
+  (`#L10-L14` selects lines). `rake assets` bundles it with esbuild into `public/diffs/`
+  (gitignored; needs pnpm). Without it the pages still work, with a notice and a link to
+  the raw patch instead of rendered diffs.
+- `assets/browse.js` — the rest of what pages do in the browser: the branch picker, the
+  file finder, keyboard shortcuts, copy buttons, filtering the branch list, and markdown
+  (marked, then DOMPurify). Bundled beside diffs.js. Without it, markdown shows as its
+  source and the picker's menu is a link to the branch list.
 - `lib/outbox/git.rb` — git wrapper. Arguments as arrays, never a shell. Subprocesses get
   a minimal environment (`unsetenv_others`), not the server's.
 - `lib/outbox/repo_actor.rb` — one Ractor per repo; the only thing that writes to it.
@@ -136,6 +140,34 @@ On every diverged branch, `git range-diff` pairs the staged commits with upstrea
 staged commit is marked unchanged or changed from the one it carries over, and only the
 upstream commits nothing carries over are listed as dropped. The pairing is skipped past
 200 commits a side, since it compares each commit with every other.
+
+## Browsing
+
+Each repository's pages read like a code host's. `/repos/<name>` shows what is awaiting
+review, then the code on the default branch: the files, the last commit to touch them, and
+the README. Tabs lead to the history, the branch list and back.
+
+URLs name a commit the way people do: `/repos/<name>/tree/<rev>/<path>`, where `<rev>` is a
+staged branch (`main`, `topic/x`), a remote's branch (`upstream/main`, `ruby/master`), a
+tag, or a sha, full or abbreviated. Branch names have slashes, so the longest leading run
+of path segments that names a ref is the ref. A staged branch is what was pushed here, so
+it may hold work not yet approved; its pages say so and link to the review. The same
+shape serves `raw/` (the bytes, never as anything a browser would run: text as text,
+images as images, all sandboxed), `blame/`, and `commits/` (history, of a path if one is
+given). `/repos/<name>/commit/<sha>` is any commit in the repository, with its diff;
+`/repos/<name>/branches` every branch of every remote, and tags; `/repos/<name>/search`
+`git grep` in one commit, a fixed string or an extended regexp, ignoring case unless the
+query has a capital. GitHub's `/blob/` URLs redirect to `/tree/`.
+
+Markdown, READMEs and `.md` files, is rendered in the browser and sanitised there with
+DOMPurify. What a pusher writes runs on a page behind the reviewer's password, so besides
+scripts and handlers, forms and buttons are removed too: one could post an approval from
+this origin. Relative links go to the file's page here, images to `raw/`. `?plain=1` shows a
+markdown file as code.
+
+Keys: `/` search, `t` find a file by name, `y` turn the URL into a permalink (the branch
+replaced by its sha), `b` blame, `h` history, `j`/`k` next and previous file in a diff, `?`
+the list.
 
 ## Live pages
 

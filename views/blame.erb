@@ -1,0 +1,35 @@
+<% @title = "Blame #{@path} at #{rev_label(@rev)} · #{@repo.name}" %>
+<%= erb :_repo_head, layout: false, locals: { tab: "code" } %>
+<div class="browse-bar">
+  <%= erb :_refpick, layout: false, locals: { kind: "blame" } %>
+  <h1 class="path"><%= path_crumbs(@repo, @rev.name, @path) %></h1>
+  <span class="spacer"></span>
+  <a class="button" href="<%= tree_url(@repo, @rev.name, @path) %>">View file</a>
+  <a class="button" href="<%= history_url(@repo, @rev.name, @path) %>">History</a>
+</div>
+<% now = Time.now %>
+<% oldest = @hunks.map { |hk| Time.iso8601(hk.commit.date) }.min || now %>
+<div class="box blame" data-blame-file="<%= h @path %>">
+  <table class="blame">
+    <% @hunks.each do |hk| %>
+      <% t = Time.iso8601(hk.commit.date) %>
+      <% age = oldest == now ? 0 : ((now - t) / (now - oldest) * 9).round.clamp(0, 9) %>
+      <% hk.lines.each_with_index do |line, i| %>
+        <% n = hk.start + i %>
+        <tr id="L<%= n %>"<% if i.zero? %> class="hunk-start"<% end %>>
+          <% if i.zero? %>
+            <td class="who age<%= age %>" rowspan="<%= hk.lines.size %>">
+              <div class="blame-commit">
+                <span class="when muted" title="<%= h hk.commit.date %>"><%= t.strftime("%Y-%m-%d") %></span>
+                <a class="subject" href="<%= show_commit_url(@repo, hk.commit.sha) %>" title="<%= h hk.commit.subject %> — <%= h hk.commit.author %>"><%= hv hk.commit.subject %></a>
+                <a class="reblame" href="<%= show_commit_url(@repo, hk.commit.sha) %>" title="<%= h hk.commit.author %>"><%= hv hk.commit.author.split.first %></a>
+              </div>
+            </td>
+          <% end %>
+          <td class="num"><a href="#L<%= n %>"><%= n %></a></td>
+          <td class="code"><%= h line %></td>
+        </tr>
+      <% end %>
+    <% end %>
+  </table>
+</div>
