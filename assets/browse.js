@@ -405,7 +405,34 @@ async function renderMarkdown(article) {
   if (location.hash.startsWith("#user-content-")) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }
 
+// --- the last commit beside each entry of a directory --------------------
+
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  const units = [["year", 31536000], ["month", 2592000], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]];
+  for (const [unit, size] of units) {
+    const n = Math.floor(s / size);
+    if (n >= 1) return `${n} ${unit}${n === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
+}
+
+async function treeCommits(table) {
+  if (table.dataset.filled) return;
+  table.dataset.filled = "1";
+  const res = await fetch(table.dataset.commitsUrl, { headers: { accept: "application/json" } });
+  if (!res.ok) return;
+  const found = await res.json();
+  for (const row of $$("tr[data-entry]", table)) {
+    const c = found[row.dataset.entry];
+    if (!c) continue;
+    $("td.msg", row).replaceChildren(el("a", { href: `${table.dataset.commitBase}${c.sha}`, title: `${c.subject} — ${c.author}`, text: c.subject }));
+    $("td.when", row).replaceChildren(el("span", { title: c.date, text: ago(c.date) }));
+  }
+}
+
 function hydrate() {
+  for (const table of $$("table.tree[data-commits-url]")) treeCommits(table).catch((err) => console.error("tree commits", err));
   for (const article of $$("[data-markdown]")) {
     renderMarkdown(article).catch((err) => console.error("markdown", err));
   }

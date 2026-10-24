@@ -391,6 +391,21 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/demo/blame/main/nope.rb").status
   end
 
+  def test_tree_commits_name_the_last_commit_to_touch_each_entry
+    commit(@stage, "lib/a.rb", "1\n", "Touch a")
+    commit(@stage, "lib/deep/b.rb", "1\n", "Touch b")
+    commit(@stage, "gone/x.rb", "1\n", "Add gone")
+    git("rm", "--quiet", "-r", "gone", chdir: @stage)
+    git("commit", "--quiet", "-m", "Remove gone", chdir: @stage)
+    sha = push(@stage, "main") && @repo.branch("main").staged
+
+    root = JSON.parse(get("/repos/demo/tree-commits/#{sha}"))
+    assert_equal({ "README" => "initial", "lib" => "Touch b" }, root.transform_values { |c| c["subject"] })
+    lib = JSON.parse(get("/repos/demo/tree-commits/#{sha}/lib"))
+    assert_equal({ "a.rb" => "Touch a", "deep" => "Touch b" }, lib.transform_values { |c| c["subject"] })
+    assert_includes get("/repos/demo/tree/main/lib"), %(data-commits-url="/repos/demo/tree-commits/#{sha}/lib")
+  end
+
   def test_file_finder_lists_every_file
     sha = stage_commit("lib/deep/a.rb", "1\n", "Add a")
     assert_equal ["README", "lib/deep/a.rb"], get("/repos/demo/files/#{sha}").split("\0")

@@ -18,13 +18,13 @@
 </div>
 <div class="box">
   <%= erb :_last_commit, layout: false, locals: { hotkey: true } %>
-  <table class="tree">
+  <table class="tree" data-commits-url="<%= repo_url(@repo) %>/tree-commits/<%= @sha %><%= "/#{url_path(@path)}" unless @path.empty? %>" data-commit-base="<%= repo_url(@repo) %>/commit/">
     <% unless @path.empty? %>
-      <tr><td class="icon"></td><td class="name" colspan="2"><a href="<%= tree_url(@repo, @rev.name, File.dirname(@path).sub(/\A\.\z/, "")) %>" title="Up one directory">..</a></td></tr>
+      <tr><td class="icon"></td><td class="name" colspan="4"><a href="<%= tree_url(@repo, @rev.name, File.dirname(@path).sub(/\A\.\z/, "")) %>" title="Up one directory">..</a></td></tr>
     <% end %>
     <% @entries.each do |e| %>
       <% full = [@path, e.name].reject(&:empty?).join("/") %>
-      <tr>
+      <tr data-entry="<%= h e.name %>">
         <td class="icon" title="<%= e.dir? ? "directory" : e.submodule? ? "submodule" : e.symlink? ? "symbolic link" : "file" %>"><%= erb :_entry_icon, layout: false, locals: { e: e } %></td>
         <td class="name">
           <% if e.submodule? %>
@@ -33,10 +33,12 @@
             <a href="<%= tree_url(@repo, @rev.name, full) %>"><%= hv e.name %></a>
           <% end %>
         </td>
+        <td class="msg"></td>
+        <td class="when muted"></td>
         <td class="size muted"><%= byte_size(e.size) if e.size %></td>
       </tr>
     <% end %>
-    <% if @entries.empty? %><tr><td colspan="3" class="muted">Empty directory.</td></tr><% end %>
+    <% if @entries.empty? %><tr><td colspan="5" class="muted">Empty directory.</td></tr><% end %>
   </table>
 </div>
 <% if @readme_path %>

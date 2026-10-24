@@ -126,6 +126,37 @@ module Outbox
       history(sha, path, limit: 1).first
     end
 
+    # The last commit to touch each name in a directory, as { name =>
+    # Commit (subject only) }: what a tree listing shows beside each entry.
+    # Read from one walk of the history, newest first, which stops once
+    # every name has one or after TREE_COMMITS_TIMEOUT seconds; names not
+    # reached by then are left out.
+    def tree_commits(sha, path)
+      names = tree_entries(sha, path).to_h { |e| [e.name, true] }
+      prefix = path.empty? ? "" : "#{path}/"
+      found = {}
+      commit = nil
+      Git.each_line("log", "--format=%x01%H%x1f%an%x1f%ae%x1f%aI%x1f%cI%x1f%s", "--name-only", "-z", sha, "--", *(path.empty? ? [] : [path]),
+                    chdir: self.path, timeout: TREE_COMMITS_TIMEOUT, sep: "\0") do |field|
+        field = field.chomp("\0")
+        if field.include?("\x01")
+          paths_before, header = field.split("\x01", 2)
+          note(found, names, commit, prefix, paths_before)
+          sha_, author, email, date, cdate, subject = header.split("\x1f", 6)
+          subject, first_path = subject.to_s.split("\n", 2)
+          commit = Commit.new(sha: sha_, short: sha_[0, 10], author:, author_email: email, date:, committer: author,
+                              committer_email: email, commit_date: cdate, parents: [], message: subject.to_s)
+          note(found, names, commit, prefix, first_path)
+        else
+          note(found, names, commit, prefix, field)
+        end
+        break if found.size >= names.size
+      end
+      found
+    end
+
+    TREE_COMMITS_TIMEOUT = 5
+
     # Every file in a commit, as paths, for finding one by name.
     def file_list(sha)
       raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)
@@ -260,6 +291,16 @@ module Outbox
     def self.markdown?(path) = path.match?(/\.(md|markdown|mdown|mkd)\z/i)
 
     private
+
+    # Records commit against the entry of the directory that file is in,
+    # if it is one of names (a name can be gone from the directory now).
+    def note(found, names, commit, prefix, file)
+      return if commit.nil? || file.nil? || file.empty?
+      file = file.strip
+      return unless file.start_with?(prefix)
+      name = file.delete_prefix(prefix).split("/", 2).first
+      found[name] ||= commit if names.key?(name)
+    end
 
     # git blame's time and zone ("1700000000", "+0900") as ISO 8601 in that
     # zone, like git log's %aI.

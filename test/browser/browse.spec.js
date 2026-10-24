@@ -9,6 +9,7 @@ test("the repository page shows the code and renders the README safely", async (
   await expect(page.locator("details.refpick summary")).toHaveText("main");
   await expect(page.locator("table.tree td.name a")).toHaveText(["docs", "lib", "README.md"]);
   await expect(page.locator(".last-commit")).toContainText("Make the app answer");
+  await expect(page.locator("table.tree td.msg")).toHaveText(["Initial commit", "Make the app answer", "Initial commit"]);
 
   const readme = page.locator(".readme .markdown-body");
   await expect(readme.locator("h1")).toContainText("Browse me");

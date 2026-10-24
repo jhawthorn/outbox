@@ -107,6 +107,27 @@ module Outbox
       end
     end
 
+    # Yields each line git writes to stdout as it is written, and stops git
+    # as soon as the block breaks (or after timeout seconds), for reading
+    # only as much of a long log as is needed.
+    def self.each_line(*args, chdir: nil, timeout: nil, sep: "\n")
+      opts = { unsetenv_others: true, err: File::NULL }
+      opts[:chdir] = chdir if chdir
+      deadline = timeout && Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+      Open3.popen2(env, "git", *args, **opts) do |stdin, stdout, wait|
+        stdin.close
+        begin
+          stdout.each_line(sep) do |line|
+            yield line.force_encoding(Encoding::UTF_8).scrub
+            break if deadline && Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+          end
+        ensure
+          kill(wait) if wait.alive?
+          wait.value
+        end
+      end
+    end
+
     def self.failure_message(args, err, status)
       detail = err.to_s.force_encoding(Encoding::UTF_8).scrub.split(/\r|\n/).map(&:strip).reject(&:empty?).last(5).join("\n")
       detail = "exit #{status.exitstatus}" if detail.empty?

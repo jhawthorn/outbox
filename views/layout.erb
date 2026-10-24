@@ -353,6 +353,12 @@
   table.tree td.icon { width: 1%; color: var(--muted); padding-right: 0; line-height: 0; vertical-align: middle; }
   table.tree td.icon .dir { color: #54aeff; }
   table.tree td.size { width: 1%; white-space: nowrap; text-align: right; font-size: 13px; }
+  table.tree td.name { width: 30%; white-space: nowrap; }
+  table.tree td.msg { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+  table.tree td.msg a { color: var(--muted); }
+  table.tree td.msg a:hover { color: var(--accent); }
+  table.tree td.when { width: 1%; white-space: nowrap; text-align: right; font-size: 13px; }
+  @media (max-width: 700px) { table.tree td.msg, table.tree td.when { display: none; } }
   table.tree a { text-decoration: none; color: var(--fg); }
   table.tree a:hover { text-decoration: underline; color: var(--accent); }
   .pending-note { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 14px; margin: 0 0 12px; font-size: 14px;

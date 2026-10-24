@@ -425,6 +425,15 @@ module Outbox
         end
       end
 
+      def tree_commits(name, sha, path)
+        repo = Repo.find!(name)
+        raise NotFound, "not a commit id: #{sha.inspect}" unless sha.match?(/\A[0-9a-f]{40,64}\z/)
+        found = repo.tree_commits(sha, path.delete_suffix("/"))
+        content_type :json
+        headers "Cache-Control" => "private, max-age=31536000, immutable"
+        JSON.generate(found.transform_values { |c| { sha: c.sha, subject: c.subject, author: c.author, date: c.commit_date } })
+      end
+
       def send_patch(patch)
         content_type "text/plain", charset: "utf-8"
         patch.text
@@ -578,6 +587,16 @@ module Outbox
               "Content-Disposition" => "inline",
               "Cache-Control" => rev.commit? ? "private, max-age=31536000, immutable" : "no-cache"
       contents
+    end
+
+    # The last commit to touch each entry of a directory, which the tree
+    # listing fills in once it is drawn (assets/browse.js).
+    get "/repos/:name/tree-commits/:sha" do
+      tree_commits(params[:name], params[:sha], "")
+    end
+
+    get "/repos/:name/tree-commits/:sha/*" do
+      tree_commits(params[:name], params[:sha], params[:splat].first)
     end
 
     # Every file in a commit, NUL-separated, for the file finder.
