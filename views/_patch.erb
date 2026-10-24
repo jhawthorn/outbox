@@ -30,23 +30,23 @@
   <div class="patch" data-patch-url="<%= patch_url %>" data-blob-url="<%= blob_url %>">
   <% files.each_with_index do |f, i| %>
     <%# What the browser's file headers show besides the path and counts (diffs.js). %>
-    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if f.old_mode && f.new_mode && f.status == :modified %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.map(&:label).join(", ") %>"<% end %>>
+    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if f.mode_change? %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.join(", ") %>"<% end %>>
       <summary>
         <code><%= hv f.path %></code>
         <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= hv f.old_path %></code></span><% end %>
         <% if (label = file_status_label(f)) %><span class="badge <%= f.status %>"><%= label %></span><% end %>
-        <% if f.old_mode && f.new_mode && f.status == :modified %><span class="muted">mode <%= h f.old_mode %> → <%= h f.new_mode %></span><% end %>
+        <% if f.mode_change? %><span class="muted">mode <%= h f.old_mode %> → <%= h f.new_mode %></span><% end %>
         <% unless f.binary? %>
           <span class="count add">+<%= f.additions %></span>
           <span class="count del">−<%= f.deletions %></span>
         <% end %>
         <% if f.hidden_lines.any? %>
-          <span class="badge hidden" title="Zero-width, bidi or control characters on lines <%= h f.hidden_lines.map(&:label).join(", ") %>">hidden characters on <%= pluralize(f.hidden_lines.size, "line") %></span>
+          <span class="badge hidden" title="Zero-width, bidi or control characters on lines <%= h f.hidden_lines.join(", ") %>">hidden characters on <%= pluralize(f.hidden_lines.size, "line") %></span>
         <% end %>
       </summary>
       <% if f.binary? %>
         <p class="muted" style="padding:8px 12px;margin:0">Binary file not shown.</p>
-      <% elsif f.hunks.empty? %>
+      <% elsif f.empty? %>
         <p class="muted" style="padding:8px 12px;margin:0">No content changes.</p>
       <% else %>
         <div class="diff" data-diff-file="<%= h f.path %>">

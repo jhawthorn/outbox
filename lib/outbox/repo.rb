@@ -612,7 +612,7 @@ module Outbox
     def diff(branch, max_bytes: MAX_PATCH_BYTES)
       b = resolve(branch)
       from, to = diff_endpoints(b)
-      return Diff::Patch.new(stat: "", text: "") if from.nil?
+      return Diff::Patch.new(text: "") if from.nil?
       patch(from, to, max_bytes)
     end
 
@@ -947,7 +947,7 @@ module Outbox
         text = text.scrub
         truncated = true
       end
-      Diff::Patch.new(text:, truncated:) { git("diff", "--shortstat", "-M", from, to).strip }
+      Diff::Patch.new(text:, truncated:) { git("diff", *Diff::LISTING_ARGS, from, to) }
     end
 
     def default_branch

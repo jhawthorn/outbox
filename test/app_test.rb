@@ -584,7 +584,7 @@ class AppTest < OutboxTest::RepoCase
     sha = rev(@stage, "HEAD")
     body = get("/repos/demo/branches/main/commits/#{sha}")
     assert_match %r{<details class="file" id="f0" open data-path="logo.bin" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-binary>}, body
-    assert_includes body, '<details class="file" id="f1" open data-path="run.sh" data-mode="100644 → 100755">'
+    assert_match %r{<details class="file" id="f1" open data-path="run.sh" data-old-blob="[0-9a-f]{40}" data-new-blob="[0-9a-f]{40}" data-mode="100644 → 100755">}, body
   end
 
   def test_commit_page_refuses_commits_outside_the_staged_range

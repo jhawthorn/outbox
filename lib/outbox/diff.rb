@@ -1,132 +1,108 @@
 # frozen_string_literal: true
 
 module Outbox
-  # Parses unified diff output from git into files, hunks and lines so the
-  # UI can render the summary (paths, status, counts) and flag hidden
-  # characters. The diff body itself is rendered in the browser from the raw
-  # patch. Only what git diff -p produces is handled; this is not a general
-  # patch parser.
+  # What the UI needs to know about a diff besides its text: the files, with
+  # status, modes, blob ids and line counts, and which lines hide characters
+  # a reviewer cannot see. The files come from git's own listing (git diff
+  # --raw --numstat), which costs the same however big the patch is; only
+  # the hidden characters need the text. The diff body itself is rendered in
+  # the browser from the raw patch.
   module Diff
     # Characters that render as nothing, or reorder what follows them, can
     # hide content from a reviewer. Zero-width, soft hyphen, BOM, bidi
     # controls, and C0 controls other than tab.
     INVISIBLE_RE = /[​-‏‪-‮⁠-⁤⁦-⁩﻿­\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
 
-    # The raw output of one git diff plus its short stat, with the parsed
-    # form computed on demand. The stat may be given as a block, run only if
-    # something asks: raw patches are served without it.
+    # What git prints for a diff when asked for these, NUL separated:
+    # one ":old-mode new-mode old-blob new-blob status" entry per file with
+    # its path (two for a rename or copy), then one "added deleted" entry
+    # per file with the same paths, then the short stat.
+    LISTING_ARGS = %w[--raw --numstat --shortstat -z --no-abbrev -M].freeze
+
+    STATUSES = { "A" => :added, "D" => :deleted, "R" => :renamed, "C" => :copied }.freeze
+
+    # The raw output of one git diff, with what is known about it computed
+    # on demand: raw patches are served without it. The listing is git's
+    # output for LISTING_ARGS, given as a string or a block.
     class Patch
       attr_reader :text
 
-      def initialize(text:, stat: nil, truncated: false, &stat_block)
-        @stat = stat
-        @stat_block = stat_block
+      def initialize(text:, listing: nil, truncated: false, &listing_block)
         @text = text
+        @listing = listing
+        @listing_block = listing_block
         @truncated = truncated
       end
-
-      def stat = @stat ||= @stat_block ? @stat_block.call : ""
 
       def truncated? = @truncated
       def empty? = text.empty?
 
+      def stat = (parsed.last)
+
       def files
-        @files ||= Diff.parse(text)
+        @files ||= parsed.first.tap { |files| Diff.find_hidden_lines(text, files) }
+      end
+
+      private
+
+      def parsed
+        @parsed ||= Diff.parse_listing(@listing || @listing_block&.call || "")
       end
     end
 
     class File
-      attr_accessor :old_path, :new_path, :status, :old_mode, :new_mode, :binary, :old_blob, :new_blob
-      attr_reader :hunks, :hidden_lines
+      attr_reader :old_path, :new_path, :status, :old_mode, :new_mode, :old_blob, :new_blob,
+                  :additions, :deletions, :hidden_lines
 
-      def initialize(old_path, new_path)
+      def initialize(old_path:, new_path:, status:, old_mode:, new_mode:, old_blob:, new_blob:, additions:, deletions:, binary:)
         @old_path = old_path
         @new_path = new_path
-        @status = :modified
-        @binary = false
-        @hunks = []
+        @status = status
+        @old_mode = old_mode
+        @new_mode = new_mode
+        @old_blob = old_blob
+        @new_blob = new_blob
+        @additions = additions
+        @deletions = deletions
+        @binary = binary
         @hidden_lines = []
       end
 
       def path = new_path || old_path
-      def binary? = binary
+      def binary? = @binary
       def renamed? = status == :renamed
-      def line_count = hunks.sum(&:size)
-      def additions = hunks.sum(&:additions)
-      def deletions = hunks.sum(&:deletions)
+
+      # Only the mode changed, or it did along with the content.
+      def mode_change? = status == :modified && !old_mode.nil? && !new_mode.nil? && old_mode != new_mode
+
+      # No lines changed, and not because git cannot show them.
+      def empty? = !binary? && additions + deletions == 0
     end
 
-    # A hunk is counted as the patch is parsed and keeps only where its
-    # lines are in the text: a patch can have millions of them and the page
-    # only needs the counts. #lines reads them when something asks.
-    class Hunk
-      attr_reader :header, :additions, :deletions, :size
-
-      def initialize(header, old_no, new_no, text, start)
-        @header = header
-        @old_no = old_no
-        @new_no = new_no
-        @text = text
-        @start = start
-        @additions = @deletions = @size = 0
+    # The files and the short stat from git's listing (see LISTING_ARGS).
+    def self.parse_listing(out)
+      parts = out.split("\0", -1)
+      entries = []
+      until parts.empty? || !parts.first.start_with?(":")
+        meta = parts.shift.split(" ")
+        letter = meta[4].to_s[0]
+        paths = parts.shift(%w[R C].include?(letter) ? 2 : 1)
+        entries << [meta, letter, paths]
       end
-
-      # Called as the parser reads a line of the hunk, with the byte offset
-      # just past the hunk once it is known (see #close).
-      def count(kind)
-        @size += 1
-        @additions += 1 if kind == :add
-        @deletions += 1 if kind == :del
+      files = entries.map do |meta, letter, paths|
+        counts = parts.shift.to_s
+        parts.shift(2) if counts.end_with?("\t") # a rename's paths follow, as they do above
+        added, deleted = counts.split("\t", 3).first(2)
+        File.new(old_path: letter == "A" ? nil : paths.first, new_path: letter == "D" ? nil : paths.last,
+                 status: STATUSES.fetch(letter, :modified),
+                 old_mode: zero_to_nil(meta[0].delete_prefix(":"), /\A0+\z/), new_mode: zero_to_nil(meta[1], /\A0+\z/),
+                 old_blob: zero_to_nil(meta[2], /\A0+\z/), new_blob: zero_to_nil(meta[3], /\A0+\z/),
+                 additions: added.to_i, deletions: deleted.to_i, binary: added == "-")
       end
-
-      def close(stop)
-        @stop = stop
-      end
-
-      def lines
-        @lines ||= begin
-          old_no = @old_no
-          new_no = @new_no
-          @text.byteslice(@start, @stop - @start).each_line(chomp: true).map do |line|
-            case line[0]
-            when "+"
-              new_no += 1
-              Line.new(:add, nil, new_no - 1, line[1..])
-            when "-"
-              old_no += 1
-              Line.new(:del, old_no - 1, nil, line[1..])
-            when "\\"
-              Line.new(:note, nil, nil, line[1..].strip)
-            else
-              old_no += 1
-              new_no += 1
-              Line.new(:ctx, old_no - 1, new_no - 1, line[1..] || "")
-            end
-          end
-        end
-      end
+      [files, parts.join("\0").strip]
     end
 
-    class Line
-      attr_reader :kind, :old_no, :new_no, :text
-
-      def initialize(kind, old_no, new_no, text)
-        @kind = kind
-        @old_no = old_no
-        @new_no = new_no
-        @text = text
-      end
-
-      def add?  = kind == :add
-      def del?  = kind == :del
-      def ctx?  = kind == :ctx
-      def note? = kind == :note
-      def hidden? = !note? && INVISIBLE_RE.match?(text)
-
-      # How the line is labelled to a reader: by its number in the new file,
-      # or in the old one for deletions.
-      def label = del? ? "−#{old_no}" : (add? ? "+#{new_no}" : new_no.to_s)
-    end
+    def self.zero_to_nil(value, zeros) = value.nil? || value.match?(zeros) ? nil : value
 
     HUNK_RE = /\A@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
@@ -136,37 +112,52 @@ module Outbox
     # then only looks at the lines they are on.
     MAYBE_INVISIBLE_RE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\xC2\xE2\xEF]/n
 
-    # The text is walked by byte offsets and only header lines become
-    # strings, so a patch of many megabytes takes a fraction of a second.
-    def self.parse(text)
-      files = []
-      file = nil
-      hunk = nil
-      old_no = new_no = 0
-      size = text.bytesize
+    # Fills in each file's hidden_lines with the labels of the lines of
+    # the patch that hold characters a reader cannot see (INVISIBLE_RE):
+    # "+12" for line 12 of the new side, "−3" for line 3 of the old one,
+    # the new line number for an unchanged line. Most patches have none,
+    # which one search over the bytes shows. Otherwise only the files that
+    # may have some are walked, and only as far as their last candidate.
+    def self.find_hidden_lines(text, files)
       bytes = text.b
-      invisible_at = bytes.byteindex(MAYBE_INVISIBLE_RE, 0)
+      at = bytes.byteindex(MAYBE_INVISIBLE_RE, 0)
+      return if at.nil?
+      by_path = files.to_h { |f| [f.path, f] }
+      starts = []
+      starts << 0 if text.start_with?("diff --git ")
       pos = 0
+      while (i = text.byteindex("\ndiff --git ", pos))
+        starts << i + 1
+        pos = i + 1
+      end
+      while at
+        n = starts.bsearch_index { |start| start > at }
+        n = n ? n - 1 : starts.size - 1
+        break if n.negative?
+        stop = starts[n + 1] || text.bytesize
+        header = text.byteslice(starts[n], text.byteindex("\n", starts[n]) - starts[n])
+        old_path, new_path = git_header_paths(header)
+        file = by_path[new_path] || by_path[old_path]
+        at = walk_section(text, bytes, starts[n], stop, at, file&.hidden_lines)
+        at = bytes.byteindex(MAYBE_INVISIBLE_RE, stop) if at && at < stop
+      end
+    end
 
-      while pos < size
+    # One file's part of the patch, from its "diff --git" line, up to the
+    # last candidate in it. Returns where the next candidate is, if it is
+    # in a later part.
+    def self.walk_section(text, bytes, from, stop, at, labels)
+      size = text.bytesize
+      hunk = false
+      old_no = new_no = 0
+      pos = from
+      while pos < stop && at && at < stop
         nl = text.byteindex("\n", pos) || size
-        invisible = !invisible_at.nil? && invisible_at < nl
-        invisible_at = nl + 1 < size ? bytes.byteindex(MAYBE_INVISIBLE_RE, nl + 1) : nil if invisible
         first = text.getbyte(pos)
-
-        if first == 100 && text.byteslice(pos, 11) == "diff --git " # d
-          hunk&.close(pos)
-          file = File.new(*git_header_paths(text.byteslice(pos, nl - pos).chomp))
-          files << file
-          hunk = nil
-        elsif file.nil?
-          # before the first file
-        elsif first == 64 && (m = HUNK_RE.match(line = text.byteslice(pos, nl - pos).chomp)) # @
-          hunk&.close(pos)
+        if first == 64 && (m = HUNK_RE.match(text.byteslice(pos, nl - pos)))
+          hunk = true
           old_no = m[1].to_i
           new_no = m[2].to_i
-          hunk = Hunk.new(line, old_no, new_no, text, nl + 1)
-          file.hunks << hunk
         elsif hunk
           kind = case first
                  when 43 then :add  # +
@@ -174,40 +165,21 @@ module Outbox
                  when 92 then :note # \
                  else :ctx
                  end
-          hunk.count(kind)
-          if invisible && kind != :note
+          if at < nl
             body = text.byteslice(pos, nl - pos).chomp[1..] || ""
-            file.hidden_lines << Line.new(kind, kind == :add ? nil : old_no, kind == :del ? nil : new_no, body) if INVISIBLE_RE.match?(body)
+            if kind != :note && INVISIBLE_RE.match?(body)
+              labels << (kind == :add ? "+#{new_no}" : kind == :del ? "\u2212#{old_no}" : new_no.to_s) if labels
+            end
           end
           old_no += 1 unless kind == :add || kind == :note
           new_no += 1 unless kind == :del || kind == :note
-        else
-          header(file, text.byteslice(pos, nl - pos).chomp)
+        end
+        if at < nl
+          at = nl + 1 < size ? bytes.byteindex(MAYBE_INVISIBLE_RE, nl + 1) : nil
         end
         pos = nl + 1
       end
-      hunk&.close(size)
-
-      files
-    end
-
-    def self.header(file, line)
-      case line
-      when /\Anew file mode (\d+)/     then file.status = :added;   file.new_mode = $1
-      when /\Adeleted file mode (\d+)/ then file.status = :deleted; file.old_mode = $1
-      when /\Aold mode (\d+)/          then file.old_mode = $1
-      when /\Anew mode (\d+)/          then file.new_mode = $1
-      when /\Arename from (.*)/        then file.status = :renamed; file.old_path = unquote($1)
-      when /\Arename to (.*)/          then file.new_path = unquote($1)
-      when /\Acopy from (.*)/          then file.status = :copied;  file.old_path = unquote($1)
-      when /\Acopy to (.*)/            then file.new_path = unquote($1)
-      when /\A--- (.*)/                then file.old_path = strip_prefix(unquote($1.chomp("\t")), "a/")
-      when /\A\+\+\+ (.*)/             then file.new_path = strip_prefix(unquote($1.chomp("\t")), "b/")
-      when /\Aindex ([0-9a-f]{40,64})\.\.([0-9a-f]{40,64})/
-        file.old_blob = $1 unless $1.match?(/\A0+\z/)
-        file.new_blob = $2 unless $2.match?(/\A0+\z/)
-      when /\ABinary files /           then file.binary = true
-      end
+      at
     end
 
     # "diff --git a/old b/new". Paths may contain spaces, so prefer the
