@@ -286,6 +286,8 @@
                    margin-bottom: -1px; white-space: nowrap; border-radius: 6px 6px 0 0; }
   nav.tabs a.tab:hover { background: var(--meta-bg); }
   nav.tabs a.tab.active { border-bottom-color: #fd8c73; font-weight: 600; }
+  nav.tabs a.tab .label { display: inline-flex; flex-direction: column; }
+  nav.tabs a.tab .label::after { content: attr(data-label); font-weight: 600; height: 0; overflow: hidden; visibility: hidden; user-select: none; }
   .count-pill { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; font-size: 12px;
                 font-weight: 500; line-height: 18px; text-align: center; background: var(--line); }
   .remotes { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; margin: -8px 0 16px; }

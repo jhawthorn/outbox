@@ -361,7 +361,9 @@ module Outbox
         ]
         tabs.map do |key, label, url, count|
           badge = count&.positive? ? %( <span class="count-pill">#{count}</span>) : ""
-          %(<a class="tab#{" active" if key == active}" href="#{url}"#{%( aria-current="page") if key == active}>#{label}#{badge}</a>)
+          # The label holds room for its bold self, so the tabs keep still
+          # when the active one changes.
+          %(<a class="tab#{" active" if key == active}" href="#{url}"#{%( aria-current="page") if key == active}><span class="label" data-label="#{label}">#{label}</span>#{badge}</a>)
         end.join
       end
 

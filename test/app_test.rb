@@ -156,12 +156,12 @@ class AppTest < OutboxTest::RepoCase
   def test_review_is_the_home_and_code_a_tab_of_its_own
     stage_commit("lib/a.rb", "x\n", "Add a\n\nWith a body.")
     review = get("/repos/demo")
-    assert_includes review, %(<nav class="tabs"><a class="tab active" href="/repos/demo" aria-current="page">Review <span class="count-pill">1</span></a><a class="tab" href="/repos/demo/tree/main">Code</a>)
+    assert_includes review, %(<nav class="tabs"><a class="tab active" href="/repos/demo" aria-current="page"><span class="label" data-label="Review">Review</span> <span class="count-pill">1</span></a><a class="tab" href="/repos/demo/tree/main"><span class="label" data-label="Code">Code</span></a>)
     assert_includes review, %(<table class="pending">)
     assert_match %r{<td class="latest">\s*<a class="subject" href="/repos/demo/commit/\h{40}" title="Add a">Add a</a>}, review, "each branch says what it is about"
     refute_includes review, %(<table class="tree")
     code = get("/repos/demo/tree/main")
-    assert_includes code, %(<a class="tab active" href="/repos/demo/tree/main" aria-current="page">Code</a>)
+    assert_includes code, %(<a class="tab active" href="/repos/demo/tree/main" aria-current="page"><span class="label" data-label="Code">Code</span></a>)
     assert_includes code, %(<table class="tree")
     assert_includes code, "has staged work awaiting review"
     assert_includes get("/repos/demo/branches/main"), %(<a class="crumb" href="/repos/demo">Review</a>)
