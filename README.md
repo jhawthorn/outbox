@@ -104,7 +104,8 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   (gitignored; needs pnpm). Without it the pages still work, with a notice and a link to
   the raw patch instead of rendered diffs.
 - `assets/browse.js` — the rest of what pages do in the browser: the branch picker, the
-  file finder, keyboard shortcuts, copy buttons, filtering the branch list, and markdown
+  file finder (ranked by [fzy.js](https://github.com/jhawthorn/fzy.js)), keyboard
+  shortcuts, copy buttons, filtering the branch list, and markdown
   (marked, then DOMPurify). Bundled beside diffs.js. Without it, markdown shows as its
   source and the picker's menu is a link to the branch list.
 - `lib/outbox/git.rb` — git wrapper. Arguments as arrays, never a shell. Subprocesses get

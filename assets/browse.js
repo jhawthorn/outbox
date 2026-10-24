@@ -8,6 +8,8 @@
 // in new content when something changes (the script in views/layout.erb),
 // needs only its markdown drawn again ("outbox:swap").
 
+import { hasMatch, score, positions } from "fzy.js";
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -135,34 +137,6 @@ document.addEventListener("toggle", (e) => {
 
 // --- the file finder ----------------------------------------------------
 
-// Fuzzy: the query's characters in order, anywhere in the path. Matches
-// that start a name, run on from the last, or fall in the file's own name
-// rank higher; then shorter paths. Returns [score, positions] or null.
-function fuzzy(path, query) {
-  const lower = path.toLowerCase();
-  const base = lower.lastIndexOf("/") + 1;
-  const positions = [];
-  let score = 0;
-  let from = 0;
-  for (const ch of query) {
-    let i = lower.indexOf(ch, from);
-    if (i < 0) return null;
-    // Prefer an occurrence that starts a word, if there is one ahead.
-    const prev = positions.at(-1);
-    if (prev !== i - 1) {
-      let j = i;
-      while (j >= 0 && !/[/._-]/.test(lower[j - 1] ?? "/")) j = lower.indexOf(ch, j + 1);
-      if (j >= 0) i = j;
-    }
-    if (prev === i - 1) score += 5;
-    if (i === 0 || /[/._-]/.test(lower[i - 1])) score += 3;
-    if (i >= base) score += 2;
-    positions.push(i);
-    from = i + 1;
-  }
-  return [score * 10 - path.length, positions];
-}
-
 function highlighted(text, positions) {
   const out = document.createDocumentFragment();
   let last = 0;
@@ -204,16 +178,14 @@ async function openFinder(button) {
   let selected = 0;
   let shown = [];
   const draw = () => {
-    const q = input.value.replace(/\s+/g, "").toLowerCase();
+    const q = input.value.replace(/\s+/g, "");
     if (!q) shown = files.slice(0, 50).map((f) => [f, []]);
     else {
+      // fzy's ranking; ties keep git's order. Positions only for what is shown.
       const scored = [];
-      for (const f of files) {
-        const m = fuzzy(f, q);
-        if (m) scored.push([f, m[1], m[0]]);
-      }
-      scored.sort((a, b) => b[2] - a[2]);
-      shown = scored.slice(0, 50);
+      for (const f of files) if (hasMatch(q, f)) scored.push([f, score(q, f)]);
+      scored.sort((a, b) => b[1] - a[1]);
+      shown = scored.slice(0, 50).map(([f]) => [f, positions(q, f)]);
     }
     selected = Math.min(selected, Math.max(shown.length - 1, 0));
     list.replaceChildren(...shown.map(([f, pos], i) => el("li", {}, el("a", {
