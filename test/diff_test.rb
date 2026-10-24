@@ -125,14 +125,14 @@ class DiffTest < Minitest::Test
 
   def test_hidden_characters_are_flagged_per_line
     text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,4 +1,4 @@\n" \
-           " plain\n-safe​gone\n+new‮line\n+fine\n ctx​\n\\ No newline at end of file\n"
+           " plain\n-safe\u200bgone\n+new\u202eline\n+fine\n ctx\u200b\n\\ No newline at end of file\n"
     f = hidden(text, "f")
     assert_equal ["−2", "+2", "4"], f.hidden_lines
   end
 
   def test_hidden_characters_go_to_their_own_files
     text = "diff --git a/a b/a\n@@ -1 +1 @@\n-a\n+b\n" \
-           "diff --git a/b b/b\n@@ -1 +1 @@\n-a\n+b​\n" \
+           "diff --git a/b b/b\n@@ -1 +1 @@\n-a\n+b\u200b\n" \
            "diff --git a/c b/c\n@@ -5 +5,2 @@\n-a\n+b\n+\u0001\n"
     a, b, c = hidden(text, "a", "b", "c")
     assert_empty a.hidden_lines
@@ -141,16 +141,16 @@ class DiffTest < Minitest::Test
   end
 
   def test_hidden_characters_are_found_in_files_with_odd_paths
-    text = "diff --git \"a/sp\\303\\251 x.txt\" \"b/sp\\303\\251 x.txt\"\n@@ -1 +1 @@\n-a\n+b​\n" \
-           "diff --git a/with space.txt b/with space.txt\n@@ -1 +1 @@\n-a\n+b​\n"
+    text = "diff --git \"a/sp\\303\\251 x.txt\" \"b/sp\\303\\251 x.txt\"\n@@ -1 +1 @@\n-a\n+b\u200b\n" \
+           "diff --git a/with space.txt b/with space.txt\n@@ -1 +1 @@\n-a\n+b\u200b\n"
     quoted, spaced = hidden(text, "spé x.txt", "with space.txt")
     assert_equal ["+1"], quoted.hidden_lines
     assert_equal ["+1"], spaced.hidden_lines
   end
 
   def test_characters_in_a_path_or_header_are_not_line_content
-    text = "diff --git a/z​z b/z​z\nindex 1..2 100644\n--- a/z​z\n+++ b/z​z\n@@ -1 +1 @@\n-a\n+b\n"
-    assert_empty hidden(text, "z​z").hidden_lines
+    text = "diff --git a/z\u200bz b/z\u200bz\nindex 1..2 100644\n--- a/z\u200bz\n+++ b/z\u200bz\n@@ -1 +1 @@\n-a\n+b\n"
+    assert_empty hidden(text, "z\u200bz").hidden_lines
   end
 
   def test_visible_non_ascii_is_not_flagged
@@ -167,7 +167,7 @@ class DiffTest < Minitest::Test
   end
 
   def test_content_lines_that_look_like_headers_are_still_numbered
-    text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -3,2 +3,3 @@\n --- not a header\n+++ not a header either\n+diff --git nope​\n"
+    text = "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -3,2 +3,3 @@\n --- not a header\n+++ not a header either\n+diff --git nope\u200b\n"
     assert_equal ["+5"], hidden(text, "f").hidden_lines
   end
 
@@ -196,7 +196,7 @@ class DiffTest < Minitest::Test
       write.("logo.bin", "\0\2")
       File.delete(File.join(dir, "gone.txt"))
       write.("café.txt", "new\n")
-      write.("touch.txt", "a\nb​\nc\n")
+      write.("touch.txt", "a\nb\u200b\nc\n")
       git.("add", "-A")
       git.("commit", "-qm", "two")
 
@@ -214,7 +214,7 @@ class DiffTest < Minitest::Test
       assert_equal 40, by_path["café.txt"].new_blob.size
       assert_equal ["+2"], by_path["touch.txt"].hidden_lines
       assert_match(/6 files changed/, patch.stat)
-      assert_equal %w[café.txt gone.txt logo.bin new\ name.rb run.sh touch.txt].map { |s| s.gsub('é', "é") },
+      assert_equal ["caf\u00e9.txt", "gone.txt", "logo.bin", "new name.rb", "run.sh", "touch.txt"],
                    patch.files.map(&:path), "in the order the patch has them"
     end
   end
