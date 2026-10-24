@@ -5,7 +5,9 @@ services:
   # authenticates fetches and pushes to https upstreams; only this service
   # gets it, never the daemon that agents talk to.
   outbox:
-    build: .
+    build:
+      context: .
+      pull: true   # re-pull FROM images so floating tags (ruby:4.0-slim) stay current
     ports:
       - "8080:8080"
     environment:
@@ -31,6 +33,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.git
+      pull: true
     volumes:
       - outbox-repos:/data/repos
     networks:
