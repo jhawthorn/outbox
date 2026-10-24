@@ -380,6 +380,16 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/search?q=greet&path=other"), "Nothing matches"
   end
 
+  def test_blame_handles_odd_names_and_carriage_returns
+    commit(@stage, "café.rb", "a = 1\nb = 2\n", "Add café")
+    commit(@stage, "café.rb", "a = 1\nb = \"x\ry\"\n", "Add a CR")
+    push(@stage, "main")
+    body = get("/repos/demo/blame/main/caf%C3%A9.rb")
+    first = rev(@stage, "HEAD~1")
+    assert_includes body, %(href="/repos/demo/blame/#{first}/caf%C3%A9.rb" title="Blame prior to this change")
+    assert_includes body, %(b = &quot;x<span class="invis" title="carriage return">CR</span>y&quot;)
+  end
+
   def test_blame_says_who_changed_each_line
     commit(@stage, "a.rb", "one\ntwo\n", "First version")
     commit(@stage, "a.rb", "one\n2\n", "Second version")
@@ -422,6 +432,23 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 302, @request.get("/repos/demo/compare?base=main&head=feature").status
     assert_equal "/repos/demo/compare/feature", URI(@request.get("/repos/demo/compare?base=&head=feature").headers["location"]).path
     assert_equal 404, @request.get("/repos/demo/compare/main...nope").status
+  end
+
+  def test_hiding_whitespace_keeps_each_files_counts
+    commit(@stage, "f.txt", "f\n", "Add f")
+    commit(@stage, "g.txt", "g\n", "Add g")
+    commit(@stage, "f.txt", "f \n", "Trailing space")
+    sha = commit(@stage, "g.txt", "g\nmore\nmore\n", "Grow g")
+    push(@stage, "main")
+    git("reset", "--quiet", "--soft", "HEAD~2", chdir: @stage)
+    sha = git("commit", "--quiet", "-m", "Both", chdir: @stage) && rev(@stage, "HEAD")
+    push(@stage, "main", force: true)
+    body = get("/repos/demo/commit/#{sha}?w=1")
+    assert_includes body, "1 file changed, 2 insertions(+), 0 deletions(-), whitespace ignored"
+    assert_includes body, %(data-path="g.txt")
+    refute_includes body, %(data-path="f.txt")
+    assert_match %r{data-path="g.txt".*data-add="2" data-del="0"}, body
+    assert_includes get("/repos/demo/commit/#{sha}"), %(data-path="f.txt")
   end
 
   def test_whitespace_changes_can_be_hidden
@@ -468,6 +495,19 @@ class AppTest < OutboxTest::RepoCase
     assert_includes names, ["upstream/main", "remote"]
   end
 
+  def test_staged_branches_cannot_stand_in_for_a_remote_directory
+    upstream_commit("sub/x.txt", "upstream's\n", "Add sub")
+    @repo.fetch!
+    git("checkout", "--quiet", "-b", "upstream/main/sub", chdir: @stage)
+    commit(@stage, "x.txt", "forged\n", "Forge")
+    push(@stage, "upstream/main/sub")
+    assert_equal "upstream's\n", get("/repos/demo/raw/upstream/main/sub/x.txt")
+    branches = get("/repos/demo/branches")
+    assert_includes branches, "shadowed"
+    refute_includes branches, %(href="/repos/demo/tree/upstream/main/sub")
+    refute_includes JSON.parse(get("/repos/demo/refs.json")).map { |r| r["name"] }, "upstream/main/sub"
+  end
+
   # What was pushed cannot take down the page that lists it for review.
   def test_the_repository_page_survives_odd_commits
     git("update-index", "--add", "--cacheinfo", "160000,#{rev(@stage, "HEAD")},README.md", chdir: @stage)
@@ -506,6 +546,18 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/repos/demo/tree/main/q%3Fx.txt"), "1 line"
     body = get("/repos/demo/search?q=needle")
     assert_includes body, "2 matching lines in 2 files"
+  end
+
+  def test_search_says_when_git_cannot_or_runs_out_of_time
+    stage_commit("a.txt", "needle\n", "Add")
+    assert_includes get("/repos/demo/search?q=(&regex=1"), "git could not search for that"
+    limit = Outbox::Repo::GREP_TIMEOUT
+    Outbox::Repo.send(:remove_const, :GREP_TIMEOUT)
+    Outbox::Repo.const_set(:GREP_TIMEOUT, 0.000001)
+    assert_includes get("/repos/demo/search?q=needle"), "The search stopped after"
+  ensure
+    Outbox::Repo.send(:remove_const, :GREP_TIMEOUT)
+    Outbox::Repo.const_set(:GREP_TIMEOUT, limit)
   end
 
   def test_file_finder_lists_every_file
@@ -567,6 +619,17 @@ class AppTest < OutboxTest::RepoCase
   end
 
   # public/diffs is build output and not committed, so either state is valid.
+  def test_a_truncated_diff_says_so
+    stage_commit("big.txt", "line\n" * 50, "Big")
+    limit = Outbox::Repo::MAX_PATCH_BYTES
+    Outbox::Repo.send(:remove_const, :MAX_PATCH_BYTES)
+    Outbox::Repo.const_set(:MAX_PATCH_BYTES, 100)
+    assert_includes get("/repos/demo/branches/main"), "Diff truncated at"
+  ensure
+    Outbox::Repo.send(:remove_const, :MAX_PATCH_BYTES)
+    Outbox::Repo.const_set(:MAX_PATCH_BYTES, limit)
+  end
+
   def test_bundle_is_served_or_its_absence_explained
     stage_commit("a.txt", "a\n", "A")
     body = get("/repos/demo/branches/main")

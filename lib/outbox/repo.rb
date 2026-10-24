@@ -949,7 +949,8 @@ module Outbox
         text = text.scrub
         truncated = true
       end
-      Diff::Patch.new(text:, truncated:) { git("diff", *Diff::LISTING_ARGS, *ws, from, to) }
+      whitespace = ignore_whitespace ? -> { git("diff", "-w", "--numstat", "-z", "-M", from, to) } : nil
+      Diff::Patch.new(text:, truncated:, whitespace:) { git("diff", *Diff::LISTING_ARGS, from, to) }
     end
 
     def default_branch

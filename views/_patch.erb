@@ -25,6 +25,14 @@
       <% end %>
       </ul>
     </details>
+    <% if patch.truncated? %>
+      <div class="panel warn" style="margin:10px 0 0">Diff truncated at <%= Outbox::Repo::MAX_PATCH_BYTES / 1_000_000 %> MB.</div>
+    <% end %>
+    <% unless diffs_built? %>
+      <div class="panel warn" style="margin:10px 0 0">The diff viewer is not built. Run <code>rake assets</code> (needs pnpm), or read the <a href="<%= patch_url %>">raw patch</a>.</div>
+    <% end %>
+  </div>
+
   <div class="patch" data-patch-url="<%= patch_url %>" data-blob-url="<%= blob_url %>">
   <% files.each_with_index do |f, i| %>
     <%# What the browser's file headers show besides the path and counts (diffs.js). %>

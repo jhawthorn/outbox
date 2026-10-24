@@ -28,7 +28,7 @@
             </td>
           <% end %>
           <td class="num"><a href="#L<%= n %>"><%= n %></a></td>
-          <td class="code"><%= h line %></td>
+          <td class="code"><%= h(line).gsub("\r", '<span class="invis" title="carriage return">CR</span>') %></td>
         </tr>
       <% end %>
     <% end %>

@@ -8,12 +8,18 @@
   <button type="submit" class="primary">Search</button>
 </form>
 <p class="muted">In <b><%= h rev_label(@rev) %></b>. Matches ignore case unless the query has a capital letter.</p>
+<% if @search_error %>
+  <div class="panel danger">git could not search for that: <%= h @search_error %></div>
+<% end %>
 <% if @matches %>
   <% total = @matches.values.sum(&:size) %>
-  <% if @matches.empty? %>
+  <% if @truncated == :time %>
+    <div class="panel warn">The search stopped after <%= Outbox::Repo::GREP_TIMEOUT %> seconds, so there may be more than this. Narrow it with a path.</div>
+  <% end %>
+  <% if @matches.empty? && @truncated != :time %>
     <p class="empty">Nothing matches <code><%= h @query %></code>.</p>
   <% else %>
-    <p class="muted"><%= pluralize(total, "matching line") %> in <%= pluralize(@matches.size, "file") %><%= ", and more files not shown: narrow the search" if @truncated %>.</p>
+    <p class="muted"><%= pluralize(total, "matching line") %> in <%= pluralize(@matches.size, "file") %><%= ", and more files not shown: narrow the search" if @truncated == true %>.</p>
     <% pattern = search_pattern(@query, @regex) %>
     <% @matches.each do |path, lines| %>
       <div class="box result">

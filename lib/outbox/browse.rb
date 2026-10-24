@@ -72,13 +72,24 @@ module Outbox
       if full_sha?(segments.first) && (sha = commit_sha(segments.first))
         return [Rev.new(name: sha, sha:, kind: :commit), segments.drop(1).join("/")]
       end
-      segments.size.downto(1) do |n|
-        name = segments.first(n).join("/")
-        rev = revs[name]
-        return [rev, segments.drop(n).join("/")] if rev
+      # Remote branches and tags first, at every length: a pusher can name a
+      # staged branch "upstream/main/sub", but must not get to stand in
+      # for upstream's sub/ by it.
+      [->(rev) { !rev.branch? }, ->(rev) { rev.branch? }].each do |trusted|
+        segments.size.downto(1) do |n|
+          rev = revs[segments.first(n).join("/")]
+          return [rev, segments.drop(n).join("/")] if rev && trusted.(rev)
+        end
       end
       sha = commit_sha(segments.first)
       sha ? [Rev.new(name: sha, sha:, kind: :commit), segments.drop(1).join("/")] : nil
+    end
+
+    # Whether a URL naming this ref reaches it: a staged branch named like a
+    # remote's branch or a tag, or a path inside one, does not.
+    def addressable?(ref_info)
+      rev, rest = resolve_path(ref_info.name)
+      rev && rest.empty? && rev.kind == ref_info.kind && rev.name == ref_info.name
     end
 
     # A Rev by name alone: a ref, or a sha.
@@ -227,9 +238,10 @@ module Outbox
     # Lines in a commit's files that contain query, as Matches grouped by
     # path: { path => [Match] }. A fixed string unless regex, ignoring case
     # unless the query has a capital letter. At most GREP_PER_FILE lines a
-    # file and GREP_FILES files. Returns [matches, more, truncated]: more
-    # the paths that had more lines than shown, truncated whether there
-    # were more files.
+    # file and GREP_FILES files, in GREP_TIMEOUT seconds. Returns [matches,
+    # more, truncated]: more the paths that had more lines than shown,
+    # truncated true when there were more files and :time when the search
+    # ran out of time. A query git cannot read raises GitError.
     def grep(sha, query, regex: false, path: "")
       raise ArgumentError, "nothing to search for" if query.to_s.strip.empty?
       # One file is searched for every line.
@@ -247,7 +259,7 @@ module Outbox
       # once there are enough files: a search for "e" in a big repository
       # would otherwise be read whole.
       record = +""
-      Git.each_line(*args, chdir: self.path, timeout: GREP_TIMEOUT) do |line|
+      ended = Git.each_line(*args, chdir: self.path, timeout: GREP_TIMEOUT, ok: [0, 1]) do |line|
         record << line
         next if record.count("\0") < 2
         where, number, text = record.chomp.split("\0", 3)
@@ -267,6 +279,7 @@ module Outbox
         end
         list << Match.new(path: file, line: number.to_i, text: text.to_s[0, GREP_LINE_CHARS])
       end
+      truncated = :time if ended == :timeout
       [found, more, truncated]
     end
 
@@ -325,6 +338,7 @@ module Outbox
                             committer_email: c["committer-mail"].to_s.delete("<>"), commit_date: blame_time(c["committer-time"], c["committer-tz"]),
                             parents: [], message: c["summary"].to_s)
         previous = c["previous"]&.split(" ", 2)
+        previous[1] = Repo.unquote_path(previous[1].to_s) if previous
         BlameHunk.new(commit:, start: hunk[:start], lines: hunk[:lines], previous:)
       end
     end

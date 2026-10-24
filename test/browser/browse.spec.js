@@ -5,6 +5,8 @@
 const { test, expect } = require("@playwright/test");
 
 test("the repository page shows the code and renders the README safely", async ({ page }) => {
+  const outside = [];
+  page.on("request", (r) => { if (!r.url().startsWith("http://127.0.0.1")) outside.push(r.url()); });
   await page.goto("/repos/browse");
   await expect(page.locator("details.refpick summary")).toHaveText("main");
   await expect(page.locator("table.tree td.name a")).toHaveText(["docs", "lib", "README.md"]);
@@ -20,7 +22,10 @@ test("the repository page shows the code and renders the README safely", async (
   await expect.poll(() => readme.locator("img[alt=logo]").evaluate((img) => img.naturalWidth)).toBe(10);
   // Images from elsewhere wait to be asked for; ".." stops at the top.
   await expect(readme.locator("img[alt=tracker]")).toHaveCount(0);
-  await expect(readme.locator("a.ext-img")).toContainText("tracker (from example.invalid; click to load)");
+  await expect(readme.locator("a.ext-img")).toHaveCount(3);
+  await expect(readme.locator("a.ext-img").first()).toContainText("tracker (from example.invalid; click to load)");
+  await expect(readme.locator("svg, image")).toHaveCount(0);
+  expect(outside).toEqual([]);
   await expect(readme.getByRole("link", { name: "climb" })).toHaveAttribute("href", "/repos/browse/tree/main/etc/passwd");
   await expect(readme.getByRole("link", { name: "both" })).toHaveAttribute("href", "/repos/browse/tree/main/docs/guide.md?x=1#guide");
   await expect(readme).toContainText("☑ done");

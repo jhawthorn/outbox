@@ -658,10 +658,9 @@ module Outbox
       repo = Repo.find!(params[:name])
       default = repo.default_rev&.name
       list = repo.ref_list
-      # A staged branch named like a remote's branch or a tag cannot be
-      # reached by that name (Repo#revs), so it is not offered.
-      taken = list.reject { |r| r.kind == :branch }.to_h { |r| [r.name, true] }
-      list.reject! { |r| r.kind == :branch && taken[r.name] }
+      # A staged branch named like a remote's branch or a tag, or like a
+      # path inside one, cannot be reached by that name, so it is not offered.
+      list.select! { |r| r.kind != :branch || repo.addressable?(r) }
       refs = list.sort_by.with_index { |r, i| [r.name == default ? 0 : 1, REV_PRECEDENCE_ORDER.index(r.kind), i] }
       content_type :json
       JSON.generate(refs.map { |r| { name: r.name, kind: r.kind, default: r.name == default } })
@@ -762,7 +761,11 @@ module Outbox
       @query = params[:q].to_s
       @regex = params[:regex] == "1"
       @path = params[:path].to_s.delete_prefix("/").delete_suffix("/")
-      @matches, @more, @truncated = @repo.grep(@sha, @query, regex: @regex, path: @path) unless @query.strip.empty?
+      begin
+        @matches, @more, @truncated = @repo.grep(@sha, @query, regex: @regex, path: @path) unless @query.strip.empty?
+      rescue GitError => e
+        @search_error = e.message.delete_prefix("git grep: ")
+      end
       erb :search
     end
 

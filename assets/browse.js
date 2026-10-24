@@ -374,12 +374,16 @@ async function renderMarkdown(article) {
   // below would remove; draw them as characters instead.
   const html = marked.parse(source, { gfm: true })
     .replace(/<input [^>]*type="checkbox"[^>]*>/g, (box) => (/checked/.test(box) ? "☑" : "☐"));
-  const clean = DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
+    // HTML alone: SVG and MathML bring their own ways of loading things.
+    USE_PROFILES: { html: true },
     FORBID_TAGS,
     FORBID_ATTR: ["style", "class", "id", "name", "form", "formaction", "srcset", "poster", "background"],
     ADD_ATTR: ["target"],
-    RETURN_DOM_FRAGMENT: true,
   });
+  // Worked on in a document of its own, which loads nothing, until what
+  // should not load is gone; then moved into the page.
+  const clean = new DOMParser().parseFromString(sanitized, "text/html").body;
   const { treeBase, treeRoot, rawBase, rawRoot } = article.dataset;
   for (const a of clean.querySelectorAll("a[href]")) {
     const href = a.getAttribute("href");
@@ -396,10 +400,11 @@ async function renderMarkdown(article) {
     const local = resolveRelative(src, rawBase, rawRoot);
     img.setAttribute("referrerpolicy", "no-referrer");
     img.setAttribute("loading", "lazy");
+    let url = null;
+    try { url = new URL(local ?? src, location.href); } catch {}
     if (local) img.setAttribute("src", local);
-    else if (/^(https?:)?\/\//i.test(src)) {
-      let host = src;
-      try { host = new URL(src, location.href).host; } catch {}
+    if (url && url.origin !== location.origin && url.protocol !== "data:") {
+      const host = url.host || url.protocol;
       const stand = el("a", { href: src, class: "ext-img", title: `Load ${src}`, text: `${img.getAttribute("alt") || "image"} (from ${host}; click to load)` });
       stand.addEventListener("click", (e) => {
         e.preventDefault();
@@ -418,7 +423,7 @@ async function renderMarkdown(article) {
     h.id = `user-content-${id}`;
     h.prepend(el("a", { class: "anchor", href: `#user-content-${id}`, "aria-label": "Link to this section", text: "#" }));
   }
-  article.replaceChildren(clean);
+  article.replaceChildren(...clean.childNodes);
   article.dataset.rendered = "1";
   if (location.hash.startsWith("#user-content-")) document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }
@@ -465,8 +470,11 @@ async function highlightBlame(box) {
   const lang = getFiletypeFromFileName(box.dataset.blameFile);
   if (!lang || lang === "text") return;
   const highlighter = await getSharedHighlighter({ themes: ["pierre-light", "pierre-dark"], langs: [lang] });
-  const code = cells.map((td) => td.textContent).join("\n");
+  const code = cells.map((td) => td.textContent.replace(/[\r\n]/g, " ")).join("\n");
   const { tokens } = highlighter.codeToTokens(code, { lang, themes: { light: "pierre-light", dark: "pierre-dark" } });
+  // A line the highlighter splits differently from git would put code
+  // beside the wrong number and commit: then leave it plain.
+  if (tokens.length !== cells.length) return;
   tokens.forEach((line, i) => {
     const td = cells[i];
     if (!td) return;

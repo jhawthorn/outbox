@@ -27,11 +27,18 @@ module Outbox
     class Patch
       attr_reader :text
 
-      def initialize(text:, listing: nil, truncated: false, &listing_block)
+      # whitespace: a block giving git's `diff -w --numstat -z` for the same
+      # diff, when whitespace changes are hidden. The listing itself is
+      # always without -w: git's --raw would still name files whose only
+      # change is whitespace, and its --numstat would not, and the two must
+      # line up. The -w counts replace the listing's, by path, and a file
+      # they leave out, with no other change, drops out.
+      def initialize(text:, listing: nil, truncated: false, whitespace: nil, &listing_block)
         @text = text
         @listing = listing
         @listing_block = listing_block
         @truncated = truncated
+        @whitespace = whitespace
       end
 
       def truncated? = @truncated
@@ -46,7 +53,10 @@ module Outbox
       private
 
       def parsed
-        @parsed ||= Diff.parse_listing(@listing || @listing_block&.call || "")
+        @parsed ||= begin
+          files, stat = Diff.parse_listing(@listing || @listing_block&.call || "")
+          @whitespace ? Diff.without_whitespace(files, @whitespace.call) : [files, stat]
+        end
       end
     end
 
@@ -69,6 +79,12 @@ module Outbox
       end
 
       def path = new_path || old_path
+
+      def recount(additions, deletions)
+        @additions = additions
+        @deletions = deletions
+        self
+      end
       def binary? = @binary
       def renamed? = status == :renamed
 
@@ -100,6 +116,30 @@ module Outbox
                  additions: added.to_i, deletions: deleted.to_i, binary: added == "-")
       end
       [files, parts.join("\0").strip]
+    end
+
+    # files with the counts of git diff -w --numstat -z (numstat), and a
+    # short stat to go with them. A file numstat does not name is dropped
+    # unless something besides its lines changed: it was added, deleted,
+    # renamed or copied, its mode changed, or it is binary.
+    def self.without_whitespace(files, numstat)
+      counts = {}
+      parts = numstat.split("\0")
+      until parts.empty?
+        added, deleted, path = parts.shift.split("\t", 3)
+        path = parts.shift(2).last if path.to_s.empty? # a rename: old and new follow
+        counts[path] = [added.to_i, deleted.to_i] if path
+      end
+      kept = files.filter_map do |f|
+        if (c = counts[f.path]) then f.recount(*c)
+        elsif f.status != :modified || f.mode_change? || f.binary? then f.recount(0, 0)
+        end
+      end
+      added = kept.sum(&:additions)
+      deleted = kept.sum(&:deletions)
+      stat = "#{kept.size} file#{"s" unless kept.size == 1} changed, #{added} insertion#{"s" unless added == 1}(+), " \
+             "#{deleted} deletion#{"s" unless deleted == 1}(-), whitespace ignored"
+      [kept, stat]
     end
 
     def self.zero_to_nil(value, zeros) = value.nil? || value.match?(zeros) ? nil : value

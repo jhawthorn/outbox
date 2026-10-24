@@ -228,4 +228,17 @@ class DiffTest < Minitest::Test
     files = Diff::Patch.new(text: text, listing: listing(*entries)).files
     paths.size == 1 ? files.first : files
   end
+
+  # git diff -w --numstat -z: counts by path, a rename's paths after an
+  # empty one; files it leaves out drop unless more than lines changed.
+  def test_without_whitespace_takes_counts_by_path
+    file = ->(path, status, old_path: path) {
+      Outbox::Diff::File.new(old_path:, new_path: path, status:, old_mode: "100644", new_mode: "100644",
+                             old_blob: "a" * 40, new_blob: "b" * 40, additions: 9, deletions: 9, binary: false)
+    }
+    files = [file.("f.txt", :modified), file.("g.txt", :modified), file.("new.rb", :renamed, old_path: "old.rb"), file.("added.rb", :added)]
+    kept, stat = Outbox::Diff.without_whitespace(files, "2\t0\tg.txt\0" "1\t1\t\0old.rb\0new.rb\0")
+    assert_equal [["g.txt", 2, 0], ["new.rb", 1, 1], ["added.rb", 0, 0]], kept.map { |f| [f.path, f.additions, f.deletions] }
+    assert_equal "3 files changed, 3 insertions(+), 1 deletion(-), whitespace ignored", stat
+  end
 end

@@ -110,13 +110,17 @@ module Outbox
     # Yields each line git writes to stdout as it is written, and stops git
     # as soon as the block breaks, or once timeout seconds have passed,
     # whether or not git is writing anything: for reading only as much of a
-    # long log, or a search, as is needed.
-    def self.each_line(*args, chdir: nil, timeout: nil, sep: "\n")
-      opts = { unsetenv_others: true, err: File::NULL }
+    # long log, or a search, as is needed. Returns :timeout if it stopped
+    # git for that; otherwise raises GitError for an exit status not in ok,
+    # or returns git's. (A block that breaks returns what it breaks with.)
+    def self.each_line(*args, chdir: nil, timeout: nil, sep: "\n", ok: [0])
+      opts = { unsetenv_others: true }
       opts[:chdir] = chdir if chdir
       deadline = timeout && Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
-      Open3.popen2(env, "git", *args, **opts) do |stdin, stdout, wait|
+      Open3.popen3(env, "git", *args, **opts) do |stdin, stdout, stderr, wait|
         stdin.close
+        err = Thread.new { stderr.read }
+        err.report_on_exception = false
         buffer = "".b
         eof = false
         begin
@@ -138,9 +142,14 @@ module Outbox
           end
           # A last line without its end, only if git finished it.
           yield buffer.force_encoding(Encoding::UTF_8).scrub if eof && !buffer.empty?
+          return :timeout unless eof
+          status = wait.value
+          raise GitError, failure_message(args, err.value, status) unless ok.include?(status.exitstatus)
+          status.exitstatus
         ensure
           kill(wait) if wait.alive?
           wait.value
+          err.join(1)
         end
       end
     end

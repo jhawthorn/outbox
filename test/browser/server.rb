@@ -202,6 +202,8 @@ def seed(dir)
 
     ![logo](docs/logo.svg)
     ![tracker](https://example.invalid/pixel.png)
+    <img src="https:\\\\example.invalid/b.png" alt="backslashes"> <img src="//example.invalid/c.png" alt="protocol-relative">
+    <svg><image href="https://example.invalid/d.png"/></svg>
     [climb](../../../../../etc/passwd) and [both](docs/guide.md?x=1#guide)
 
     <script>window.pwned = 1</script>

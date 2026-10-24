@@ -13,16 +13,18 @@
     <div class="box">
       <% refs.each do |r| %>
         <% b = r.kind == :branch ? @status[r.name] : nil %>
+        <% at = @repo.addressable?(r) ? r.name : r.sha %>
         <div class="ref-row" data-name="<%= h r.name %>">
-          <a class="branch-name" href="<%= tree_url(@repo, r.name) %>"><%= h r.kind == :remote ? r.name.delete_prefix("#{r.remote}/") : r.name %></a>
+          <a class="branch-name" href="<%= tree_url(@repo, at) %>"><%= h r.kind == :remote ? r.name.delete_prefix("#{r.remote}/") : r.name %></a>
           <% if r.name == @default %><span class="badge same">default</span><% end %>
+          <% if at != r.name %><span class="badge changed" title="Another ref has this name, so it is linked by its sha">shadowed</span><% end %>
           <% if b&.pending? %><a class="badge <%= b.status %>" href="<%= branch_url(@repo, b.name) %>" title="<%= h summary(b) %>"><%= status_label(b) %></a><% end %>
           <span class="subject muted" title="<%= h r.subject %>"><%= hv r.subject %></span>
           <span class="spacer"></span>
           <span class="muted who"><%= hv r.author %></span>
           <span class="muted when"><%= committed_label(r.time) %></span>
-          <a class="muted" href="<%= history_url(@repo, r.name) %>" title="History">history</a>
-          <% if @default && r.name != @default %><a class="muted" href="<%= compare_url(@repo, @default, r.name) %>" title="What it has that <%= h @default %> does not">compare</a><% end %>
+          <a class="muted" href="<%= history_url(@repo, at) %>" title="History">history</a>
+          <% if @default && r.name != @default %><a class="muted" href="<%= compare_url(@repo, @default, at) %>" title="What it has that <%= h @default %> does not">compare</a><% end %>
         </div>
       <% end %>
     </div>
