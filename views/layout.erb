@@ -168,7 +168,10 @@
   .diff-controls .seg { display: inline-flex; }
   .diff-controls .seg button:first-child { border-radius: 6px 0 0 6px; }
   .diff-controls .seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
-  .diff-controls button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .diff-controls .seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* The tree toggle is a switch of its own, not one of the segment. */
+  .diff-controls button.tree-toggle { margin-right: 8px; }
+  .diff-controls button.tree-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); border-color: var(--accent); color: var(--accent); }
   details.file > summary code { border: 0; background: none; padding: 0; font-weight: 600; }
   .badge.hidden { color: #fff; background: var(--bad); border-color: var(--bad); }
   /* Diff bodies are drawn by the browser bundle; until it runs, or if it
@@ -288,6 +291,7 @@
   .remotes { display: flex; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; margin: -8px 0 16px; }
   .remotes code { font-size: 12px; }
   .empty.compact { padding: 4px 0; }
+  .job-done::first-letter { text-transform: uppercase; }
   .browse-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; min-height: 32px; }
   .browse-bar h1.path, .browse-bar h2.path { margin: 0 0 0 4px; font-size: 16px; font-weight: 400; min-width: 0; overflow-wrap: anywhere; }
   .browse-bar .path b { font-weight: 600; }
@@ -382,6 +386,8 @@
   .log-row .sha { text-decoration: none; }
   nav.pager { display: flex; gap: 8px; justify-content: center; margin: 24px 0; }
   /* One commit. */
+  .commit-nav { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; margin: 0 0 12px; font-size: 14px; }
+  .commit-nav .button { max-width: 320px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
   .commit-head h1.commit-title { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
   .commit-head pre.message { margin: 10px 0 0; border: 0; padding: 0; background: none; }
   .commit-meta { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; border-top: 1px solid var(--line);

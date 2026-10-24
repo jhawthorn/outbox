@@ -1,36 +1,20 @@
 <% @title = "#{@commit.short} · #{@repo.name} / #{@branch.name}" %>
 <%= erb :_repo_head, layout: false, locals: { tab: "review" } %>
-<p class="muted">
-  <a href="<%= repo_url(@repo) %>"><%= h @repo.name %></a> /
-  <a href="<%= branch_url(@repo, @branch.name) %>"><%= h @branch.name %></a> /
-  commit <%= @position %> of <%= @total %>
-</p>
-<h1><%= hv @commit.subject %></h1>
-
-<div class="toolbar">
-  <span class="muted"><code><%= h @commit.sha %></code> · <%= identity_line(@commit) %>
-    <% if @commit.merge? %>· <span class="badge merge">merge</span> shown against its first parent only<% end %>
-    <% if @commit.root? %>· root commit<% end %>
-  </span>
+<div class="commit-nav">
+  <span class="muted"><a href="<%= review_url(@repo) %>">Review</a> / <a href="<%= branch_url(@repo, @branch.name) %>"><%= h @branch.name %></a> / commit <%= @position %> of <%= @total %></span>
   <span class="spacer"></span>
-  <a class="button" href="<%= tree_url(@repo, @commit.sha) %>">Browse files</a>
   <nav class="actions">
     <% if @older %>
-      <a href="<%= commit_url(@repo, @branch.name, @older) %>">← older: <%= h @older.subject %></a>
+      <a class="button" href="<%= commit_url(@repo, @branch.name, @older) %>" title="<%= h @older.subject %>">← older: <%= h @older.subject %></a>
     <% else %>
-      <span class="muted">← oldest</span>
+      <span class="button disabled">← oldest</span>
     <% end %>
-    <span class="muted">·</span>
     <% if @newer %>
-      <a href="<%= commit_url(@repo, @branch.name, @newer) %>">newer: <%= h @newer.subject %> →</a>
+      <a class="button" href="<%= commit_url(@repo, @branch.name, @newer) %>" title="<%= h @newer.subject %>">newer: <%= h @newer.subject %> →</a>
     <% else %>
-      <span class="muted">newest →</span>
+      <span class="button disabled">newest →</span>
     <% end %>
   </nav>
 </div>
-
-<% if @commit.body? %>
-  <pre class="message"><%= hv @commit.body %></pre>
-<% end %>
-
+<%= erb :_commit_head, layout: false, locals: { c: @commit } %>
 <%= render_patch(@patch, commit_patch_url(@repo, @branch.name, @commit.sha), @commit.sha) %>

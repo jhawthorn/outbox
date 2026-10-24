@@ -1,0 +1,25 @@
+<%# What the repository's actor is doing, or last failed at: shown on its %>
+<%# Code and Review pages alike. What last went well only on Review. %>
+<% if @status.running? %>
+  <div class="panel">
+    <span class="badge busy">working</span>
+    <%= h job_label(@status) %> <span class="muted">(<%= duration(@status.elapsed) %>)</span>
+    <% if @status.queued > 1 %><span class="muted">· <%= @status.queued - 1 %> more queued</span><% end %>
+    <% if @status.progress %><div class="progress"><%= h @status.progress %></div><% end %>
+  </div>
+<% elsif @status.busy? %>
+  <div class="panel"><span class="badge busy">queued</span></div>
+<% elsif @status.last && !@status.last.ok? %>
+  <div class="panel danger">
+    <span class="badge failed"><%= h @status.last.job %> failed</span>
+    <% if @status.last.branch %>on <code><%= h @status.last.branch %></code><% end %>
+    <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @status.last.message %></pre>
+    <form class="inline" method="post" action="<%= repo_url(@repo) %>/dismiss">
+      <input type="hidden" name="back" value="<%= h request.path %>">
+      <button type="submit">Dismiss</button>
+    </form>
+  </div>
+<% elsif @status.last && defined?(quiet_success) && !quiet_success %>
+  <p class="muted job-done"><%= h @status.last.message %>, <%= time_ago(@status.last.finished_at) %>.</p>
+<% end %>
+

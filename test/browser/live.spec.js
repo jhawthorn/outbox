@@ -92,7 +92,7 @@ test("a branch page says when the branch moves, and does not change under the re
 });
 
 test("a job started in another tab shows on the page already open", async ({ page, context }) => {
-  await page.goto("/repos/live");
+  await page.goto("/repos/live/review");
   const row = page.locator("table.pending tbody tr", { has: page.locator("a", { hasText: /^main$/ }) });
   await expect(row).toContainText("2 commits to push");
   await mark(page);
@@ -100,7 +100,7 @@ test("a job started in another tab shows on the page already open", async ({ pag
   const other = await context.newPage();
   await other.goto("/repos/live/branches/main");
   await other.getByRole("button", { name: "Approve and push to upstream" }).click();
-  await expect(other).toHaveURL("/repos/live");
+  await expect(other).toHaveURL("/repos/live/review");
   await other.close();
 
   await expect(page.locator("main")).toContainText("pushed main to upstream");
@@ -109,7 +109,7 @@ test("a job started in another tab shows on the page already open", async ({ pag
 });
 
 test("a page that was hidden catches up when shown", async ({ page }) => {
-  await page.goto("/repos/live");
+  await page.goto("/repos/live/review");
   await expect(page.locator("main")).not.toContainText("hidden.txt");
   await mark(page);
   let streams = 0;

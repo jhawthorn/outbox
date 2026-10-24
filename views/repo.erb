@@ -1,92 +1,23 @@
 <% @title = @repo.name %>
-<%= erb :_repo_head, layout: false, locals: { tab: "code", actions: %(<form class="inline" method="post" action="#{repo_url(@repo)}/fetch"><button type="submit"#{" disabled" if @status.busy?}>Fetch upstream</button></form>) } %>
+<% fetch = %(<form class="inline" method="post" action="#{repo_url(@repo)}/fetch"><input type="hidden" name="back" value="#{h request.path}"><button type="submit"#{" disabled" if @status.busy?}>Fetch upstream</button></form>) %>
+<%= erb :_repo_head, layout: false, locals: { tab: "code", actions: fetch } %>
+<%= erb :_job_status, layout: false %>
 
-<div class="remotes muted">
-  <% if @repo.config? %>
-    <span>the outbox's own configuration; approving a change here applies it</span>
-  <% else %>
-    <% @repo.remotes.each do |remote, url| %>
-      <span><%= remote == @repo.push_remote ? "push" : "fetch" %> <b><%= h remote %></b> <code><%= h url %></code></span>
-    <% end %>
-    <% unless @repo.configured_bases.empty? %>
-      <span>base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
-    <% end %>
-  <% end %>
-</div>
-
-<% if @status.running? %>
-  <div class="panel">
-    <span class="badge busy">working</span>
-    <%= h job_label(@status) %> <span class="muted">(<%= duration(@status.elapsed) %>)</span>
-    <% if @status.queued > 1 %><span class="muted">· <%= @status.queued - 1 %> more queued</span><% end %>
-    <% if @status.progress %><div class="progress"><%= h @status.progress %></div><% end %>
-  </div>
-<% elsif @status.busy? %>
-  <div class="panel"><span class="badge busy">queued</span></div>
-<% elsif @status.last && !@status.last.ok? %>
-  <div class="panel danger">
-    <span class="badge failed"><%= h @status.last.job %> failed</span>
-    <% if @status.last.branch %>on <code><%= h @status.last.branch %></code><% end %>
-    <pre style="margin:8px 0 0;white-space:pre-wrap"><%= h @status.last.message %></pre>
-    <form class="inline" method="post" action="<%= repo_url(@repo) %>/dismiss">
-      <button type="submit">Dismiss</button>
-    </form>
-  </div>
-<% elsif @status.last %>
-  <p class="muted"><%= h @status.last.message %>.</p>
-<% end %>
-
+<%# Staged work, pointed out; the list itself is the Review tab. %>
 <% pending = @branches.select(&:pending?) %>
-<% synced = @branches.size - pending.size %>
-
-<h2 id="review">Awaiting review</h2>
-<% if @branches.empty? %>
-  <% unless @status.busy? %>
-    <p class="empty">No branches. Push something to <code><%= h clone_url(@repo) %></code>.</p>
-  <% end %>
-<% elsif pending.empty? %>
-  <p class="empty compact"><%= pluralize(synced, "branch", "branches") %> in sync with upstream. Nothing to review.</p>
-<% else %>
-  <table class="pending">
-    <thead><tr><th>Branch</th><th>Status</th><th>Staged</th><th>Upstream</th><th></th></tr></thead>
-    <tbody>
-    <% pending.each do |b| %>
-      <tr>
-        <td><a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a></td>
-        <td>
-          <span class="badge <%= b.status %>"><%= status_label(b) %></span>
-          <div class="muted" style="font-size:13px"><%= h summary(b) %> · <%= committed_label(b.time) %></div>
-        </td>
-        <td><code><%= short(b.staged) %></code></td>
-        <td><code><%= short(b.upstream) %></code></td>
-        <td><div class="actions">
-          <a href="<%= branch_url(@repo, b.name) %>">Review</a>
-          <% unless b.needs_force? %>
-            <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
-              <input type="hidden" name="expected" value="<%= b.staged %>">
-              <button type="submit" class="primary">Approve</button>
-            </form>
-          <% end %>
-          <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
-                data-confirm="Discard staged changes on <%= h b.name %>?">
-            <input type="hidden" name="expected" value="<%= b.staged %>">
-            <button type="submit" class="danger">Discard</button>
-          </form>
-        </div></td>
-      </tr>
-    <% end %>
-    </tbody>
-  </table>
-  <% if synced > 0 %>
-    <p class="muted" style="margin-top:8px"><a href="<%= repo_url(@repo) %>/branches"><%= pluralize(synced, "other branch", "other branches") %></a> in sync with upstream.</p>
-  <% end %>
+<% unless pending.empty? %>
+  <div class="pending-note">
+    <span><b><%= pluralize(pending.size, "branch", "branches") %></b> awaiting review:
+      <% pending.first(3).each_with_index do |b, i| %><%= ", " if i > 0 %><a href="<%= branch_url(@repo, b.name) %>"><%= h b.name %></a> <span class="badge <%= b.status %>"><%= status_label(b) %></span><% end %><%= ", …" if pending.size > 3 %></span>
+    <span class="spacer"></span>
+    <a class="button" href="<%= review_url(@repo) %>">Review</a>
+  </div>
 <% end %>
 
 <% if @tree_error %>
-  <h2 id="code">Code</h2>
   <div class="panel warn">The code could not be shown: <%= h @tree_error %></div>
-<% end %>
-<% if @rev %>
-  <h2 id="code">Code</h2>
+<% elsif @rev %>
   <%= erb :_tree, layout: false %>
+<% elsif !@status.busy? %>
+  <p class="empty">No code yet. Push something to <code><%= h clone_url(@repo) %></code>.</p>
 <% end %>

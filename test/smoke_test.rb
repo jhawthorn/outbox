@@ -86,7 +86,7 @@ class SmokeTest < Minitest::Test
 
     refute_equal pushed, upstream_sha(@upstream, "main"), "push must not reach upstream before approval"
 
-    page = get("/repos/demo").body
+    page = get("/repos/demo/review").body
     assert_includes page, %(class="badge ready")
     assert_includes page, "1 commit to push"
 
@@ -112,7 +112,7 @@ class SmokeTest < Minitest::Test
 
     post_reviewed("/repos/demo/branches/main", "approve")
     wait_until("approve to reach upstream") { upstream_sha(@upstream, "main") == pushed }
-    assert_includes get("/repos/demo").body, "in sync"
+    assert_includes get("/repos/demo/review").body, "in sync"
   end
 
   # What the pages listen to: GET /events stays open and names each
@@ -168,7 +168,7 @@ class SmokeTest < Minitest::Test
 
     post_reviewed("/repos/demo/branches/feature/thing", "discard")
     # The branch row goes away; the "discarded ... feature/thing" result line stays.
-    wait_until("discard") { !get("/repos/demo").body.include?("/branches/feature/thing") }
+    wait_until("discard") { !get("/repos/demo/review").body.include?("/branches/feature/thing") }
     assert_equal "", sh("git", "--git-dir", @upstream, "branch", "--list", "feature/thing").strip
   end
 
@@ -191,7 +191,7 @@ class SmokeTest < Minitest::Test
     assert_includes page, "Force approve"
 
     post_reviewed("/repos/demo/branches/main", "approve")
-    wait_until("approve to be refused") { get("/repos/demo").body.include?("approve failed") }
+    wait_until("approve to be refused") { get("/repos/demo/review").body.include?("approve failed") }
     assert_equal moved, upstream_sha(@upstream, "main"), "non-forced approve must not touch upstream"
 
     post_reviewed("/repos/demo/branches/main", "approve", "force" => "1")
@@ -201,11 +201,11 @@ class SmokeTest < Minitest::Test
   def test_fetch_follows_upstream_when_nothing_staged
     commit_to_upstream(@upstream, "c.txt", "more\n", "More upstream")
     post("/repos/demo/fetch")
-    wait_until("fetch") { get("/repos/demo").body.include?("fetched upstream") }
+    wait_until("fetch") { get("/repos/demo/review").body.include?("fetched upstream") }
 
     clone = clone_from_outbox("demo")
     assert File.exist?(File.join(clone, "c.txt"))
-    assert_includes get("/repos/demo").body, "in sync"
+    assert_includes get("/repos/demo/review").body, "in sync"
   end
 
   def test_repos_are_independent
@@ -217,11 +217,11 @@ class SmokeTest < Minitest::Test
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Change other")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
 
-    assert_includes get("/repos/other").body, %(class="badge ready")
-    assert_includes get("/repos/demo").body, "in sync"
+    assert_includes get("/repos/other/review").body, %(class="badge ready")
+    assert_includes get("/repos/demo/review").body, "in sync"
 
     post_reviewed("/repos/other/branches/main", "approve")
-    wait_until("approve other") { get("/repos/other").body.include?("in sync") }
+    wait_until("approve other") { get("/repos/other/review").body.include?("in sync") }
     assert_equal "hello\n", read_upstream_file(@upstream, "README"), "demo upstream untouched"
   end
 
@@ -242,15 +242,15 @@ class SmokeTest < Minitest::Test
   # succeeds if git got the token through askpass.
   def test_https_upstream_is_authenticated_with_the_token
     add_repo("mirror", "http://127.0.0.1:#{@port}/demo.git")
-    assert_includes get("/repos/mirror").body, "in sync"
+    assert_includes get("/repos/mirror/review").body, "in sync"
     refute_includes get("/").body, "OUTBOX_UPSTREAM_TOKEN"
 
     stop_server
     boot_server(token: nil)
     assert_includes get("/").body, "<code>OUTBOX_UPSTREAM_TOKEN</code> is not set"
     post("/repos/mirror/fetch")
-    wait_until("fetch to fail without a token") { get("/repos/mirror").body.include?("fetch failed") }
-    assert_match(/401|Authentication|could not read Username/, get("/repos/mirror").body)
+    wait_until("fetch to fail without a token") { get("/repos/mirror/review").body.include?("fetch failed") }
+    assert_match(/401|Authentication|could not read Username/, get("/repos/mirror/review").body)
   end
 
   def test_ssh_upstreams_are_refused
@@ -259,7 +259,7 @@ class SmokeTest < Minitest::Test
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Add sshy")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
     post_reviewed("/repos/_config/branches/main", "approve")
-    wait_until("approval") { get("/repos/_config").body.include?("in sync") }
+    wait_until("approval") { get("/repos/_config/review").body.include?("in sync") }
     assert_includes get("/").body, "sshy: upstream git@github.com:x/y.git must be an https URL"
     assert_equal "404", get("/repos/sshy").code
   end
@@ -270,7 +270,7 @@ class SmokeTest < Minitest::Test
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Remove demo")
     sh("git", "-C", clone, "push", "--quiet", "origin", "main")
     post_reviewed("/repos/_config/branches/main", "approve")
-    wait_until("approval") { get("/repos/_config").body.include?("in sync") }
+    wait_until("approval") { get("/repos/_config/review").body.include?("in sync") }
     assert_equal "200", get("/repos/demo").code
     assert File.exist?(File.join(@data, "repos", "demo.git"))
   end
@@ -290,9 +290,9 @@ class SmokeTest < Minitest::Test
     FileUtils.rm_rf(File.join(@data, "repos", "_config.git"))
     boot_server
 
-    wait_until("_config to be fetched") { get("/repos/_config").body.include?("in sync") }
+    wait_until("_config to be fetched") { get("/repos/_config/review").body.include?("in sync") }
     assert File.exist?(File.join(@data, "repos", "demo.git"))
-    page = get("/repos/demo").body
+    page = get("/repos/demo/review").body
     assert_includes page, %(class="badge ready")
     assert_includes page, "1 commit to push"
     assert_includes get("/repos/demo/branches/main").body, "Staged before upgrade"
@@ -348,7 +348,7 @@ class SmokeTest < Minitest::Test
 
   # The way anyone adds a repository: push a change to _config, approve it.
   def add_repo(name, upstream)
-    wait_until("_config to be fetched and idle") { get("/repos/_config").body.include?("in sync") }
+    wait_until("_config to be fetched and idle") { get("/repos/_config/review").body.include?("in sync") }
     clone = clone_from_outbox("_config")
     sh("git", "config", "-f", File.join(clone, "outbox.conf"), "repo.#{name}.upstream", upstream)
     sh("git", "-C", clone, "commit", "--quiet", "-am", "Add #{name}")
@@ -361,7 +361,7 @@ class SmokeTest < Minitest::Test
 
     post_reviewed("/repos/_config/branches/main", "approve")
     wait_until("initial fetch of #{name}") do
-      res = get("/repos/#{name}")
+      res = get("/repos/#{name}/review")
       flunk "initial fetch of #{name} failed:\n#{failure_message(res.body)}" if res.body.include?("fetch failed")
       res.code == "200" && res.body.include?("fetched upstream")
     end

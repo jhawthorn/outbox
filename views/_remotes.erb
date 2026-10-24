@@ -1,0 +1,13 @@
+<div class="remotes muted">
+  <% if @repo.config? %>
+    <span>the outbox's own configuration; approving a change here applies it</span>
+  <% else %>
+    <% @repo.remotes.each do |remote, url| %>
+      <span><%= remote == @repo.push_remote ? "push" : "fetch" %> <b><%= h remote %></b> <code><%= h url %></code></span>
+    <% end %>
+    <% unless @repo.configured_bases.empty? %>
+      <span>base <%= @repo.configured_bases.map { |b| "<b>#{h b}</b>" }.join(", ") %></span>
+    <% end %>
+  <% end %>
+</div>
+

@@ -33,10 +33,10 @@ test("approve pushes the branch and the repo page updates in place", async ({ pa
   await expect(page.locator(".review")).toContainText("1 commit to push");
   await page.getByRole("button", { name: "Approve and push to upstream" }).click();
 
-  await expect(page).toHaveURL("/repos/approve");
+  await expect(page).toHaveURL("/repos/approve/review");
   await mark(page);
   await expect(page.locator("main")).toContainText("pushed main to upstream");
-  await expect(page.locator("main")).toContainText("1 branch in sync with upstream. Nothing to review.");
+  await expect(page.locator("main")).toContainText("Nothing to review: 1 branch in sync with upstream.");
   await expect(page.locator(".badge.busy")).toHaveCount(0);
   expect(await marked(page)).toBe(true);
 });
@@ -55,14 +55,14 @@ test("discard asks first, and declining changes nothing", async ({ page }) => {
   const accepted = answerConfirm(page, "accept");
   await discard.click();
   expect(await accepted).toBe("Discard staged changes on main?");
-  await expect(page).toHaveURL("/repos/discard");
+  await expect(page).toHaveURL("/repos/discard/review");
   await expect(page.locator("main")).toContainText("discarded staged changes on main");
   await expect(page.locator("main")).toContainText("Nothing to review");
   await expect(page.locator("a[href='/repos/discard/branches/main']")).toHaveCount(0);
 });
 
 test("a diverged branch needs a confirmed force approve", async ({ page }) => {
-  await page.goto("/repos/diverged");
+  await page.goto("/repos/diverged/review");
   const row = page.locator("table.pending tbody tr", { hasText: "main" });
   await expect(row.locator(".badge")).toHaveText("diverged");
   await expect(row.getByRole("button", { name: "Approve" })).toHaveCount(0);
@@ -86,16 +86,16 @@ test("a diverged branch needs a confirmed force approve", async ({ page }) => {
   const accepted = answerConfirm(page, "accept");
   await force.click();
   await accepted;
-  await expect(page).toHaveURL("/repos/diverged");
+  await expect(page).toHaveURL("/repos/diverged/review");
   await expect(page.locator("main")).toContainText("pushed main to upstream");
-  await expect(page.locator("main")).toContainText("1 branch in sync with upstream. Nothing to review.");
+  await expect(page.locator("main")).toContainText("Nothing to review: 1 branch in sync with upstream.");
 });
 
 test("a fetch shows its progress live, then its failure, until dismissed", async ({ page }) => {
   test.slow(); // the stub upstream takes a couple of seconds to answer
   let fetches = 0;
   page.on("request", (r) => { if (r.headers()["x-requested-with"] === "live") fetches++; });
-  await page.goto("/repos/slow");
+  await page.goto("/repos/slow/review");
   // The fetch at boot failed the same way; clear it so this test's is distinct.
   const failed = page.locator(".panel.danger");
   if (await failed.count()) {
@@ -104,7 +104,7 @@ test("a fetch shows its progress live, then its failure, until dismissed", async
   }
 
   await page.getByRole("button", { name: "Fetch upstream" }).click();
-  await expect(page).toHaveURL("/repos/slow");
+  await expect(page).toHaveURL("/repos/slow/review");
   await mark(page);
   await expect(page.locator(".badge.busy")).toHaveText("working");
   await expect(page.locator(".panel")).toContainText("Fetching upstream");
@@ -124,7 +124,7 @@ test("a fetch shows its progress live, then its failure, until dismissed", async
   expect(fetches).toBe(settled);
 
   await failed.getByRole("button", { name: "Dismiss" }).click();
-  await expect(page).toHaveURL("/repos/slow");
+  await expect(page).toHaveURL("/repos/slow/review");
   await expect(failed).toHaveCount(0);
   await expect(page.locator("main")).toContainText("No branches. Push something to");
 });

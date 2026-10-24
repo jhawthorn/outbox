@@ -387,6 +387,10 @@ test("a directory is browsed at the same kind of URL", async ({ page }) => {
 test("the files sit in a tree beside the diff, and viewed ones fold away", async ({ page }) => {
   await page.goto(BRANCH);
   const tree = page.getByRole("complementary", { name: "Files in this diff" });
+  // Four files is not enough for the tree to open by itself.
+  await expect(page.locator("main.codeview")).toBeVisible();
+  await expect(tree).toHaveCount(0);
+  await page.getByRole("button", { name: "Files" }).click();
   await expect(tree.locator("a")).toHaveText([/README/, /long\.rb/, /thing\.rb/, /notes\.md/]);
   await expect(tree.locator(".dir")).toHaveText(["lib"]);
   await expect(tree).toContainText("0 / 4 viewed");

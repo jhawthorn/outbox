@@ -74,6 +74,9 @@ module Outbox
 
       def repo_url(repo) = "/repos/#{repo.name}"
 
+      # The branches awaiting review, with what can be done about each.
+      def review_url(repo) = "#{repo_url(repo)}/review"
+
       # Branch names are the pusher's, and may hold anything git allows,
       # quotes and angle brackets included: escaped like any path.
       def branch_url(repo, branch) = "#{repo_url(repo)}/branches/#{url_path(branch)}"
@@ -192,9 +195,9 @@ module Outbox
       def identity_line(c)
         author = "#{hv c.author} &lt;#{hv c.author_email}&gt;"
         if c.committer_differs?
-          "#{author} authored #{h c.date} · #{hv c.committer} &lt;#{hv c.committer_email}&gt; committed #{h c.commit_date}"
+          "#{author} authored #{when_label(c.date)} · #{hv c.committer} &lt;#{hv c.committer_email}&gt; committed #{when_label(c.commit_date)}"
         else
-          "#{author} committed #{h c.date}"
+          "#{author} committed #{when_label(c.date)}"
         end
       end
 
@@ -345,9 +348,11 @@ module Outbox
       def repo_tabs(active)
         pending = @repo.pending_branches.size
         rev = @rev && !@rev.commit? ? @rev.name : nil
+        # Code is the repository's home, or the branch being browsed.
+        home = rev.nil? || rev == @repo.default_rev&.name
         tabs = [
-          ["code", "Code", rev ? tree_url(@repo, rev) : repo_url(@repo), nil],
-          ["review", "Review", "#{repo_url(@repo)}#review", pending],
+          ["code", "Code", home ? repo_url(@repo) : tree_url(@repo, rev), nil],
+          ["review", "Review", review_url(@repo), pending],
           ["commits", "Commits", rev ? history_url(@repo, rev) : "#{repo_url(@repo)}/commits", nil],
           ["branches", "Branches", "#{repo_url(@repo)}/branches", nil],
         ]
@@ -582,8 +587,16 @@ module Outbox
         @rev = nil
         @tree_error = e.message
       end
-      @hide_pending_note = true # the page lists what is pending already
+      @hide_pending_note = true # the page has its own
       erb :repo
+    end
+
+    get "/repos/:name/review" do
+      live!
+      @repo = Repo.find!(params[:name])
+      @status = hub.status(@repo)
+      @branches = @repo.branches
+      erb :review
     end
 
     post "/repos/:name/fetch" do
@@ -827,20 +840,20 @@ module Outbox
     end
 
     # Approve and discard are queued on the repo's actor. The outcome shows
-    # up on the repo page as the last result. Both must carry the sha the
+    # up on the repository's pages as the last result. Both must carry the sha the
     # reviewer saw, so a push that lands in between is refused, not approved.
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
       hub.approve(repo, branch.name, force: params[:force] == "1", expected: expected_sha!)
-      redirect repo_url(repo)
+      redirect review_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
       hub.discard(repo, branch.name, expected: expected_sha!)
-      redirect repo_url(repo)
+      redirect review_url(repo)
     end
   end
 end

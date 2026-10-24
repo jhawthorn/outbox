@@ -1,7 +1,7 @@
 <% @title = "#{@repo.name} / #{@branch.name}" %>
 <%= erb :_repo_head, layout: false, locals: { tab: "review" } %>
 <div class="page-head">
-  <h1><a class="crumb" href="<%= repo_url(@repo) %>"><%= h @repo.name %></a><span class="sep">/</span><%= h @branch.name %>
+  <h1><a class="crumb" href="<%= review_url(@repo) %>">Review</a><span class="sep">/</span><%= h @branch.name %>
     <span class="badge <%= @branch.status %>"><%= status_label(@branch) %></span></h1>
   <% if @branch.staged %><a class="button" href="<%= tree_url(@repo, @branch.staged) %>">Browse files</a><% end %>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">

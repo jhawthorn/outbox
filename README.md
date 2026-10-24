@@ -83,7 +83,7 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   from the push remote's. States: ready, new, deleted, diverged, synced. A diverged
   branch moved onto a newer base is also rebased (below).
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
-- `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name`,
+- `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name` (code), `/repos/:name/review`,
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
   plus POST `approve`, `discard`, `fetch`, and `/events`, which keeps pages current
   (below). The browsing pages are under `/repos/:name` too (Browsing, below).
@@ -146,9 +146,11 @@ upstream commits nothing carries over are listed as dropped. The pairing is skip
 
 ## Browsing
 
-Each repository's pages read like a code host's. `/repos/<name>` shows what is awaiting
-review, then the code on the default branch: the files, the last commit to touch them, and
-the README. Tabs lead to the history, the branch list and back.
+Each repository's pages read like a code host's, under four tabs. Code, `/repos/<name>`,
+is the default branch: the files, the last commit to touch them, and the README, with a
+note when branches await review. Review, `/repos/<name>/review`, lists those branches, with
+approve and discard, and is where approving or discarding comes back to. Commits is the
+history, and Branches every branch of every remote.
 
 URLs name a commit the way people do: `/repos/<name>/tree/<rev>/<path>`, where `<rev>` is a
 staged branch (`main`, `topic/x`), a remote's branch (`upstream/main`, `ruby/master`), a

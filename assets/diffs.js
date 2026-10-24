@@ -66,7 +66,11 @@ const prefs = {
     try { localStorage.setItem(`outbox:${key}`, value); } catch {}
   },
 };
-const DEFAULT_PREFS = { diffStyle: "unified", fileTree: "shown" };
+const DEFAULT_PREFS = { diffStyle: "unified" };
+
+// The tree beside a diff earns its room from a handful of files on, unless
+// the reader has said otherwise.
+const TREE_FROM = 5;
 
 // Files the reader has marked viewed, kept across pages. The key is the
 // repository, the file's path, both blob ids and any mode change, so a
@@ -296,7 +300,7 @@ async function mount(root) {
 
   const first = await readSlice();
   if (failure && !first.length) throw new Error(`patch ${failure.message}`);
-  root.replaceChildren(diffControls(view, options, files, setCollapsed, slots.size > 1 && toggleTree));
+  root.replaceChildren(diffControls(view, options, files, setCollapsed, slots.size > 1 && toggleTree, slots.size >= TREE_FROM));
   header.append(...main.childNodes);
   main.classList.add("codeview");
   document.body.classList.add("codeview");
@@ -365,7 +369,8 @@ async function mount(root) {
       for (const [, slot] of slots) if (viewed.get(slot.data)) tree.viewed(slot.id, true);
     }
   }
-  if (slots.size > 1 && prefs.get("fileTree") === "shown") toggleTree(true);
+  const treeShown = () => (prefs.get("fileTree") ?? (slots.size >= TREE_FROM ? "shown" : "hidden")) === "shown";
+  if (slots.size > 1 && treeShown()) toggleTree(true);
   // The file at the top of the view is the current one in the tree.
   let tracking = 0;
   view.subscribeToScroll((scrollTop) => {
@@ -667,7 +672,7 @@ function hiddenBadge(file) {
   return badge;
 }
 
-function diffControls(view, options, files, setCollapsed, toggleTree) {
+function diffControls(view, options, files, setCollapsed, toggleTree, treeByDefault) {
   const bar = el("div", "diff-controls");
   const style = el("span", "seg");
   const modes = { unified: "Unified", split: "Split" };
@@ -686,7 +691,7 @@ function diffControls(view, options, files, setCollapsed, toggleTree) {
       toggleTree(show);
       b.setAttribute("aria-pressed", String(show));
     });
-    b.setAttribute("aria-pressed", String(prefs.get("fileTree") === "shown"));
+    b.setAttribute("aria-pressed", String((prefs.get("fileTree") ?? (treeByDefault ? "shown" : "hidden")) === "shown"));
     b.className = "tree-toggle";
     bar.append(b);
   }
