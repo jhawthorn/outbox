@@ -287,6 +287,39 @@ test("file headers say what the patch alone does not", async ({ page }) => {
   await expect(diff(page, 4).locator(".file-notes")).toHaveText("mode 100644 → 100755");
 });
 
+test("images in a diff are shown as they were and as they are", async ({ page }) => {
+  // Late images must still get their room once they arrive.
+  await page.route("**/blobs/*/*.png", async (route) => { await page.waitForTimeout(500); await route.continue(); });
+  await page.goto("/repos/images/branches/main");
+  await expect(title(page, 0)).toHaveText("icon.svg");
+  await page.locator("main").evaluate((m) => { m.scrollTop = m.scrollHeight; });
+
+  const images = (i) => diff(page, i).locator(".image-diff img");
+  const loaded = async (i, widths) => {
+    await expect(images(i)).toHaveCount(widths.length);
+    await expect.poll(() => images(i).evaluateAll((imgs) => imgs.map((img) => img.naturalWidth))).toEqual(widths);
+  };
+  // An SVG is text too: its image is above its lines.
+  await loaded(0, [30, 30]);
+  await expect(diff(page, 0).getByText('fill="green"', { exact: false })).toBeVisible();
+  await loaded(1, [40, 60]);
+  await expect(diff(page, 1).locator(".image-diff figcaption")).toHaveText(["before", "after"]);
+  await expect(diff(page, 1).locator(".file-notes")).toHaveCount(0);
+  await loaded(2, [100]);
+  await expect(images(2)).toHaveAttribute("alt", "new.png, after");
+  await loaded(3, [20]);
+  await expect(images(3)).toHaveAttribute("alt", "old.png, before");
+
+  // Each file is tall enough for its images.
+  for (let i = 0; i < 4; i++) {
+    const [bottom, end] = await diff(page, i).evaluate((d) => [
+      Math.max(...[...d.querySelectorAll(".image-diff img")].map((img) => img.getBoundingClientRect().bottom)),
+      d.getBoundingClientRect().bottom,
+    ]);
+    expect(bottom).toBeLessThan(end);
+  }
+});
+
 test("a commit's full message unfolds and its page shows only its changes", async ({ page }) => {
   await page.goto(BRANCH);
   const commits = page.locator(".history .commit").filter({ has: page.locator(".subject") });

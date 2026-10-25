@@ -267,6 +267,25 @@ class AppTest < OutboxTest::RepoCase
     assert_equal 404, @request.get("/repos/demo/blobs/HEAD").status
   end
 
+  def test_images_in_a_diff_are_served_by_blob_id
+    png = "\x89PNG\r\n\x1A\n\x00binary".b
+    stage_commit("img/a b.png", png, "Add an image")
+    body = get("/repos/demo/branches/main")
+    id = body[/data-new-blob="([0-9a-f]{40})"/, 1]
+    assert_match(/data-binary data-image/, body)
+    assert_includes body, %(<img src="/repos/demo/blobs/#{id}/a%20b.png" alt="img/a b.png, after">)
+
+    res = @request.get("/repos/demo/blobs/#{id}/a%20b.png")
+    assert_equal 200, res.status
+    assert_equal "image/png", res.headers["content-type"]
+    assert_includes res.headers["content-security-policy"], "sandbox"
+    assert_equal png, res.body.b
+    assert_equal "image/svg+xml", @request.get("/repos/demo/blobs/#{id}/x.svg").headers["content-type"]
+    assert_equal 404, @request.get("/repos/demo/blobs/#{id}/a.html").status, "only images"
+    assert_equal 404, @request.get("/repos/demo/blobs/#{"0" * 40}/a.png").status
+    assert_equal 404, @request.get("/repos/demo/blobs/HEAD/a.png").status
+  end
+
   def test_tree_url_shows_a_file_as_it_is_in_a_commit
     sha = stage_commit("lib/a b.rb", "x = 1\ny = 2\n", "Add a")
     blob = @repo.file_blob(sha, "lib/a b.rb")

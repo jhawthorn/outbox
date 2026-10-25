@@ -23,6 +23,8 @@
 #             after a delay, so a fetch can be watched running and failing.
 #   headers   one staged commit: a rename, a binary file, a mode change, a
 #             hidden character and a long file. Read-only.
+#   images    one staged commit: a PNG changed, one added, one deleted, and
+#             an SVG changed. Read-only.
 #   huge      one staged commit of about 20 MB: 400 added files and a
 #             lockfile of 100,000 lines. Read-only; the large diff tests.
 #   browse    for browse.spec.js: a README.md with links, an image and
@@ -34,6 +36,7 @@ require "fileutils"
 require "open3"
 require "socket"
 require "tmpdir"
+require "zlib"
 
 ROOT = File.expand_path("../..", __dir__)
 require File.join(ROOT, "lib/outbox")
@@ -67,6 +70,14 @@ def commit(work, message, files)
   end
   git("add", "--all", chdir: work)
   git("commit", "--quiet", "-m", message, chdir: work)
+end
+
+# A PNG of one colour, width by height.
+def png(width, height, rgb)
+  chunk = ->(type, data) { [data.bytesize].pack("N") + type + data + [Zlib.crc32(type + data)].pack("N") }
+  rows = ("\0" + rgb.pack("C3") * width) * height
+  "\x89PNG\r\n\x1A\n".b + chunk.("IHDR", [width, height, 8, 2, 0, 0, 0].pack("N2C5")) +
+    chunk.("IDAT", Zlib::Deflate.deflate(rows)) + chunk.("IEND", "")
 end
 
 # A bare upstream with an initial commit, and the working clone it came from.
@@ -186,6 +197,13 @@ def seed(dir)
   stage(work, "Exercise the file headers",
         "new_name.rb" => body.sub("line 6\n", "line six\n"), "logo.bin" => "\x00\x02binary",
         "plain.txt" => "pla​in\n", "big.rb" => big.gsub(/= (\d*[05])$/) { "= #{$1.to_i * 2}" })
+
+  svg = ->(fill) { %(<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30" fill="#{fill}"/></svg>\n) }
+  upstream, = make_upstream(dir, "images", "logo.png" => png(40, 40, [200, 0, 0]), "old.png" => png(20, 20, [0, 0, 200]),
+                                           "icon.svg" => svg.("red"))
+  stage(add_repo(dir, "images", upstream), "Redraw the images",
+        "logo.png" => png(60, 30, [0, 160, 0]), "old.png" => nil, "new.png" => png(100, 50, [0, 120, 200]),
+        "icon.svg" => svg.("green"))
 
   upstream, = make_upstream(dir, "huge", "README" => "hello\n")
   files = (1..400).to_h { |n| ["vendor/gem_#{n}/lib.rb", (1..1200).map { |i| "def method_#{n}_#{i}(a, b) = a + b * #{i}\n" }.join] }

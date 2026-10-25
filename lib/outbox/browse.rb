@@ -224,6 +224,16 @@ module Outbox
 
     MAX_RAW_BYTES = 50_000_000
 
+    # A blob's bytes by id, up to MAX_RAW_BYTES: the diff viewer's images.
+    def raw_blob(id)
+      raise NotFound, "not a blob id: #{id.inspect}" unless id.match?(/\A[0-9a-f]{40,64}\z/)
+      raise NotFound, "no blob #{id}" unless git("cat-file", "-t", id).strip == "blob"
+      raise NotFound, "blob #{id} is too large to show" if git("cat-file", "-s", id).to_i > MAX_RAW_BYTES
+      Git.run("cat-file", "blob", id, chdir: path, binary: true)
+    rescue GitError
+      raise NotFound, "no blob #{id}"
+    end
+
     # One line git grep found: the file, the line number and the line.
     class Match
       attr_reader :path, :line, :text

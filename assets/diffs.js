@@ -144,7 +144,7 @@ async function mount(root) {
   const files = [];
   const byId = new Map();
   const blobs = new WeakMap();
-  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, collapsed: f.collapsed, version: f.version });
+  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, annotations: imageAnnotations(f), collapsed: f.collapsed, version: f.version });
   // Whether the reader has collapsed everything, which files still to come join.
   let collapsedAll = false;
 
@@ -180,6 +180,10 @@ async function mount(root) {
       return foldToggle(f, () => setCollapsed([f], !f.collapsed));
     },
     renderHeaderFilenameSuffix: (diff, ctx) => fileNotes(byId.get(ctx.item.id), diff),
+    renderAnnotation: (annotation, ctx) => {
+      const f = byId.get(ctx.item.id);
+      return annotation.metadata === "image" ? imageSides(f, root.dataset.blobUrl) : undefined;
+    },
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
       const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole))].filter(Boolean);
@@ -590,14 +594,42 @@ function foldToggle(file, onclick) {
   return b;
 }
 
+// An image, as it was and as it is, above whatever lines its patch has (an
+// SVG's). pierre draws an annotation on line 0 above the file's first hunk,
+// and measures it, so the image takes the room it needs.
+function imageAnnotations(file) {
+  if (file.data.image == null) return undefined;
+  return [{ side: file.data.newBlob ? "additions" : "deletions", lineNumber: 0, metadata: "image" }];
+}
+
+function imageSides(file, blobUrl) {
+  const { oldBlob, newBlob, path } = file.data;
+  const name = encodeURIComponent(path.split("/").pop());
+  const box = el("div", "image-diff");
+  const side = (blob, label) => {
+    const figure = el("figure", label);
+    const img = el("img");
+    img.src = `${blobUrl}/${blob}/${name}`;
+    img.alt = `${path}, ${label}`;
+    figure.append(img);
+    if (oldBlob && newBlob) figure.append(el("figcaption", "muted", label));
+    return figure;
+  };
+  if (oldBlob) box.append(side(oldBlob, "before"));
+  if (newBlob) box.append(side(newBlob, "after"));
+  return box;
+}
+
 // What pierre's header does not show. Beside the name: a mode change, or
 // that a file is binary or changed nothing.
 function fileNotes(file, diff) {
-  const { mode, binary } = file.data;
+  const { mode, binary, image } = file.data;
   const notes = [];
   if (mode) notes.push(`mode ${mode}`);
-  if (binary != null) notes.push("binary, not shown");
-  else if (diff.hunks.length === 0 && !mode) notes.push("no content changes");
+  // A binary image is shown, and shows what changed.
+  if (binary != null) {
+    if (image == null) notes.push("binary, not shown");
+  } else if (diff.hunks.length === 0 && !mode) notes.push("no content changes");
   return notes.length ? el("span", "file-notes muted", notes.join(" · ")) : undefined;
 }
 

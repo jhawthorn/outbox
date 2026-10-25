@@ -95,7 +95,9 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   highlighting), fetching the `.patch` URL and drawing every file in one CodeView, which
   becomes the page's scroller (the rest of the page is its header). File headers are
   pierre's, with outbox's fold toggle, mode/binary notes and hidden-character badge in
-  their slots, from data attributes on the server's file sections. Each file can be
+  their slots, from data attributes on the server's file sections. An image (an SVG
+  as well as its text) is shown as it was and as it is, above its lines, from
+  `/repos/<name>/blobs/<id>/<file name>`, served sandboxed like raw files. Each file can be
   shown whole, and selected line numbers go in the URL (`#f1-R10-R14`, `L` for the old
   side), so lines can be linked to. Beside a diff of five files or more, its files as a
   tree, in the diff's order, following the file being read (a button shows or hides it

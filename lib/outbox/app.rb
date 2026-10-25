@@ -377,6 +377,16 @@ module Outbox
 
       def image?(path) = IMAGE_TYPES.key?(File.extname(path).downcase)
 
+      # How a file's bytes are served: as what they are, and never as
+      # anything a browser would run. An SVG, say, is sandboxed.
+      def raw_headers(type, immutable:)
+        headers "Content-Type" => type,
+                "X-Content-Type-Options" => "nosniff",
+                "Content-Security-Policy" => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+                "Content-Disposition" => "inline",
+                "Cache-Control" => immutable ? "private, max-age=31536000, immutable" : "no-cache"
+      end
+
       # Reads the directory for the code browser
       # (views/_tree.erb).
       def load_tree(rev, path)
@@ -631,6 +641,15 @@ module Outbox
       Repo.find!(params[:name]).blob(params[:id])
     end
 
+    # An image by blob id, for the diff viewer to show both sides of a
+    # changed one. The name after the id is the file's, for its type.
+    get "/repos/:name/blobs/:id/*" do
+      type = IMAGE_TYPES[File.extname(params[:splat].first).downcase] or raise NotFound, "not an image"
+      contents = Repo.find!(params[:name]).raw_blob(params[:id])
+      raw_headers(type, immutable: true)
+      contents
+    end
+
     # A file or a directory as it is in a commit, at one URL shape whichever
     # the path is: /tree/<rev>/<path>, the commit's root when the path is
     # empty. rev is a branch, a remote's branch ("upstream/main"), a tag or
@@ -652,11 +671,7 @@ module Outbox
       contents, = repo.file_contents(rev.sha, path)
       type = IMAGE_TYPES[File.extname(path).downcase]
       type ||= contents.include?("\0") ? "application/octet-stream" : "text/plain; charset=utf-8"
-      headers "Content-Type" => type,
-              "X-Content-Type-Options" => "nosniff",
-              "Content-Security-Policy" => "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
-              "Content-Disposition" => "inline",
-              "Cache-Control" => rev.commit? ? "private, max-age=31536000, immutable" : "no-cache"
+      raw_headers(type, immutable: rev.commit?)
       contents
     end
 
