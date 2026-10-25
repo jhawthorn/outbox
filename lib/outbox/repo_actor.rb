@@ -5,7 +5,7 @@ module Outbox
   # that mutates the repo. It receives jobs on its default port and reports
   # what happens on the shared events port the Hub created.
   #
-  # Jobs:    [:fetch]  [:approve, branch, force, expected]  [:discard, branch, expected]  [:stop]
+  # Jobs:    [:fetch]  [:approve, branch, force, expected, expected_upstream]  [:discard, branch, expected, expected_upstream]  [:stop]
   # Events:  [name, :started, job, branch]
   #          [name, :progress, line]
   #          [name, :finished, job, branch, ok, message]
@@ -42,12 +42,12 @@ module Outbox
         repo.fetch!(&progress)
         "fetched upstream"
       when :approve
-        branch, force, expected = args
-        repo.approve!(branch, force: force, expected: expected)
+        branch, force, expected, expected_upstream = args
+        repo.approve!(branch, force: force, expected: expected, expected_upstream: expected_upstream)
         "pushed #{branch} to upstream"
       when :discard
-        branch, expected = args
-        repo.discard!(branch, expected: expected)
+        branch, expected, expected_upstream = args
+        repo.discard!(branch, expected: expected, expected_upstream: expected_upstream)
         "discarded staged changes on #{branch}"
       else
         raise ArgumentError, "unknown job #{job.inspect}"

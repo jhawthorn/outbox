@@ -128,7 +128,8 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   updates, confirm dialogs, the offline page.
 
 Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverged
-branches need an explicit force. A branch's diff runs from upstream's current tip to the
+branches need an explicit force. Approve and discard carry both the staged and the upstream sha the reviewer
+saw, and are refused if either has moved, since the diff runs between the two. A branch's diff runs from upstream's current tip to the
 staged tip, so for a diverged branch it is exactly what the force push changes there: an
 amended commit shows as the amendment, and anything only upstream has shows as removed.
 

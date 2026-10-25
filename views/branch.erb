@@ -29,23 +29,27 @@
               data-confirm="<%= h force_confirm(@branch, @dropped_count) %>">
           <input type="hidden" name="force" value="1">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
+          <input type="hidden" name="expected_upstream" value="<%= @branch.upstream %>">
           <button type="submit" class="warn"><%= h force_label(@dropped_count) %></button>
         </form>
       <% elsif @branch.status == :deleted %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve"
               data-confirm="Delete <%= h @branch.name %> from upstream?">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
+          <input type="hidden" name="expected_upstream" value="<%= @branch.upstream %>">
           <button type="submit" class="danger">Approve and delete from upstream</button>
         </form>
       <% else %>
         <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/approve">
           <input type="hidden" name="expected" value="<%= @branch.staged %>">
+          <input type="hidden" name="expected_upstream" value="<%= @branch.upstream %>">
           <button type="submit" class="primary">Approve and push to upstream</button>
         </form>
       <% end %>
       <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/discard"
             data-confirm="Discard staged changes on <%= h @branch.name %>?">
         <input type="hidden" name="expected" value="<%= @branch.staged %>">
+        <input type="hidden" name="expected_upstream" value="<%= @branch.upstream %>">
         <button type="submit" class="danger">Discard</button>
       </form>
     </div>

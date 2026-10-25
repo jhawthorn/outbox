@@ -993,16 +993,18 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, %(<h1 class="commit-title">Add x</h1>)
   end
 
+  def upstream_sha = @repo.branch("main").upstream.to_s
+
   def test_approve_and_discard_enqueue_and_redirect
     staged = stage_commit
-    res = @request.post("/repos/demo/branches/main/approve", params: { expected: staged })
+    res = @request.post("/repos/demo/branches/main/approve", params: { expected: staged, expected_upstream: upstream_sha })
     assert_equal 303, res.status
     assert_equal "http://example.org/repos/demo", res["location"]
     wait_until("approve") { !Outbox.hub.status(@repo).busy? }
     assert_equal staged, rev(@upstream, "main")
 
     stage_commit("z.txt", "z\n", "Z")
-    res = @request.post("/repos/demo/branches/main/discard", params: { expected: rev(@stage, "main") })
+    res = @request.post("/repos/demo/branches/main/discard", params: { expected: rev(@stage, "main"), expected_upstream: upstream_sha })
     assert_equal 303, res.status
     wait_until("discard") { !Outbox.hub.status(@repo).busy? }
     assert_equal :synced, status_of
@@ -1014,6 +1016,9 @@ class AppTest < OutboxTest::RepoCase
       res = @request.post("/repos/demo/branches/main/#{action}")
       assert_equal 422, res.status
       assert_includes res.body, "missing expected"
+      res = @request.post("/repos/demo/branches/main/#{action}", params: { expected: staged })
+      assert_equal 422, res.status
+      assert_includes res.body, "missing expected_upstream"
     end
     refute_equal staged, rev(@upstream, "main")
     assert_equal :ready, status_of
@@ -1026,14 +1031,14 @@ class AppTest < OutboxTest::RepoCase
   def test_posts_from_another_origin_are_refused
     staged = stage_commit
     %w[approve discard].each do |action|
-      res = @request.post("/repos/demo/branches/main/#{action}", params: { expected: staged }, "HTTP_ORIGIN" => "http://evil.example")
+      res = @request.post("/repos/demo/branches/main/#{action}", params: { expected: staged, expected_upstream: upstream_sha }, "HTTP_ORIGIN" => "http://evil.example")
       assert_equal 403, res.status
     end
     assert_equal 403, @request.post("/fetch", "HTTP_ORIGIN" => "http://evil.example").status
     assert_equal :ready, status_of
     refute_equal staged, rev(@upstream, "main")
     # The site's own forms carry its origin.
-    res = @request.post("/repos/demo/branches/main/discard", params: { expected: staged }, "HTTP_ORIGIN" => "http://example.org")
+    res = @request.post("/repos/demo/branches/main/discard", params: { expected: staged, expected_upstream: upstream_sha }, "HTTP_ORIGIN" => "http://example.org")
     assert_equal 303, res.status
     wait_until("discard") { !Outbox.hub.status(@repo).busy? }
     assert_equal :synced, status_of

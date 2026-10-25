@@ -489,12 +489,14 @@ module Outbox
 
     # --- review -------------------------------------------------------------
 
-    # expected: the staged sha the reviewer looked at ("" for a deletion).
-    # If the branch has moved since, refuse: approving must mean approving
-    # exactly what was reviewed, not whatever got pushed afterwards.
-    def approve!(name, force: false, expected: nil)
+    # expected, expected_upstream: the staged and upstream shas the reviewer
+    # looked at ("" for a branch that is deleted or not on upstream). If
+    # either has moved since, refuse: approving must mean approving exactly
+    # what was reviewed, not whatever got pushed or fetched afterwards. The
+    # diff runs from upstream to staged, so it is wrong if either moves.
+    def approve!(name, force: false, expected: nil, expected_upstream: nil)
       b = branch(name)
-      check_expected!(b, expected)
+      check_expected!(b, expected, expected_upstream)
       ref = "refs/heads/#{name}"
       case b.status
       when :synced
@@ -518,9 +520,9 @@ module Outbox
       b
     end
 
-    def discard!(name, expected: nil)
+    def discard!(name, expected: nil, expected_upstream: nil)
       b = branch(name)
-      check_expected!(b, expected)
+      check_expected!(b, expected, expected_upstream)
       if b.upstream
         git("update-ref", "-m", "outbox: discard", "refs/heads/#{name}", b.upstream, b.staged.to_s)
       else
@@ -776,13 +778,16 @@ module Outbox
 
     def push(*args) = git("push", "--quiet", push_remote, *args, extra: remote_env, timeout: Git::REMOTE_TIMEOUT)
 
-    def check_expected!(b, expected)
-      return if expected.nil?
-      actual = b.staged.to_s
-      return if actual == expected
-      was = expected.empty? ? "deleted" : expected[0, 10]
-      now = actual.empty? ? "deleted" : actual[0, 10]
-      raise GitError, "#{b.name} changed since you reviewed it (reviewed #{was}, now #{now}). Review it again."
+    def check_expected!(b, expected, expected_upstream)
+      check_sha!(b, "changed", "deleted", expected, b.staged)
+      check_sha!(b, "changed upstream", "absent", expected_upstream, b.upstream)
+    end
+
+    def check_sha!(b, what, none, expected, actual)
+      return if expected.nil? || actual.to_s == expected
+      was = expected.empty? ? none : expected[0, 10]
+      now = actual.nil? ? none : actual[0, 10]
+      raise GitError, "#{b.name} #{what} since you reviewed it (reviewed #{was}, now #{now}). Review it again."
     end
 
     def branch_info(name, staged, upstream, time)

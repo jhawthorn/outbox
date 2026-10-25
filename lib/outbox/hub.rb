@@ -107,8 +107,10 @@ module Outbox
       @notifier.publish(repo.name, :status)
     end
 
-    def approve(repo, branch, force: false, expected: nil) = enqueue(repo, [:approve, branch, force, expected])
-    def discard(repo, branch, expected: nil) = enqueue(repo, [:discard, branch, expected])
+    def approve(repo, branch, force: false, expected: nil, expected_upstream: nil) =
+      enqueue(repo, [:approve, branch, force, expected, expected_upstream])
+    def discard(repo, branch, expected: nil, expected_upstream: nil) =
+      enqueue(repo, [:discard, branch, expected, expected_upstream])
 
     # Stop every actor, the event thread, the watcher and the notifier. Jobs
     # still queued are dropped.

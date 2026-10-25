@@ -518,6 +518,56 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal sneaked, rev(@upstream, "main")
   end
 
+  # The force confirmation counts the upstream commits it will drop. A fetch
+  # between the page and the click must not make it drop more.
+  def test_force_approve_refuses_when_upstream_moved_since_review
+    staged = stage_commit
+    upstream_commit("a.txt", "a\n", "Seen")
+    @repo.fetch!
+    reviewed = @repo.branch("main").upstream
+    unseen = upstream_commit("b.txt", "b\n", "Fetched after review")
+    @repo.fetch!
+
+    err = assert_raises(Outbox::GitError) do
+      @repo.approve!("main", force: true, expected: staged, expected_upstream: reviewed)
+    end
+    assert_includes err.message, "changed upstream since you reviewed it"
+    assert_includes err.message, reviewed[0, 10]
+    assert_includes err.message, unseen[0, 10]
+    assert_equal unseen, rev(@upstream, "main")
+
+    @repo.approve!("main", force: true, expected: staged, expected_upstream: unseen)
+    assert_equal staged, rev(@upstream, "main")
+  end
+
+  def test_delete_refuses_when_upstream_moved_since_review
+    add_upstream_branch("extra")
+    @repo.fetch!
+    git("push", "--quiet", "origin", ":extra", chdir: @stage)
+    reviewed = @repo.branch("extra").upstream
+    git("checkout", "--quiet", "extra", chdir: @up_work)
+    unseen = commit(@up_work, "c.txt", "c\n", "Pushed after review")
+    push(@up_work, "extra")
+    @repo.fetch!
+
+    assert_raises(Outbox::GitError) { @repo.approve!("extra", expected: "", expected_upstream: reviewed) }
+    assert_equal unseen, rev(@upstream, "extra")
+  end
+
+  def test_expected_upstream_is_empty_for_a_new_branch
+    git("push", "--quiet", "origin", "main:refs/heads/fresh", chdir: @stage)
+    @repo.approve!("fresh", expected: rev(@stage, "main"), expected_upstream: "")
+    assert ref_exists?(@upstream, "refs/heads/fresh")
+  end
+
+  def test_discard_refuses_when_upstream_moved_since_review
+    stage_commit
+    reviewed = @repo.branch("main").upstream
+    upstream_commit
+    @repo.fetch!
+    assert_raises(Outbox::GitError) { @repo.discard!("main", expected: rev(@stage, "main"), expected_upstream: reviewed) }
+  end
+
   def test_expected_covers_deletion_and_recreation
     add_upstream_branch("extra")
     git("push", "--quiet", "origin", ":extra", chdir: @stage)

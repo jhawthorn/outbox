@@ -408,7 +408,9 @@ class SmokeTest < Minitest::Test
     name = branch_path[%r{\A/repos/([^/]+)/}, 1]
     branch = branch_path.delete_prefix("/repos/#{name}/branches/")
     staged = sh("git", "--git-dir", File.join(@data, "repos", "#{name}.git"), "rev-parse", "refs/heads/#{branch}").strip
-    post("#{branch_path}/#{action}", form.merge("expected" => staged))
+    upstream = sh("git", "--git-dir", File.join(@data, "repos", "#{name}.git"), "for-each-ref", "--format=%(objectname)",
+                  "refs/remotes/*/#{branch}").strip
+    post("#{branch_path}/#{action}", form.merge("expected" => staged, "expected_upstream" => upstream))
   end
 
   def free_port

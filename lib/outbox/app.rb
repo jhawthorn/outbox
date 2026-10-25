@@ -429,10 +429,16 @@ module Outbox
         [list, index]
       end
 
-      # The sha the reviewer saw, "" for a deleted branch. Required: a
-      # request without it would approve whatever happens to be staged.
-      def expected_sha!
-        params[:expected] or raise ArgumentError, "missing expected: the staged sha that was reviewed"
+      # The staged and upstream shas the reviewer saw, "" for a branch that
+      # is deleted or not on upstream. Required: a request without them would
+      # act on whatever happens to be there, not on the diff that was shown.
+      def expected_shas!
+        {
+          expected: params.fetch("expected") { raise ArgumentError, "missing expected: the staged sha that was reviewed" },
+          expected_upstream: params.fetch("expected_upstream") do
+            raise ArgumentError, "missing expected_upstream: the upstream sha that was reviewed"
+          end
+        }
       end
 
       def show_path(name, splat)
@@ -872,14 +878,14 @@ module Outbox
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.approve(repo, branch.name, force: params[:force] == "1", expected: expected_sha!)
+      hub.approve(repo, branch.name, force: params[:force] == "1", **expected_shas!)
       redirect review_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.discard(repo, branch.name, expected: expected_sha!)
+      hub.discard(repo, branch.name, **expected_shas!)
       redirect review_url(repo)
     end
   end

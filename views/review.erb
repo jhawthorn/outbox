@@ -41,12 +41,14 @@
           <% unless b.needs_force? %>
             <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/approve">
               <input type="hidden" name="expected" value="<%= b.staged %>">
+              <input type="hidden" name="expected_upstream" value="<%= b.upstream %>">
               <button type="submit" class="primary">Approve</button>
             </form>
           <% end %>
           <form class="inline" method="post" action="<%= branch_url(@repo, b.name) %>/discard"
                 data-confirm="Discard staged changes on <%= h b.name %>?">
             <input type="hidden" name="expected" value="<%= b.staged %>">
+            <input type="hidden" name="expected_upstream" value="<%= b.upstream %>">
             <button type="submit" class="danger">Discard</button>
           </form>
         </div></td>
