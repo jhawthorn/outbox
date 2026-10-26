@@ -247,6 +247,17 @@ module Outbox
         rows.reverse
       end
 
+      # What a reworked commit changed about the upstream one it replaces,
+      # beyond its patch: its old message, author and date. Empty when it
+      # differs only in its patch.
+      def rework_notes(new, old)
+        notes = []
+        notes << "message was “#{old.subject}”" unless new.message == old.message
+        notes << "author was #{old.author}" unless new.author == old.author && new.author_email == old.author_email
+        notes << "dated #{when_label(old.date)} upstream" unless new.date == old.date
+        notes
+      end
+
       def file_status_label(file)
         case file.status
         when :added   then "added"
@@ -868,6 +879,7 @@ module Outbox
       @rewrite = @repo.rewrite(@branch)
       @dropped = @rewrite ? @outgoing.reject { |c| @rewrite.carried?(c.sha) } : @outgoing
       @dropped_count = @rewrite ? @dropped.size : @outgoing_count
+      @upstream_commits = @outgoing.to_h { |c| [c.sha, c] }
       @tips = other_tips(@repo.branches, @branch)
       erb :branch
     end

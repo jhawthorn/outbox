@@ -825,6 +825,23 @@ class AppTest < OutboxTest::RepoCase
     assert_includes get("/"), "rebased onto 1 newer upstream commit"
   end
 
+  def test_an_amended_commit_says_what_it_changed_about_the_upstream_one
+    stage_commit("a.txt", "a\n", "Keep me")
+    stage_commit("b.txt", "b\nb\n", "Old subject")
+    @repo.approve!("main")
+    File.write(File.join(@stage, "b.txt"), "b\nb\nb\n")
+    git("add", "b.txt", chdir: @stage)
+    git("commit", "--quiet", "--amend", "-m", "New subject", chdir: @stage)
+    push(@stage, "main", force: true)
+    @repo.fetch!
+
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "message was “Old subject”"
+    assert_equal 1, body.scan(">New subject<").size, "the staged commit is listed once"
+    refute_includes body, "Reworked from upstream ("
+    refute_includes body, "Dropped from upstream"
+  end
+
   def test_a_rebase_that_changes_nothing_says_so
     git("checkout", "--quiet", "-b", "feature", chdir: @stage)
     stage_commit("one.txt", LINES, "Add one", branch: "feature")
