@@ -238,7 +238,8 @@ def seed(dir)
   MD
   upstream, up_work = make_upstream(dir, "browse", "README.md" => readme, "docs/guide.md" => "# Guide\n\nBack to [the readme](../README.md).\n",
                                     "docs/logo.svg" => %(<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>),
-                                    "lib/app.rb" => "class App\n  def call = :ok\nend\n", "lib/helper.rb" => "module Helper\nend\n")
+                                    "lib/app.rb" => "class App\n  def call = :ok\nend\n", "lib/helper.rb" => "module Helper\nend\n",
+                                    "bin/tool" => "#!/usr/bin/env ruby\nclass Tool\nend\n")
   commit(up_work, "Make the app answer", "lib/app.rb" => "class App\n  def call = :answer\nend\n")
   git("push", "--quiet", "origin", "main", chdir: up_work)
   work = add_repo(dir, "browse", upstream)

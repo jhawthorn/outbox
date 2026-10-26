@@ -14,9 +14,9 @@ test("the code is a tab away from the review list, and markdown is drawn safely"
   await page.getByRole("link", { name: "Code", exact: true }).click();
   await expect(page).toHaveURL("/repos/browse/tree/main");
   await expect(page.locator("details.refpick summary")).toHaveText("main");
-  await expect(page.locator("table.tree td.name a")).toHaveText(["docs", "lib", "README.md"]);
+  await expect(page.locator("table.tree td.name a")).toHaveText(["bin", "docs", "lib", "README.md"]);
   await expect(page.locator(".last-commit")).toContainText("Make the app answer");
-  await expect(page.locator("table.tree td.msg")).toHaveText(["Initial commit", "Make the app answer", "Initial commit"]);
+  await expect(page.locator("table.tree td.msg")).toHaveText(["Initial commit", "Initial commit", "Make the app answer", "Initial commit"]);
   await expect(page.locator(".markdown-body")).toHaveCount(0); // the README is a file like any other
 
   await page.locator("table.tree").getByRole("link", { name: "README.md" }).click();
@@ -75,6 +75,14 @@ test("t finds a file by name", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL("/repos/browse/tree/main/lib/helper.rb");
   await expect(page.locator("main.codeview diffs-container").getByText("module Helper")).toBeVisible();
+});
+
+test("a script with no extension is highlighted by its shebang", async ({ page }) => {
+  await page.goto("/repos/browse/tree/main/bin/tool");
+  await expect(page.locator("main.codeview diffs-container").getByText("class Tool")).toBeVisible();
+  await expect(page.locator("main.codeview diffs-container span[style*='--diffs-token']").first()).toBeVisible();
+  await page.goto("/repos/browse/blame/main/bin/tool");
+  await expect(page.locator("table.blame tr#L2 td.code span[style]").first()).toHaveText("class");
 });
 
 test("a file's history, blame and permalink", async ({ page }) => {

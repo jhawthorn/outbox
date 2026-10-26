@@ -9,6 +9,7 @@
 // needs only its markdown drawn again ("outbox:swap").
 
 import { hasMatch, score, positions } from "fzy.js";
+import { shebangLang } from "./lang.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -439,8 +440,9 @@ async function highlightBlame(box) {
   const cells = $$("td.code", box);
   if (!cells.length || cells.length > BLAME_MAX_LINES) return;
   const { getSharedHighlighter, getFiletypeFromFileName } = await import("@pierre/diffs");
-  const lang = getFiletypeFromFileName(box.dataset.blameFile);
-  if (!lang || lang === "text") return;
+  let lang = getFiletypeFromFileName(box.dataset.blameFile);
+  if (!lang || lang === "text") lang = shebangLang(cells[0].textContent);
+  if (!lang) return;
   const highlighter = await getSharedHighlighter({ themes: ["pierre-light", "pierre-dark"], langs: [lang] });
   const code = cells.map((td) => td.textContent.replace(/[\r\n]/g, " ")).join("\n");
   const { tokens } = highlighter.codeToTokens(code, { lang, themes: { light: "pierre-light", dark: "pierre-dark" } });

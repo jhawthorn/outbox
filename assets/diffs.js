@@ -19,7 +19,8 @@
 // File headers are pierre's: change icon, old → new name on a rename, and
 // line counts. The slots around the name carry what pierre does not know: a
 // fold toggle, mode changes, binary files, and lines with hidden characters.
-import { CodeView, processFile } from "@pierre/diffs";
+import { CodeView, processFile, getFiletypeFromFileName } from "@pierre/diffs";
+import { shebangLang } from "./lang.js";
 import { getOrCreateWorkerPoolSingleton } from "@pierre/diffs/worker";
 
 const THEME = { light: "pierre-light", dark: "pierre-dark" };
@@ -727,7 +728,10 @@ async function mountFile(root) {
   document.body.classList.add("codeview");
   view.setup(main);
   const id = "file";
-  view.setItems([{ id, type: "file", file: { name, contents, cacheKey: root.dataset.blobUrl }, version: 0 }]);
+  // Pierre goes by the name; a script with none (bin/foo) is read by its shebang.
+  const named = getFiletypeFromFileName(name);
+  const lang = !named || named === "text" ? shebangLang(contents) : undefined;
+  view.setItems([{ id, type: "file", file: { name, contents, cacheKey: root.dataset.blobUrl, ...(lang && { lang }) }, version: 0 }]);
 
   const m = /^#L(\d+)(?:-L?(\d+))?$/.exec(location.hash);
   if (m) {
