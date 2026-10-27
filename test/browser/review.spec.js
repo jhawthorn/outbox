@@ -386,6 +386,12 @@ test("a rebase that conflicted shows how it was resolved", async ({ page }) => {
   await expect(diff(page, 0).getByText("setting_6 = 45")).toBeVisible();
 });
 
+test("a file's diff header links to the whole file as it is after the change", async ({ page }) => {
+  await page.goto(BRANCH);
+  await page.locator("main.codeview diffs-container").first().getByRole("link", { name: "View file" }).first().click();
+  await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}\//);
+});
+
 test("a file can be viewed whole, with lines selected from the URL", async ({ page }) => {
   await page.goto(BRANCH);
   await page.locator(".patch-summary li", { hasText: "lib/long.rb" }).getByText("view file").click();

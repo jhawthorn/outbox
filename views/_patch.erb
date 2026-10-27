@@ -36,7 +36,7 @@
   <div class="patch" data-patch-url="<%= patch_url %>" data-blob-url="<%= blob_url %>">
   <% files.each_with_index do |f, i| %>
     <%# What the browser's file headers show besides the path and counts (diffs.js). %>
-    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if image?(f.path) %> data-image<% end %><% if f.mode_change? %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.join(", ") %>"<% end %> data-status="<%= f.status || "modified" %>"<% unless f.binary? %> data-add="<%= f.additions %>" data-del="<%= f.deletions %>"<% end %>>
+    <details class="file" id="f<%= i %>" open data-path="<%= h f.path %>"<% if f.old_blob %> data-old-blob="<%= f.old_blob %>"<% end %><% if f.new_blob %> data-new-blob="<%= f.new_blob %>"<% end %><% if f.binary? %> data-binary<% end %><% if image?(f.path) %> data-image<% end %><% if f.mode_change? %> data-mode="<%= h f.old_mode %> → <%= h f.new_mode %>"<% end %><% if f.hidden_lines.any? %> data-hidden="<%= h f.hidden_lines.join(", ") %>"<% end %> data-status="<%= f.status || "modified" %>"<% unless f.binary? %> data-add="<%= f.additions %>" data-del="<%= f.deletions %>"<% end %><% if rev && f.new_blob && !f.binary? %> data-view-url="<%= h tree_url(@repo, rev, f.path) %>"<% end %>>
       <summary>
         <code><%= hv f.path %></code>
         <% if f.renamed? || f.status == :copied %><span class="muted">← <code><%= hv f.old_path %></code></span><% end %>

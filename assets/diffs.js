@@ -187,7 +187,7 @@ async function mount(root) {
     },
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
-      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole))].filter(Boolean);
+      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole)), viewLink(f)].filter(Boolean);
       if (!notes.length) return undefined;
       const span = el("span", "file-actions");
       span.append(...notes);
@@ -493,6 +493,17 @@ function wholeToggle(file, onclick) {
   b.title = file.whole ? "Show only the changed lines and their context" : "Show every line of the file";
   b.setAttribute("aria-pressed", String(file.whole));
   return b;
+}
+
+// Beside the counts: the file as it is after the change, on its own page.
+function viewLink(file) {
+  const { viewUrl } = file.data;
+  if (!viewUrl) return undefined;
+  const a = el("a", "muted", "View file");
+  a.href = viewUrl;
+  a.title = "View the whole file as it is after this change";
+  a.addEventListener("click", (e) => e.stopPropagation());
+  return a;
 }
 
 // The files of a diff as a tree of directories, a directory with one child
