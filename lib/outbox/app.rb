@@ -822,6 +822,7 @@ module Outbox
       @commit = @repo.commit_detail(sha)
       @patch = @repo.commit_diff(sha, ignore_whitespace: ignore_whitespace?)
       @rev = Repo::Rev.new(name: sha, sha:, kind: :commit)
+      @comments = @repo.comments(sha)
       erb :show_commit
     end
 
@@ -909,6 +910,7 @@ module Outbox
       @older = list[index + 1]
       @position = list.size - index
       @total = list.size
+      @comments = @repo.comments(params[:sha])
       erb :commit
     end
 
@@ -936,6 +938,7 @@ module Outbox
       @tips = other_tips(@repo.branches, @branch)
       @removed_commit = @repo.removed_lines_commit(@branch, rebase: @rebase) if @branch.staged
       @comments, @comment_places = review_comments(@repo, @branch, @removed_commit)
+      @earlier_comments = @repo.earlier_comments(@branch)
       erb :branch
     end
 

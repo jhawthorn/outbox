@@ -9,27 +9,23 @@
   <h2>Comments (<%= @comments.size %>)</h2>
   <% @comments.each do |c| %>
     <% path, side = @comment_places[c] %>
-    <div class="comment<%= " approved" if c.approval? %><%= " rejected" if c.rejection? %>">
-      <div class="meta">
-        <b><%= h c.author %></b>
-        <span class="muted"><%= committed_label(c.time) %></span>
-        <% if c.approval? %><span class="badge ready">approved</span><% elsif c.rejection? %><span class="badge deleted">discarded</span><% end %>
-        <% if c.file? %>
-          <span class="where">on
-            <% lines = c.line? ? (c.start_line == c.end_line ? " line #{c.start_line}" : " lines #{c.start_line}–#{c.end_line}") : "" %>
-            <% if (id = file_ids[c.path]) %>
-              <a href="#<%= id %><%= "-#{side}#{c.start_line}-#{side}#{c.end_line}" if side %>"><code><%= hv c.path %></code><%= lines %></a>
-            <% else %>
-              <code><%= hv c.path %></code><%= lines %>
-            <% end %>
-            <% if c.line? && side == "L" %><span class="muted">(removed)</span><% end %>
-          </span>
-        <% end %>
-      </div>
-      <div class="text"><%= hv c.description %></div>
-    </div>
+    <% id = file_ids[c.path] %>
+    <%= erb :_comment, layout: false, locals: { c: c, href: id && "##{id}#{"-#{side}#{c.start_line}-#{side}#{c.end_line}" if side}", removed: c.line? && side == "L" } %>
   <% end %>
 </section>
+<% end %>
+<%# What was said about earlier pushes, on the commit each was about. Folded: %>
+<%# it is history, and the diff should stay near the top. %>
+<% unless @earlier_comments.empty? %>
+  <details class="comments earlier">
+    <summary>Comments on <%= pluralize(@earlier_comments.size, "earlier push", "earlier pushes") %> (<%= @earlier_comments.sum { |_, list| list.size } %>)</summary>
+    <% @earlier_comments.each do |sha, list| %>
+      <h3>On <a href="<%= show_commit_url(@repo, sha) %>"><code><%= short(sha) %></code></a></h3>
+      <% list.each do |c| %>
+        <%= erb :_comment, layout: false, locals: { c: c, href: nil, removed: c.line? && c.commit != sha } %>
+      <% end %>
+    <% end %>
+  </details>
 <% end %>
 <% if @branch.staged %>
   <%# A comment on the whole of it, from the review panel's Comment button. %>

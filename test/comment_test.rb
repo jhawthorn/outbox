@@ -82,4 +82,26 @@ class CommentTest < OutboxTest::RepoCase
     assert_nil Outbox::Comment.parse("[1]")
     assert_nil Outbox::Comment.parse("{")
   end
+
+  # After a discard and a new push, what was said is on the old tip, and the
+  # branch's reflog still knows it was there.
+  def test_earlier_pushes_keep_their_comments
+    first = stage_commit("a.txt", "a\n", "First try")
+    @repo.add_comment!(first, Outbox::Comment.new(author: "jh", description: "No", timestamp: "10"))
+    @repo.discard!("main")
+    second = stage_commit("a.txt", "b\n", "Second try")
+    @repo.add_comment!(second, Outbox::Comment.new(author: "jh", description: "Better", timestamp: "20"))
+    third = stage_commit("c.txt", "c\n", "More")
+
+    earlier = @repo.earlier_comments("main")
+    assert_equal [second, first], earlier.map(&:first), "newest push first"
+    assert_equal [["Better"], ["No"]], earlier.map { |_, list| list.map(&:description) }
+    refute_includes earlier.map(&:first), third
+    assert_empty Outbox::Repo.new("demo").earlier_comments(@repo.branch("main")).select { |sha, _| sha == third }
+  end
+
+  def test_no_earlier_comments
+    stage_commit
+    assert_empty @repo.earlier_comments("main")
+  end
 end

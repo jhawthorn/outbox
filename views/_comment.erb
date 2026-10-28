@@ -1,0 +1,17 @@
+<%# One review comment (Comment). href: where its file and lines are on this %>
+<%# page, if they are; removed: whether its lines are ones the change removes. %>
+<% lines = c.line? ? (c.start_line == c.end_line ? " line #{c.start_line}" : " lines #{c.start_line}–#{c.end_line}") : "" %>
+<div class="comment<%= " approved" if c.approval? %><%= " rejected" if c.rejection? %>">
+  <div class="meta">
+    <b><%= h c.author %></b>
+    <span class="muted"><%= committed_label(c.time) %></span>
+    <% if c.approval? %><span class="badge ready">approved</span><% elsif c.rejection? %><span class="badge deleted">discarded</span><% end %>
+    <% if c.file? %>
+      <span class="where">on
+        <% if href %><a href="<%= href %>"><code><%= hv c.path %></code><%= lines %></a><% else %><code><%= hv c.path %></code><%= lines %><% end %>
+        <% if removed %><span class="muted">(removed)</span><% end %>
+      </span>
+    <% end %>
+  </div>
+  <div class="text"><%= hv c.description %></div>
+</div>

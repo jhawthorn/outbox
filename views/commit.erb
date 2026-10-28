@@ -17,4 +17,5 @@
   </nav>
 </div>
 <%= erb :_commit_head, layout: false, locals: { c: @commit } %>
+<%= erb :_commit_comments, layout: false, locals: { comments: @comments, sha: @commit.sha } %>
 <%= render_patch(@patch, commit_patch_url(@repo, @branch.name, @commit.sha), @commit.sha) %>

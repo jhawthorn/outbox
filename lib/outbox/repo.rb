@@ -546,6 +546,20 @@ module Outbox
       Comment.parse_all(note)
     end
 
+    # The comments on what was staged on a branch before its current tip,
+    # newest push first, as [[sha, comments]]: each earlier tip the branch's
+    # reflog has (every push, discard and fetch moves it), among the last
+    # limit moves, that has any. Those stay in git after a new push; this is
+    # how the page still finds them.
+    def earlier_comments(branch, limit: 200)
+      b = resolve(branch)
+      return [] unless b.staged
+      commented = git("notes", "--ref", COMMENTS_REF, "list").each_line.to_h { |l| [l.split[1], true] }
+      return [] if commented.empty?
+      tips = git("log", "-g", "--format=%H", "-n", limit.to_s, "refs/heads/#{b.name}", "--", ok: [0, 128]).split.uniq
+      tips.select { |sha| sha != b.staged && commented.key?(sha) }.map { |sha| [sha, comments(sha)] }
+    end
+
     # Adds a comment to the note on sha. Called from requests and from the
     # repo's actor alike, so it does not count on being the only writer: the
     # note is written on a private notes ref and COMMENTS_REF moved to it

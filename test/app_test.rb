@@ -1131,4 +1131,24 @@ class AppTest < OutboxTest::RepoCase
     assert_equal ["reviewer", false], [verdict.author, verdict.resolved]
     assert_includes verdict.description, "Discarded"
   end
+
+  def test_comments_on_earlier_pushes_stay_findable
+    first = stage_commit("lib/a.rb", "x = 1\n", "First try")
+    @request.post("/repos/demo/branches/main/comments", params: { expected: first, description: "Rename x", path: "lib/a.rb", side: "R", start: "1", end: "1" })
+    second = commit(@stage, "lib/a.rb", "count = 1\n", "Second try")
+    push(@stage, "main")
+
+    body = get("/repos/demo/branches/main")
+    refute_includes body, "Comments ("
+    assert_includes body, "Comments on 1 earlier push (1)"
+    assert_includes body, %(<a href="/repos/demo/commit/#{first}"><code>#{first[0, 10]}</code></a>)
+    assert_includes body, "Rename x"
+
+    # The commit's own page shows them, linked to its diff.
+    page = get("/repos/demo/commit/#{first}")
+    assert_includes page, "Review comments (1)"
+    assert_includes page, %(<a href="#f0-R1-R1"><code>lib/a.rb</code> line 1</a>)
+    assert_includes get("/repos/demo/branches/main/commits/#{first}"), "Rename x"
+    refute_includes get("/repos/demo/commit/#{second}"), "Review comments ("
+  end
 end

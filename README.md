@@ -154,7 +154,10 @@ upstream commits nothing carries over are listed as dropped. The pairing is skip
 A branch page's review panel has a Comment button, for a comment on the whole of what is
 staged, and each line of its diff a `+` beside its number (drag along the numbers for
 several lines) that opens a form under it. Comments show under the review panel, once there
-are any, and line comments under their lines as well. Comments are kept in git, as [git-appraise](https://github.com/google/git-appraise)
+are any, and line comments under their lines as well. After another push, what was said
+about the earlier ones is folded beneath them: each tip the branch's reflog has that has
+comments (every push and discard moves the branch, and bare repos here keep reflogs). Any
+commit's own page, `/repos/<name>/commit/<sha>`, shows the comments on it. Comments are kept in git, as [git-appraise](https://github.com/google/git-appraise)
 keeps them: git notes under `refs/notes/devtools/discuss`, one line of JSON per comment
 in its [comment format](https://github.com/google/git-appraise/blob/master/schema/comment.json):
 
@@ -368,8 +371,6 @@ Things discussed and deliberately left.
   `refs/for/<remote>/<branch>` rather than branch names matched one-to-one.
 - **Commit limits disagree.** The branch page lists up to 200 commits; the commit page
   validates against 1000. Past 200 the two views do not match.
-- **Comments on earlier pushes.** A branch page shows the comments on its staged tip
-  only. After a new push, what was said about the last one is in git but not on the page.
 - **Replies from the pusher.** Agents can read comments but not write them, since pushes
   to `refs/notes/*` are refused. Accepting pushes to the notes ref would need the hook to
   check that they only add comments, and never verdicts.

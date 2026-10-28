@@ -1,4 +1,5 @@
 <% @title = "#{@commit.subject} · #{@commit.short[0, 7]} · #{@repo.name}" %>
 <%= erb :_repo_head, layout: false, locals: { tab: "commits" } %>
 <%= erb :_commit_head, layout: false, locals: { c: @commit } %>
+<%= erb :_commit_comments, layout: false, locals: { comments: @comments, sha: @commit.sha } %>
 <%= render_patch(@patch, "#{show_commit_url(@repo, @commit.sha)}.patch", @commit.sha) %>

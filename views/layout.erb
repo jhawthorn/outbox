@@ -110,6 +110,9 @@
   /* Review comments: the thread under the review panel, and runs of line
      comments and the form for a new one drawn in the diff (diffs.js). */
   .comments h2 { margin-top: 24px; }
+  details.comments.earlier { margin: 0 0 16px; }
+  details.comments.earlier > summary { cursor: pointer; color: var(--accent); font-size: 14px; }
+  details.comments.earlier h3 { font-size: 14px; font-weight: 600; margin: 12px 0 6px; }
   .comment { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 8px; }
   .comment.approved { border-left: 4px solid var(--ok); }
   .comment.rejected { border-left: 4px solid var(--bad); }
