@@ -2,6 +2,7 @@
 
 require_relative "outbox/git"
 require_relative "outbox/diff"
+require_relative "outbox/comment"
 require_relative "outbox/repo"
 require_relative "outbox/browse"
 require_relative "outbox/config"

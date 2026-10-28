@@ -1,0 +1,44 @@
+<%# The review comments on the staged tip (Repo#comments), oldest first, and %>
+<%# a form for another. Line comments are also drawn in the diff (diffs.js). %>
+<%# A comment on removed lines names the file as it was, so a renamed file is found by either name. %>
+<% file_ids = {} %>
+<% @patch.files.each_with_index { |f, i| file_ids[f.path] ||= "f#{i}"; file_ids[f.old_path] ||= "f#{i}" if f.old_path } %>
+<%# Nothing until there is something to read, so the diff stays near the top. %>
+<% unless @comments.empty? %>
+<section class="comments" id="comments">
+  <h2>Comments (<%= @comments.size %>)</h2>
+  <% @comments.each do |c| %>
+    <% path, side = @comment_places[c] %>
+    <div class="comment<%= " approved" if c.approval? %><%= " rejected" if c.rejection? %>">
+      <div class="meta">
+        <b><%= h c.author %></b>
+        <span class="muted"><%= committed_label(c.time) %></span>
+        <% if c.approval? %><span class="badge ready">approved</span><% elsif c.rejection? %><span class="badge deleted">discarded</span><% end %>
+        <% if c.file? %>
+          <span class="where">on
+            <% lines = c.line? ? (c.start_line == c.end_line ? " line #{c.start_line}" : " lines #{c.start_line}–#{c.end_line}") : "" %>
+            <% if (id = file_ids[c.path]) %>
+              <a href="#<%= id %><%= "-#{side}#{c.start_line}-#{side}#{c.end_line}" if side %>"><code><%= hv c.path %></code><%= lines %></a>
+            <% else %>
+              <code><%= hv c.path %></code><%= lines %>
+            <% end %>
+            <% if c.line? && side == "L" %><span class="muted">(removed)</span><% end %>
+          </span>
+        <% end %>
+      </div>
+      <div class="text"><%= hv c.description %></div>
+    </div>
+  <% end %>
+</section>
+<% end %>
+<% if @branch.staged %>
+  <%# A comment on the whole of it, from the review panel's Comment button. %>
+  <form class="comment-form" id="new-comment" popover method="post" action="<%= branch_url(@repo, @branch.name) %>/comments">
+    <input type="hidden" name="expected" value="<%= @branch.staged %>">
+    <label for="new-comment-text">Comment on <b><%= h @branch.name %></b> at <code><%= short(@branch.staged) %></code>.
+      <span class="muted">For lines, click + beside one in the diff.</span></label>
+    <textarea id="new-comment-text" name="description" rows="4" required></textarea>
+    <div class="actions"><button type="submit" class="primary">Comment</button>
+      <button type="button" popovertarget="new-comment" popovertargetaction="hide">Cancel</button></div>
+  </form>
+<% end %>

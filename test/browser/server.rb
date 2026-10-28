@@ -143,6 +143,9 @@ def seed(dir)
   upstream, = make_upstream(dir, "approve", "README" => "hello\n")
   stage(add_repo(dir, "approve", upstream), "Approve me", "README" => "approved\n")
 
+  upstream, = make_upstream(dir, "comments", "README" => "hello\nold line\n")
+  stage(add_repo(dir, "comments", upstream), "Change the readme", "README" => "hello\nnew line\nmore\n")
+
   upstream, = make_upstream(dir, "discard", "README" => "hello\n")
   stage(add_repo(dir, "discard", upstream), "Discard me", "README" => "discarded\n")
 

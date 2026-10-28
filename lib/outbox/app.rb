@@ -270,9 +270,21 @@ module Outbox
       # Renders the summary and one placeholder per file; the browser fetches
       # patch_url and draws the diffs (assets/diffs.js).
       # rev is the commit whose files the summary links to, if any.
-      def render_patch(patch, patch_url, rev = nil)
+      # comments, on a branch page: what diffs.js needs to draw its line
+      # comments and offer a form on the lines selected (line_comments_data).
+      def render_patch(patch, patch_url, rev = nil, comments: nil)
         patch_url = "#{patch_url}?w=1" if ignore_whitespace?
-        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev }
+        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev, comments: comments }
+      end
+
+      # The branch page's line comments, for the diff viewer, and where a new
+      # one is posted. removed says whether lines on the old side can take one.
+      def line_comments_data
+        return nil unless @branch.staged
+        list = @comment_places.map do |c, (path, side)|
+          { path:, side:, start: c.start_line, end: c.end_line, author: c.author, time: c.time.utc.iso8601, description: c.description }
+        end
+        { url: "#{branch_url(@repo, @branch.name)}/comments", expected: @branch.staged, removed: !@removed_commit.nil?, list: }
       end
 
       def diffs_built? = File.exist?(DIFFS_BUNDLE)
@@ -516,6 +528,47 @@ module Outbox
           end
         end
         found
+      end
+
+      # Who is reviewing, for the comments they leave: the username they gave
+      # the password with. Any name does for the password, so this is only
+      # what they call themselves.
+      def reviewer
+        auth = Rack::Auth::Basic::Request.new(env)
+        user = auth.provided? && auth.basic? ? auth.username.to_s.strip : ""
+        user.empty? ? "reviewer" : user
+      end
+
+      # Where a posted comment goes (Comment): the staged tip, and a file
+      # and lines in it if the form names them. Lines on side L are in the
+      # commit the diff starts from.
+      def comment_location(repo, branch)
+        path = params[:path].to_s
+        return { commit: branch.staged } if path.empty?
+        return { commit: branch.staged, path: path } if params[:start].to_s.empty?
+        start_line, end_line = Integer(params[:start], 10), Integer(params.fetch(:end, params[:start]), 10)
+        raise ArgumentError, "bad line range #{start_line}-#{end_line}" unless start_line.positive? && end_line >= start_line
+        commit =
+          case params[:side]
+          when "R" then branch.staged
+          when "L" then repo.removed_lines_commit(branch) or raise ArgumentError, "removed lines on #{branch.name} cannot be commented on"
+          else raise ArgumentError, "side must be L or R"
+          end
+        { commit:, path:, start_line:, end_line: }
+      end
+
+      # The comments the branch page shows, and where in its diff each line
+      # comment goes: [comments, { comment => [path, side] }].
+      def review_comments(repo, branch, removed_commit)
+        return [[], {}] unless branch.staged
+        comments = repo.comments(branch.staged)
+        places = {}
+        comments.each do |c|
+          next unless c.line?
+          side = if c.commit == branch.staged then "R" elsif removed_commit && c.commit == removed_commit then "L" end
+          places[c] = [c.path, side] if side
+        end
+        [comments, places]
       end
 
       def send_patch(patch)
@@ -881,6 +934,8 @@ module Outbox
       @dropped_count = @rewrite ? @dropped.size : @outgoing_count
       @upstream_commits = @outgoing.to_h { |c| [c.sha, c] }
       @tips = other_tips(@repo.branches, @branch)
+      @removed_commit = @repo.removed_lines_commit(@branch, rebase: @rebase) if @branch.staged
+      @comments, @comment_places = review_comments(@repo, @branch, @removed_commit)
       erb :branch
     end
 
@@ -890,15 +945,31 @@ module Outbox
     post "/repos/:name/branches/*/approve" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.approve(repo, branch.name, force: params[:force] == "1", **expected_shas!)
+      hub.approve(repo, branch.name, force: params[:force] == "1", reviewer: reviewer, **expected_shas!)
       redirect review_url(repo)
     end
 
     post "/repos/:name/branches/*/discard" do
       repo = Repo.find!(params[:name])
       branch = repo.branch(params[:splat].first)
-      hub.discard(repo, branch.name, **expected_shas!)
+      hub.discard(repo, branch.name, reviewer: reviewer, **expected_shas!)
       redirect review_url(repo)
+    end
+
+    # A review comment on what is staged: on the whole of it, or on lines
+    # of a file in its diff (side R the staged tip's lines, L upstream's).
+    # Written straight away, not queued: it moves no branch, only the notes
+    # ref, and Repo#add_comment! copes with another writer.
+    post "/repos/:name/branches/*/comments" do
+      repo = Repo.find!(params[:name])
+      branch = repo.branch(params[:splat].first)
+      expected = params.fetch("expected") { raise ArgumentError, "missing expected: the staged sha the comment is about" }
+      raise ArgumentError, "#{branch.name} has nothing staged to comment on" unless branch.staged
+      raise GitError, "#{branch.name} changed since you read it (read #{short(expected)}, now #{short(branch.staged)}). Read it again." unless expected == branch.staged
+      text = params[:description].to_s.gsub("\r\n", "\n").strip
+      raise ArgumentError, "the comment is empty" if text.empty?
+      repo.add_comment!(branch.staged, Comment.new(author: reviewer, description: text, **comment_location(repo, branch)))
+      redirect "#{branch_url(repo, branch.name)}#comments"
     end
   end
 end

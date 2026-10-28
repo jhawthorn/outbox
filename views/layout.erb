@@ -107,6 +107,24 @@
   .review .detail { font-size: 13px; margin-top: 2px; }
   .review .note { font-size: 13px; color: var(--warn); margin-top: 2px; }
   .review .note.drops { color: var(--bad); font-weight: 600; }
+  /* Review comments: the thread under the review panel, and runs of line
+     comments and the form for a new one drawn in the diff (diffs.js). */
+  .comments h2 { margin-top: 24px; }
+  .comment { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0 0 8px; }
+  .comment.approved { border-left: 4px solid var(--ok); }
+  .comment.rejected { border-left: 4px solid var(--bad); }
+  .comment .meta { font-size: 13px; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+  .comment .text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
+  .comment-form { display: flex; flex-direction: column; gap: 8px; }
+  .comment-form textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+                           background: var(--bg); color: var(--fg); resize: vertical; }
+  .comment-form[popover]:not(:popover-open) { display: none; }
+  .comment-form[popover] { width: min(640px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--line);
+                           border-radius: 8px; background: var(--bg); color: var(--fg); box-shadow: 0 8px 24px rgba(0, 0, 0, .2); }
+  .line-comments, .comment-form.line { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5;
+                                       font-size: 14px; padding: 8px 12px; margin: 0; background: var(--bg);
+                                       border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .line-comments .comment { margin: 4px 0; }
   .patch-summary { border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; margin: 0 0 16px; }
   .patch-summary details.file-list > summary { cursor: pointer; color: var(--accent); font-size: 14px; margin-top: 4px; }
   .patch-summary details.file-list[open] > summary { color: var(--muted); }

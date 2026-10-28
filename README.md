@@ -85,8 +85,10 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name` (what awaits review),
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
-  plus POST `approve`, `discard`, `fetch`, and `/events`, which keeps pages current
+  plus POST `approve`, `discard`, `comments`, `fetch`, and `/events`, which keeps pages current
   (below). The browsing pages are under `/repos/:name` too (Browsing, below).
+- `lib/outbox/comment.rb` — a review comment, in git-appraise's format (Review comments,
+  below).
 - `lib/outbox/browse.rb` — what the browsing pages read: branch names in URLs, history,
   the file list, `git grep`, `git blame`, every ref with its tip.
 - `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
@@ -146,6 +148,39 @@ On every diverged branch, `git range-diff` pairs the staged commits with upstrea
 staged commit is marked unchanged or changed from the one it carries over, and only the
 upstream commits nothing carries over are listed as dropped. The pairing is skipped past
 200 commits a side, since it compares each commit with every other.
+
+## Review comments
+
+A branch page's review panel has a Comment button, for a comment on the whole of what is
+staged, and each line of its diff a `+` beside its number (drag along the numbers for
+several lines) that opens a form under it. Comments show under the review panel, once there
+are any, and line comments under their lines as well. Comments are kept in git, as [git-appraise](https://github.com/google/git-appraise)
+keeps them: git notes under `refs/notes/devtools/discuss`, one line of JSON per comment
+in its [comment format](https://github.com/google/git-appraise/blob/master/schema/comment.json):
+
+```json
+{"timestamp":"1761654000","author":"jh","location":{"commit":"<sha>","path":"lib/a.rb","range":{"startLine":3,"endLine":5}},"description":"Why?"}
+```
+
+The note is on the staged tip that was reviewed (git-appraise puts it on a review's first
+commit, but a branch here has no first commit that survives a rebase). `location` is
+absent for a comment on the whole of it; its `commit` is the staged tip for lines the
+change has, and the commit the diff starts from for lines it removes. Approving and
+discarding leave a comment too, with `resolved` true or false, git-appraise's accepted
+and rejected. `author` is the username the reviewer gave with the password (`reviewer`
+without one).
+
+So whoever pushed reads the review with git, from the same remote:
+
+```sh
+git fetch origin 'refs/notes/devtools/*:refs/notes/devtools/*'
+git notes --ref=devtools/discuss show <sha>     # or: git log --notes=devtools/discuss
+```
+
+Pushes cannot write there (the `update` hook allows only branches), so a comment is always
+the reviewer's. Comments are written from requests and from repo actors alike, so a write
+goes through a private notes ref and moves `refs/notes/devtools/discuss` only if nobody
+else has meanwhile, trying again if they have (`Repo#add_comment!`).
 
 ## Browsing
 
@@ -279,7 +314,8 @@ changed, once per repo at boot, and when you click "Fetch upstream" on a repo pa
 "Fetch all upstreams" on the index. Never on a timer. A fetch-only remote that fails does
 not stop the push remote's fetch from taking effect.
 
-Clones see only `refs/heads/*` unless told otherwise. A client that also fetches
+Clones see only `refs/heads/*` unless told otherwise (review comments are fetched the
+same way; see Review comments). A client that also fetches
 `+refs/remotes/*:refs/remotes/*` from the staging repo gets every remote's branches beside
 its own `origin/*`: `you/main` is what the push remote has, `ruby/master` a fetch-only
 remote's.
@@ -332,5 +368,11 @@ Things discussed and deliberately left.
   `refs/for/<remote>/<branch>` rather than branch names matched one-to-one.
 - **Commit limits disagree.** The branch page lists up to 200 commits; the commit page
   validates against 1000. Past 200 the two views do not match.
+- **Comments on earlier pushes.** A branch page shows the comments on its staged tip
+  only. After a new push, what was said about the last one is in git but not on the page.
+- **Replies from the pusher.** Agents can read comments but not write them, since pushes
+  to `refs/notes/*` are refused. Accepting pushes to the notes ref would need the hook to
+  check that they only add comments, and never verdicts.
+- **Telling anyone.** Nothing announces a comment: not mailroom, not other open pages.
 - **Merge commits** get a "merge" badge in the commit list. GitHub does not badge them;
   it shows the parents on the commit page instead. Undecided.

@@ -145,7 +145,11 @@ async function mount(root) {
   const files = [];
   const byId = new Map();
   const blobs = new WeakMap();
-  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, annotations: imageAnnotations(f), collapsed: f.collapsed, version: f.version });
+  // A branch page's review comments (views/_comments.erb), and where a new
+  // one on some lines is posted.
+  const comments = root.dataset.comments ? JSON.parse(root.dataset.comments) : null;
+  const annotations = (f) => [...(imageAnnotations(f) ?? []), ...commentAnnotations(f, comments)];
+  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, annotations: annotations(f), collapsed: f.collapsed, version: f.version });
   // Whether the reader has collapsed everything, which files still to come join.
   let collapsedAll = false;
 
@@ -183,7 +187,11 @@ async function mount(root) {
     renderHeaderFilenameSuffix: (diff, ctx) => fileNotes(byId.get(ctx.item.id), diff),
     renderAnnotation: (annotation, ctx) => {
       const f = byId.get(ctx.item.id);
-      return annotation.metadata === "image" ? imageSides(f, root.dataset.blobUrl) : undefined;
+      if (annotation.metadata === "image") return imageSides(f, root.dataset.blobUrl);
+      if (annotation.metadata?.comments) return commentThread(annotation.metadata.comments);
+      // Kept while open, so what is typed survives the file being drawn again.
+      if (annotation.metadata?.draft) return (f.draftForm ??= commentForm(f, comments, () => setDraft(f, null)));
+      return undefined;
     },
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
@@ -208,10 +216,34 @@ async function mount(root) {
       const hash = selection ? `#${lineHash(selection)}` : "";
       history.replaceState(history.state, "", `${location.pathname}${location.search}${hash}`);
     },
+    // The + beside a line number, on a branch page: a form for a comment on
+    // that line, or on the lines dragged over.
+    ...(comments && {
+      enableGutterUtility: true,
+      onGutterUtilityClick: (range, ctx) => {
+        const f = byId.get(ctx.item.id);
+        if (f && commentable(f, range, comments)) setDraft(f, range);
+      },
+    }),
     renderCodeViewHeader: () => header,
     renderCodeViewFooter: () => footer,
   };
   const view = new CodeView(options, workerPool());
+
+  // One form at a time: opening one closes any other.
+  const setDraft = (f, range) => {
+    for (const other of files) {
+      if (other === f || !other.draft) continue;
+      other.draft = null;
+      other.draftForm = null;
+      other.version++;
+      view.updateItem(item(other));
+    }
+    f.draft = range;
+    f.draftForm = null;
+    f.version++;
+    view.updateItem(item(f));
+  };
 
   const setCollapsed = (list, collapsed) => {
     if (list === files) collapsedAll = collapsed;
@@ -481,6 +513,85 @@ function inHunks(fileDiff, { start, side, end, endSide }) {
     ? n >= h.deletionStart && n < h.deletionStart + h.deletionCount
     : n >= h.additionStart && n < h.additionStart + h.additionCount));
   return shown(start, side) && shown(end, endSide ?? side);
+}
+
+// --- review comments --------------------------------------------------------
+
+// The path a comment on one side of a file names: a renamed file's lines
+// that were removed are in the file under its old name.
+const sidePath = (file, side) => (side === "L" ? file.fileDiff.prevName ?? file.data.path : file.data.path);
+
+// Each run of comments ending on the same line is drawn under it, and the
+// form being written under the line it is for.
+function commentAnnotations(file, comments) {
+  if (!comments) return [];
+  const runs = new Map();
+  for (const c of comments.list) {
+    if (c.path !== sidePath(file, c.side)) continue;
+    const key = `${c.side}${c.end}`;
+    if (!runs.has(key)) runs.set(key, { side: SIDES[c.side], lineNumber: c.end, metadata: { comments: [] } });
+    runs.get(key).metadata.comments.push(c);
+  }
+  const out = [...runs.values()];
+  if (file.draft) out.push({ side: file.draft.endSide ?? file.draft.side, lineNumber: file.draft.end, metadata: { draft: file.draft } });
+  return out;
+}
+
+// Lines of one side only, and removed ones only when the server can say
+// which commit they are in.
+function commentable(file, range, comments) {
+  const side = range.side ?? "additions";
+  if ((range.endSide ?? side) !== side) return false;
+  return side === "additions" || comments.removed;
+}
+
+function commentThread(list) {
+  const box = el("div", "line-comments");
+  for (const c of list) {
+    const row = el("div", "comment");
+    const meta = el("div", "meta");
+    const time = el("span", "muted", new Date(c.time).toLocaleString());
+    const lines = c.start === c.end ? `line ${c.start}` : `lines ${c.start}–${c.end}`;
+    meta.append(el("b", null, c.author), " ", time, " ", el("span", "muted", `on ${lines}`));
+    row.append(meta, el("div", "text", c.description));
+    box.append(row);
+  }
+  return box;
+}
+
+// A plain form post, as the page's own comment form is: the server writes
+// the comment and the page comes back with it.
+function commentForm(file, comments, cancel) {
+  const range = file.draft;
+  const side = (range.side ?? "additions") === "deletions" ? "L" : "R";
+  const [start, end] = [Math.min(range.start, range.end), Math.max(range.start, range.end)];
+  const form = el("form", "comment-form line");
+  form.method = "post";
+  form.action = comments.url;
+  const field = (name, value) => {
+    const input = el("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = String(value);
+    form.append(input);
+  };
+  field("expected", comments.expected);
+  field("path", sidePath(file, side));
+  field("side", side);
+  field("start", start);
+  field("end", end);
+  const text = el("textarea");
+  text.name = "description";
+  text.rows = 3;
+  text.required = true;
+  text.placeholder = `Comment on ${start === end ? `line ${start}` : `lines ${start}–${end}`}${side === "L" ? " (removed)" : ""}`;
+  const submit = el("button", "primary", "Comment");
+  submit.type = "submit";
+  const actions = el("div", "actions");
+  actions.append(submit, button("Cancel", "Close this comment without posting it", cancel));
+  form.append(text, actions);
+  queueMicrotask(() => text.focus({ preventScroll: true }));
+  return form;
 }
 
 // Only for a file whose two sides can be fetched: added and deleted files

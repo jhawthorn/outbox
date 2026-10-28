@@ -107,10 +107,12 @@ module Outbox
       @notifier.publish(repo.name, :status)
     end
 
-    def approve(repo, branch, force: false, expected: nil, expected_upstream: nil) =
-      enqueue(repo, [:approve, branch, force, expected, expected_upstream])
-    def discard(repo, branch, expected: nil, expected_upstream: nil) =
-      enqueue(repo, [:discard, branch, expected, expected_upstream])
+    # reviewer: who to name on the review comment the job leaves (RepoActor.verdict);
+    # none without one.
+    def approve(repo, branch, force: false, expected: nil, expected_upstream: nil, reviewer: nil) =
+      enqueue(repo, [:approve, branch, force, expected, expected_upstream, reviewer])
+    def discard(repo, branch, expected: nil, expected_upstream: nil, reviewer: nil) =
+      enqueue(repo, [:discard, branch, expected, expected_upstream, reviewer])
 
     # Stop every actor, the event thread, the watcher and the notifier. Jobs
     # still queued are dropped.

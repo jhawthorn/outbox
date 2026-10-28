@@ -52,9 +52,12 @@
         <input type="hidden" name="expected_upstream" value="<%= @branch.upstream %>">
         <button type="submit" class="danger">Discard</button>
       </form>
+      <% if @branch.staged %><button type="button" popovertarget="new-comment">Comment</button><% end %>
     </div>
   <% end %>
 </div>
+
+<%= erb :_comments, layout: false %>
 
 <% unless @dropped.empty? %>
   <h2>Dropped from upstream (<%= commit_total(@dropped.size, @dropped_count) %>)</h2>
@@ -103,5 +106,5 @@
   <% elsif @branch.status == :diverged %>
     <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>
   <% end %>
-  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name), @branch.staged) %>
+  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name), @branch.staged, comments: line_comments_data) %>
 <% end %>

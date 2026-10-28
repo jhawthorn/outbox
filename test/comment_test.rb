@@ -1,0 +1,85 @@
+# frozen_string_literal: true
+
+require_relative "test_helper"
+
+# Review comments as git notes (Repo#comments, Repo#add_comment!), in
+# git-appraise's format.
+class CommentTest < OutboxTest::RepoCase
+  def test_a_comment_is_a_line_of_json_in_a_note_on_the_commit
+    sha = stage_commit("lib/a.rb", "x = 1\ny = 2\n", "Add a")
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Why y?", timestamp: "1700000000",
+                                                commit: sha, path: "lib/a.rb", start_line: 2, end_line: 2))
+
+    # Read with git itself, the way whoever pushed it would.
+    note = git("notes", "--ref", "devtools/discuss", "show", sha, chdir: @repo.path)
+    assert_equal 1, note.lines.size
+    assert_equal({ "timestamp" => "1700000000", "author" => "jh",
+                   "location" => { "commit" => sha, "path" => "lib/a.rb", "range" => { "startLine" => 2 } },
+                   "description" => "Why y?" }, JSON.parse(note))
+
+    c, = @repo.comments(sha)
+    assert_equal ["jh", "Why y?", sha, "lib/a.rb", 2, 2], [c.author, c.description, c.commit, c.path, c.start_line, c.end_line]
+    assert c.line?
+    assert_nil c.resolved
+  end
+
+  def test_comments_accumulate_oldest_first
+    sha = stage_commit
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "a", description: "second", timestamp: "20"))
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "a", description: "first", timestamp: "10"))
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "b", description: "multi\nline", timestamp: "30", resolved: false))
+    assert_equal ["first", "second", "multi\nline"], @repo.comments(sha).map(&:description)
+    assert @repo.comments(sha).last.rejection?
+    assert_equal 3, git("notes", "--ref", "devtools/discuss", "show", sha, chdir: @repo.path).lines.size
+  end
+
+  def test_no_comments
+    sha = stage_commit
+    assert_empty @repo.comments(sha)
+    refute ref_exists?(@repo.path, Outbox::Repo::COMMENTS_REF)
+  end
+
+  def test_unreadable_lines_are_skipped
+    sha = stage_commit
+    git("notes", "--ref", "devtools/discuss", "add", "-m", "not json", sha, chdir: @repo.path)
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "a", description: "fine"))
+    assert_equal ["fine"], @repo.comments(sha).map(&:description)
+  end
+
+  # Requests and the repo's actor both write; neither may lose the other's.
+  def test_writers_at_once_lose_nothing
+    sha = stage_commit
+    threads = 8.times.map do |i|
+      Thread.new { Outbox::Repo.new("demo").add_comment!(sha, Outbox::Comment.new(author: "t", description: "c#{i}"), attempts: 50) }
+    end
+    threads.each(&:join)
+    assert_equal (0...8).map { |i| "c#{i}" }.sort, @repo.comments(sha).map(&:description).sort
+    assert_empty git("for-each-ref", "refs/notes/outbox-scratch", chdir: @repo.path), "scratch refs are cleaned up"
+  end
+
+  def test_a_clone_fetches_comments_and_cannot_push_them
+    sha = stage_commit
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "LGTM", commit: sha, resolved: true))
+    git("fetch", "--quiet", "origin", "refs/notes/devtools/*:refs/notes/devtools/*", chdir: @stage)
+    assert_includes git("notes", "--ref", "devtools/discuss", "show", sha, chdir: @stage), %("resolved":true)
+
+    git("notes", "--ref", "devtools/discuss", "append", "-m", "forged", sha, chdir: @stage)
+    _, err, status = Open3.capture3(OutboxTest::GIT_ENV, "git", "push", "origin", "refs/notes/devtools/discuss", chdir: @stage)
+    refute status.success?
+    assert_includes err, "only branches"
+  end
+
+  def test_removed_lines_are_in_upstreams_commit
+    up = rev(@repo.path, "refs/remotes/upstream/main")
+    stage_commit
+    assert_equal up, @repo.removed_lines_commit("main")
+  end
+
+  def test_parse_reads_git_appraise_comments
+    c = Outbox::Comment.parse(%({"timestamp":"5","author":"x","location":{"commit":"abc","path":"p","range":{"startLine":3,"endLine":7}},"description":"d","resolved":true,"v":0}))
+    assert_equal [3, 7, "p", true], [c.start_line, c.end_line, c.path, c.resolved]
+    assert_equal 40, c.id.size
+    assert_nil Outbox::Comment.parse("[1]")
+    assert_nil Outbox::Comment.parse("{")
+  end
+end

@@ -531,6 +531,61 @@ module Outbox
       b
     end
 
+    # --- review comments ----------------------------------------------------
+
+    # Where review comments are kept: git notes, in git-appraise's ref and
+    # format (Outbox::Comment), on the staged tip each is about. Clones
+    # fetch it like any ref (refs/notes/* is not hidden), and pushes cannot
+    # touch it (the update hook allows only refs/heads/*).
+    COMMENTS_REF = "refs/notes/devtools/discuss"
+
+    # The comments on a commit, oldest first.
+    def comments(sha)
+      raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.to_s.match?(SHA_RE)
+      note = git("notes", "--ref", COMMENTS_REF, "show", sha, ok: [0, 1])
+      Comment.parse_all(note)
+    end
+
+    # Adds a comment to the note on sha. Called from requests and from the
+    # repo's actor alike, so it does not count on being the only writer: the
+    # note is written on a private notes ref and COMMENTS_REF moved to it
+    # only if it is still where it was, and tried again if not. git notes
+    # itself would move the ref without that check, losing one of two
+    # comments written at once.
+    def add_comment!(sha, comment, attempts: 5)
+      raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.to_s.match?(SHA_RE)
+      line = comment.to_json_line
+      scratch = "refs/notes/outbox-scratch/#{Process.pid}-#{rand(1 << 32).to_s(16)}"
+      attempts.times do |i|
+        old = git("rev-parse", "--quiet", "--verify", "#{COMMENTS_REF}^{commit}", ok: [0, 1]).strip
+        old.empty? ? git("update-ref", "-d", scratch) : git("update-ref", scratch, old)
+        note = git("notes", "--ref", scratch, "show", sha, ok: [0, 1])
+        note += "\n" unless note.empty? || note.end_with?("\n")
+        git("notes", "--ref", scratch, "add", "--force", "--file", "-", sha, input: "#{note}#{line}\n", extra: Config::IDENTITY)
+        new = git("rev-parse", "--verify", scratch).strip
+        begin
+          return git("update-ref", "-m", "outbox: comment", COMMENTS_REF, new, old)
+        rescue GitError
+          raise if i == attempts - 1
+        end
+      ensure
+        git("update-ref", "-d", scratch)
+      end
+    end
+
+    # The commit a line removed by the branch's diff is in, for a comment on
+    # it: upstream's tip, or the base a new branch is shown against. nil when
+    # the diff starts from something that is not a commit (a rebase's replay,
+    # or nothing at all), and then removed lines cannot be commented on.
+    # rebase: the branch's Rebase, when the caller has it already, to save
+    # replaying it again.
+    def removed_lines_commit(branch, rebase: nil)
+      b = resolve(branch)
+      return (rebase || self.rebase(b)).replayed? ? nil : b.upstream if b.rebased?
+      from, = diff_endpoints(b)
+      from && from != empty_tree && git("cat-file", "-t", from).strip == "commit" ? from : nil
+    end
+
     # The three methods below take a Branch, or a branch name for convenience.
     # Callers that already hold a Branch should pass it so the refs are read
     # once per request rather than once per call.

@@ -1060,4 +1060,75 @@ class AppTest < OutboxTest::RepoCase
     wait_until("discard") { !Outbox.hub.status(@repo).busy? }
     assert_equal :synced, status_of
   end
+
+  # --- review comments ----------------------------------------------------
+
+  def auth_env(user) = { "HTTP_AUTHORIZATION" => "Basic #{["#{user}:pw"].pack("m0")}" }
+
+  def test_comments_are_posted_and_shown_on_the_branch_page
+    staged = stage_commit("lib/a.rb", "x = 1\ny = 2\n", "Add a")
+    res = @request.post("/repos/demo/branches/main/comments", params: { expected: staged, description: "Overall <fine>\r\nmostly" }, **auth_env("jh"))
+    assert_equal 303, res.status
+    assert_equal "http://example.org/repos/demo/branches/main#comments", res["location"]
+    res = @request.post("/repos/demo/branches/main/comments",
+                        params: { expected: staged, description: "y?", path: "lib/a.rb", side: "R", start: "2", end: "2" })
+    assert_equal 303, res.status
+
+    general, line = @repo.comments(staged)
+    assert_equal ["jh", "Overall <fine>\nmostly", staged, nil], [general.author, general.description, general.commit, general.path]
+    assert_equal ["reviewer", "lib/a.rb", 2, 2, staged], [line.author, line.path, line.start_line, line.end_line, line.commit]
+
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "Comments (2)"
+    assert_includes body, "Overall &lt;fine&gt;\nmostly"
+    assert_includes body, %(<a href="#f0-R2-R2"><code>lib/a.rb</code> line 2</a>)
+    data = JSON.parse(CGI.unescapeHTML(body[/data-comments="([^"]*)"/, 1]))
+    assert_equal "/repos/demo/branches/main/comments", data["url"]
+    assert_equal staged, data["expected"]
+    assert data["removed"]
+    assert_equal [{ "path" => "lib/a.rb", "side" => "R", "start" => 2, "end" => 2, "author" => "reviewer", "description" => "y?" }],
+                 data["list"].map { |c| c.except("time") }
+  end
+
+  def test_comments_on_removed_lines_are_on_upstreams_commit
+    stage_commit
+    upstream = upstream_sha
+    staged = stage_commit("README", "", "Empty the readme")
+    res = @request.post("/repos/demo/branches/main/comments", params: { expected: staged, description: "keep it", path: "README", side: "L", start: "1", end: "1" })
+    assert_equal 303, res.status
+    c, = @repo.comments(staged)
+    assert_equal upstream, c.commit
+    assert_includes get("/repos/demo/branches/main"), %(<a href="#f0-L1-L1"><code>README</code> line 1</a>)
+  end
+
+  def test_a_comment_must_be_about_what_is_staged
+    old = stage_commit
+    stage_commit("b.txt", "b\n", "B")
+    res = @request.post("/repos/demo/branches/main/comments", params: { expected: old, description: "stale" })
+    assert_equal 422, res.status
+    assert_includes res.body, "changed since you read it"
+    assert_equal 422, @request.post("/repos/demo/branches/main/comments", params: { description: "x" }).status
+    assert_equal 422, @request.post("/repos/demo/branches/main/comments", params: { expected: rev(@stage, "main"), description: "  " }).status
+    assert_equal 422, @request.post("/repos/demo/branches/main/comments",
+                                    params: { expected: rev(@stage, "main"), description: "x", path: "a", side: "R", start: "3", end: "1" }).status
+    assert_equal 403, @request.post("/repos/demo/branches/main/comments",
+                                    params: { expected: rev(@stage, "main"), description: "x" }, "HTTP_ORIGIN" => "http://evil.example").status
+    assert_empty @repo.comments(rev(@stage, "main"))
+  end
+
+  def test_approve_and_discard_leave_a_verdict
+    staged = stage_commit
+    @request.post("/repos/demo/branches/main/approve", params: { expected: staged, expected_upstream: upstream_sha }, **auth_env("jh"))
+    wait_until("approve") { !Outbox.hub.status(@repo).busy? }
+    assert Outbox.hub.status(@repo).last.ok?
+    verdict, = @repo.comments(staged)
+    assert_equal ["jh", true, staged], [verdict.author, verdict.resolved, verdict.commit]
+
+    discarded = stage_commit("z.txt", "z\n", "Z")
+    @request.post("/repos/demo/branches/main/discard", params: { expected: discarded, expected_upstream: upstream_sha })
+    wait_until("discard") { !Outbox.hub.status(@repo).busy? }
+    verdict, = @repo.comments(discarded)
+    assert_equal ["reviewer", false], [verdict.author, verdict.resolved]
+    assert_includes verdict.description, "Discarded"
+  end
 end

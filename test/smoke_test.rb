@@ -12,6 +12,7 @@ require "tmpdir"
 require "socket"
 require "net/http"
 require "fileutils"
+require "json"
 
 ROOT = File.expand_path("..", __dir__)
 
@@ -113,6 +114,28 @@ class SmokeTest < Minitest::Test
     post_reviewed("/repos/demo/branches/main", "approve")
     wait_until("approve to reach upstream") { upstream_sha(@upstream, "main") == pushed }
     assert_includes get("/repos/demo").body, "in sync"
+  end
+
+  # Whoever pushed reads the review from git: comments and the verdict are
+  # notes their clone fetches over the same endpoint it pushed to.
+  def test_comments_and_verdict_are_fetched_with_git
+    clone = clone_from_outbox("demo")
+    write(clone, "README", "hello comments\n")
+    sh("git", "-C", clone, "commit", "--quiet", "-am", "Ask for comments")
+    sh("git", "-C", clone, "push", "--quiet", "origin", "main")
+    pushed = sh("git", "-C", clone, "rev-parse", "HEAD").strip
+
+    res = post("/repos/demo/branches/main/comments", "expected" => pushed, "description" => "Say why",
+                                                     "path" => "README", "side" => "R", "start" => "1", "end" => "1")
+    assert_equal "303", res.code
+    post_reviewed("/repos/demo/branches/main", "discard")
+    wait_until("the discard") { sh("git", "--git-dir", File.join(@data, "repos", "demo.git"), "rev-parse", "refs/heads/main").strip != pushed }
+
+    sh("git", "-C", clone, "fetch", "--quiet", "origin", "refs/notes/devtools/*:refs/notes/devtools/*")
+    comment, verdict = sh("git", "-C", clone, "notes", "--ref", "devtools/discuss", "show", pushed).lines.map { |l| JSON.parse(l) }
+    assert_equal({ "commit" => pushed, "path" => "README", "range" => { "startLine" => 1 } }, comment["location"])
+    assert_equal ["outbox", "Say why"], [comment["author"], comment["description"]]
+    assert_equal false, verdict["resolved"]
   end
 
   # What the pages listen to: GET /events stays open and names each
