@@ -1170,4 +1170,40 @@ class AppTest < OutboxTest::RepoCase
   ensure
     client&.close
   end
+
+  def test_comments_are_edited_and_deleted_from_the_page_they_are_on
+    staged = stage_commit
+    @request.post("/repos/demo/branches/main/comments", params: { expected: staged, description: "Frist" })
+    c, = @repo.comments(staged)
+    body = get("/repos/demo/branches/main")
+    url = "/repos/demo/comments/#{staged}/#{c.id}"
+    assert_includes body, %(action="#{url}/edit")
+    assert_includes body, %(action="#{url}/delete" data-confirm="Delete this comment?")
+    seen = body[/data-comments-seen="(\w+)"/, 1]
+
+    res = @request.post("#{url}/edit", params: { description: "First", back: "/repos/demo/branches/main" }, **auth_env("jh"))
+    assert_equal "http://example.org/repos/demo/branches/main#comments", res["location"]
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "· edited</span>"
+    assert_includes body, ">First</div>"
+    refute_equal seen, body[/data-comments-seen="(\w+)"/, 1], "an edit changes what the page shows"
+
+    # Somewhere else is not somewhere to be sent.
+    res = @request.post("#{url}/delete", params: { back: "https://evil.example/" })
+    assert_equal "http://example.org/repos/demo#comments", res["location"]
+    assert_empty @repo.comments(staged)
+    assert_equal 404, @request.post("#{url}/delete").status
+  end
+
+  def test_verdicts_have_no_edit_or_delete
+    staged = stage_commit
+    @request.post("/repos/demo/branches/main/approve", params: { expected: staged, expected_upstream: upstream_sha })
+    wait_until("approve") { !Outbox.hub.status(@repo).busy? }
+    verdict, = @repo.comments(staged)
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "Approved and pushed to upstream."
+    refute_includes body, "/comments/#{staged}/#{verdict.id}"
+    assert_equal 422, @request.post("/repos/demo/comments/#{staged}/#{verdict.id}/delete").status
+  end
 end
+

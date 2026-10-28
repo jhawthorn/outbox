@@ -104,4 +104,54 @@ class CommentTest < OutboxTest::RepoCase
     stage_commit
     assert_empty @repo.earlier_comments("main")
   end
+
+  # --- edit and delete -------------------------------------------------------
+
+  def test_an_edit_is_a_line_naming_the_comment_it_edits
+    sha = stage_commit
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Typo", timestamp: "10", commit: sha, path: "staged.txt", start_line: 1))
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Other", timestamp: "11"))
+    first, = @repo.comments(sha)
+    @repo.edit_comment!(sha, first.id, "Fixed", author: "jh")
+    @repo.edit_comment!(sha, first.id, "Fixed again", author: "jh")
+
+    lines = git("notes", "--ref", "devtools/discuss", "show", sha, chdir: @repo.path).lines.map { |l| JSON.parse(l) }
+    assert_equal 4, lines.size, "edits are added, nothing is rewritten"
+    assert_equal [first.id, first.id], lines.last(2).map { |l| l["original"] }
+    assert_equal({ "commit" => sha, "path" => "staged.txt", "range" => { "startLine" => 1 } }, lines.last["location"])
+
+    shown, other = @repo.comments(sha)
+    assert_equal ["Fixed again", first.id, "10", "staged.txt"], [shown.description, shown.id, shown.timestamp, shown.path]
+    assert shown.edited?
+    refute_equal shown.id, shown.version, "the version is the latest edit's"
+    assert_equal "Other", other.description
+    refute other.edited?
+  end
+
+  def test_delete_takes_a_comment_and_its_edits_out_of_the_note
+    sha = stage_commit
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Keep", timestamp: "10"))
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Drop", timestamp: "11"))
+    keep, drop = @repo.comments(sha)
+    @repo.edit_comment!(sha, drop.id, "Drop, edited", author: "jh")
+    @repo.delete_comment!(sha, drop.id)
+    assert_equal ["Keep"], @repo.comments(sha).map(&:description)
+    assert_equal 1, git("notes", "--ref", "devtools/discuss", "show", sha, chdir: @repo.path).lines.size
+    assert_equal keep.id, @repo.comments(sha).first.id, "the lines left are as they were"
+
+    @repo.delete_comment!(sha, keep.id)
+    assert_empty @repo.comments(sha)
+    assert_empty git("notes", "--ref", "devtools/discuss", "list", chdir: @repo.path), "an empty note is removed"
+  end
+
+  def test_verdicts_and_missing_comments_cannot_be_edited_or_deleted
+    sha = stage_commit
+    @repo.add_comment!(sha, Outbox::Comment.new(author: "jh", description: "Approved.", resolved: true))
+    verdict, = @repo.comments(sha)
+    assert_raises(ArgumentError) { @repo.edit_comment!(sha, verdict.id, "No", author: "jh") }
+    assert_raises(ArgumentError) { @repo.delete_comment!(sha, verdict.id) }
+    assert_raises(Outbox::NotFound) { @repo.delete_comment!(sha, "0" * 40) }
+    assert_equal ["Approved."], @repo.comments(sha).map(&:description)
+  end
 end
+

@@ -8,7 +8,7 @@
     <% comments.each do |c| %>
       <% own = c.commit == sha %>
       <% id = own && file_ids[c.path] %>
-      <%= erb :_comment, layout: false, locals: { c: c, href: id && "##{id}#{"-R#{c.start_line}-R#{c.end_line}" if c.line?}", removed: c.line? && !own } %>
+      <%= erb :_comment, layout: false, locals: { c: c, href: id && "##{id}#{"-R#{c.start_line}-R#{c.end_line}" if c.line?}", removed: c.line? && !own, sha: sha } %>
     <% end %>
   </section>
 <% end %>

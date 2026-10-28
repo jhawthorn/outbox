@@ -117,6 +117,10 @@
   .comment.approved { border-left: 4px solid var(--ok); }
   .comment.rejected { border-left: 4px solid var(--bad); }
   .comment .meta { font-size: 13px; display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+  .comment .comment-actions { margin-left: auto; display: flex; gap: 8px; }
+  button.link { border: 0; background: none; padding: 0; color: var(--muted); font-size: 13px; }
+  button.link:hover { color: var(--accent); text-decoration: underline; }
+  button.link.danger:hover { color: var(--bad); }
   .comment .text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
   .comment-form { display: flex; flex-direction: column; gap: 8px; }
   .comment-form textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;

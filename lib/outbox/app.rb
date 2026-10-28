@@ -531,9 +531,18 @@ module Outbox
         found
       end
 
+      # Where to go after an edit or a delete: the page it was done from,
+      # if that is one of this repository's, else the repository's.
+      def back_within(repo)
+        back = params[:back].to_s
+        back.start_with?("#{repo_url(repo)}/") && !back.include?("//") ? back : repo_url(repo)
+      end
+
+      def comment_url(repo, sha, c) = "#{repo_url(repo)}/comments/#{sha}/#{c.id}"
+
       # A hash of the comments a page shows, so a live page can tell when
       # they've changed.
-      def comments_seen(comments) = Digest::SHA1.hexdigest(comments.map(&:id).sort.join(" "))[0, 16]
+      def comments_seen(comments) = Digest::SHA1.hexdigest(comments.map(&:version).sort.join(" "))[0, 16]
 
       # Who is reviewing, for the comments they leave: the username they gave
       # the password with. Any name does for the password, so this is only
@@ -981,6 +990,24 @@ module Outbox
       repo.add_comment!(branch.staged, Comment.new(author: reviewer, description: text, **comment_location(repo, branch)))
       hub.commented(repo)
       redirect "#{branch_url(repo, branch.name)}#comments"
+    end
+
+    # Editing and deleting a comment, by the commit it is on and its id
+    # (Comment#id). Back to the page it was done from, given as back.
+    post "/repos/:name/comments/:sha/:id/edit" do
+      repo = Repo.find!(params[:name])
+      text = params[:description].to_s.gsub("\r\n", "\n").strip
+      raise ArgumentError, "the comment is empty" if text.empty?
+      repo.edit_comment!(params[:sha], params[:id], text, author: reviewer)
+      hub.commented(repo)
+      redirect "#{back_within(repo)}#comments"
+    end
+
+    post "/repos/:name/comments/:sha/:id/delete" do
+      repo = Repo.find!(params[:name])
+      repo.delete_comment!(params[:sha], params[:id])
+      hub.commented(repo)
+      redirect "#{back_within(repo)}#comments"
     end
   end
 end

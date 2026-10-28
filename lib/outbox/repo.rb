@@ -539,11 +539,11 @@ module Outbox
     # touch it (the update hook allows only refs/heads/*).
     COMMENTS_REF = "refs/notes/devtools/discuss"
 
-    # The comments on a commit, oldest first.
+    # The comments on a commit, oldest first, each as its latest edit has it.
     def comments(sha)
       raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.to_s.match?(SHA_RE)
       note = git("notes", "--ref", COMMENTS_REF, "show", sha, ok: [0, 1])
-      Comment.parse_all(note)
+      Comment.resolve(Comment.parse_all(note))
     end
 
     # The comments on what was staged on a branch before its current tip,
@@ -560,23 +560,49 @@ module Outbox
       tips.select { |sha| sha != b.staged && commented.key?(sha) }.map { |sha| [sha, comments(sha)] }
     end
 
-    # Adds a comment to the note on sha. Called from requests and from the
-    # repo's actor alike, so it does not count on being the only writer: the
-    # note is written on a private notes ref and COMMENTS_REF moved to it
-    # only if it is still where it was, and tried again if not. git notes
-    # itself would move the ref without that check, losing one of two
-    # comments written at once.
+    # Adds a comment to the note on sha.
     def add_comment!(sha, comment, attempts: 5)
-      raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.to_s.match?(SHA_RE)
       line = comment.to_json_line
+      update_note!(sha, attempts:) { |note| "#{note}#{"\n" unless note.empty? || note.end_with?("\n")}#{line}\n" }
+    end
+
+    # Edits a comment: another line, saying which comment it edits
+    # (Comment#edited). Raises NotFound when there is no comment with that
+    # id, and ArgumentError for a verdict.
+    def edit_comment!(sha, id, description, author:)
+      add_comment!(sha, editable_comment!(sha, id).edited(description, author:))
+    end
+
+    # Deletes a comment and its edits: their lines are taken out of the
+    # note. Raises as edit_comment! does.
+    def delete_comment!(sha, id)
+      editable_comment!(sha, id)
+      update_note!(sha) do |note|
+        note.each_line.reject { |l| (c = Comment.parse(l)) && (c.id == id || c.original == id) }.join
+      end
+    end
+
+    # Rewrites the note on sha as the block returns it, given the note as it
+    # is; an empty note is removed. Called from requests and from the repo's
+    # actor alike, so it does not count on being the only writer: the note
+    # is written on a private notes ref, and COMMENTS_REF is moved there only
+    # if it has not moved meanwhile. If it has, this starts again, with the
+    # note as it is now. git notes itself would move the ref without that
+    # check, losing one of two comments written at once.
+    def update_note!(sha, attempts: 5)
+      raise ArgumentError, "not a commit sha: #{sha.inspect}" unless sha.to_s.match?(SHA_RE)
       scratch = "refs/notes/outbox-scratch/#{Process.pid}-#{rand(1 << 32).to_s(16)}"
       attempts.times do |i|
         old = git("rev-parse", "--quiet", "--verify", "#{COMMENTS_REF}^{commit}", ok: [0, 1]).strip
         old.empty? ? git("update-ref", "-d", scratch) : git("update-ref", scratch, old)
-        note = git("notes", "--ref", scratch, "show", sha, ok: [0, 1])
-        note += "\n" unless note.empty? || note.end_with?("\n")
-        git("notes", "--ref", scratch, "add", "--force", "--file", "-", sha, input: "#{note}#{line}\n", extra: Config::IDENTITY)
-        new = git("rev-parse", "--verify", scratch).strip
+        note = yield git("notes", "--ref", scratch, "show", sha, ok: [0, 1])
+        if note.strip.empty?
+          git("notes", "--ref", scratch, "remove", "--ignore-missing", sha, extra: Config::IDENTITY)
+        else
+          git("notes", "--ref", scratch, "add", "--force", "--file", "-", sha, input: note, extra: Config::IDENTITY)
+        end
+        new = git("rev-parse", "--quiet", "--verify", scratch, ok: [0, 1]).strip
+        return if new == old
         begin
           return git("update-ref", "-m", "outbox: comment", COMMENTS_REF, new, old)
         rescue GitError
@@ -585,6 +611,13 @@ module Outbox
       ensure
         git("update-ref", "-d", scratch)
       end
+    end
+
+    # The comment with this id on sha, if it may be edited or deleted.
+    def editable_comment!(sha, id)
+      c = comments(sha).find { |x| x.id == id } or raise NotFound, "no comment #{id} on #{sha[0, 10]}"
+      raise ArgumentError, "an approval or a discard cannot be edited or deleted" unless c.editable?
+      c
     end
 
     # The commit a line removed by the branch's diff is in, for a comment on

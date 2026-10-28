@@ -1,10 +1,12 @@
-<%# One review comment (Comment). href: where its file and lines are on this %>
-<%# page, if they are; removed: whether its lines are ones the change removes. %>
+<%# One review comment (Comment), in the note on sha. href: where its file %>
+<%# and lines are on this page, if they are; removed: whether its lines are %>
+<%# ones the change removes. %>
 <% lines = c.line? ? (c.start_line == c.end_line ? " line #{c.start_line}" : " lines #{c.start_line}–#{c.end_line}") : "" %>
 <div class="comment<%= " approved" if c.approval? %><%= " rejected" if c.rejection? %>">
   <div class="meta">
     <b><%= h c.author %></b>
     <span class="muted"><%= committed_label(c.time) %></span>
+    <% if c.edited? %><span class="muted" title="Edited <%= h c.edited_at.utc.strftime("%Y-%m-%d %H:%M UTC") %>">· edited</span><% end %>
     <% if c.approval? %><span class="badge ready">approved</span><% elsif c.rejection? %><span class="badge deleted">discarded</span><% end %>
     <% if c.file? %>
       <span class="where">on
@@ -12,6 +14,24 @@
         <% if removed %><span class="muted">(removed)</span><% end %>
       </span>
     <% end %>
+    <% if c.editable? %>
+      <span class="comment-actions">
+        <button type="button" class="link" popovertarget="edit-<%= c.id %>">Edit</button>
+        <form class="inline" method="post" action="<%= comment_url(@repo, sha, c) %>/delete" data-confirm="Delete this comment?">
+          <input type="hidden" name="back" value="<%= h request.path %>">
+          <button type="submit" class="link danger">Delete</button>
+        </form>
+      </span>
+    <% end %>
   </div>
   <div class="text"><%= hv c.description %></div>
+  <% if c.editable? %>
+    <form class="comment-form" id="edit-<%= c.id %>" popover method="post" action="<%= comment_url(@repo, sha, c) %>/edit">
+      <input type="hidden" name="back" value="<%= h request.path %>">
+      <label for="edit-<%= c.id %>-text">Edit comment</label>
+      <textarea id="edit-<%= c.id %>-text" name="description" rows="4" required><%= h c.description %></textarea>
+      <div class="actions"><button type="submit" class="primary">Save</button>
+        <button type="button" popovertarget="edit-<%= c.id %>" popovertargetaction="hide">Cancel</button></div>
+    </form>
+  <% end %>
 </div>

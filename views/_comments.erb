@@ -10,7 +10,7 @@
   <% @comments.each do |c| %>
     <% path, side = @comment_places[c] %>
     <% id = file_ids[c.path] %>
-    <%= erb :_comment, layout: false, locals: { c: c, href: id && "##{id}#{"-#{side}#{c.start_line}-#{side}#{c.end_line}" if side}", removed: c.line? && side == "L" } %>
+    <%= erb :_comment, layout: false, locals: { c: c, href: id && "##{id}#{"-#{side}#{c.start_line}-#{side}#{c.end_line}" if side}", removed: c.line? && side == "L", sha: @branch.staged } %>
   <% end %>
 </section>
 <% end %>
@@ -22,7 +22,7 @@
     <% @earlier_comments.each do |sha, list| %>
       <h3>On <a href="<%= show_commit_url(@repo, sha) %>"><code><%= short(sha) %></code></a></h3>
       <% list.each do |c| %>
-        <%= erb :_comment, layout: false, locals: { c: c, href: nil, removed: c.line? && c.commit != sha } %>
+        <%= erb :_comment, layout: false, locals: { c: c, href: nil, removed: c.line? && c.commit != sha, sha: sha } %>
       <% end %>
     <% end %>
   </details>

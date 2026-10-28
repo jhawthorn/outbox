@@ -173,6 +173,12 @@ discarding leave a comment too, with `resolved` true or false, git-appraise's ac
 and rejected. `author` is the username the reviewer gave with the password (`reviewer`
 without one).
 
+Comments can be edited and deleted; approvals and discards can't. An edit is a new line
+that repeats the comment with the new text and sets `original` to the id of the comment it
+replaces, where a comment's id is the SHA-1 of its line. This is how git-appraise does it.
+The latest edit is the one shown. Deleting a comment removes its line, and the lines of its
+edits, from the note.
+
 So whoever pushed reads the review with git, from the same remote:
 
 ```sh

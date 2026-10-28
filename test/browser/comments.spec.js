@@ -80,3 +80,25 @@ test("a comment written elsewhere is announced, and the page stays usable", asyn
   await expect(page.locator(".panel.new-comments")).toHaveCount(0);
 });
 
+test("a comment is edited and deleted from the thread", async ({ page }) => {
+  const BRANCH = "/repos/edited/branches/main";
+  await page.goto(BRANCH);
+  const staged = (await page.locator("main").getAttribute("data-tips")).split(" ")[0];
+  await page.request.post(`${BRANCH}/comments`, { form: { expected: staged, description: "Frist" }, maxRedirects: 0 });
+  await page.reload();
+
+  const comment = page.locator("section.comments .comment");
+  await comment.getByRole("button", { name: "Edit" }).click();
+  const form = comment.locator("form.comment-form");
+  await expect(form).toBeVisible();
+  await expect(form.locator("textarea")).toHaveValue("Frist");
+  await form.locator("textarea").fill("First");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(comment.locator(".text")).toHaveText("First");
+  await expect(comment.locator(".meta")).toContainText("edited");
+
+  page.once("dialog", (d) => d.accept());
+  await comment.getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator("section.comments")).toHaveCount(0);
+});
+
