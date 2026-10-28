@@ -238,7 +238,8 @@ the list.
 Pages follow what happens without a reload: a push landing, a job queued, running and
 finishing, an approval made in another tab. Each page opens `GET /events`, a stream of
 server-sent events, each naming a repository and saying whether its refs may have moved
-(`refs`: a push, a finished job) or only its job status changed (`status`). The index
+(`refs`: a push, a finished job), a review comment was written (`comments`), or only its
+job status changed (`status`). The index
 cares about every repository, a repository's pages about their own. On an event the page
 fetches itself again, at most about once a second.
 
@@ -247,6 +248,10 @@ page, do not: what gets approved must be what was reviewed, so a page never chan
 the reader. When the branch has moved, or the page is gone, a notice says so and offers a
 reload, and the page's approve and discard buttons are disabled. (The server would refuse
 them anyway if the staged sha moved: each carries the sha the page showed.)
+
+New comments also get a notice with a reload button, but approve and discard stay enabled,
+because a comment doesn't change what would be approved. To tell when the comments have
+changed, each page carries a hash of the ones it shows.
 
 Every event has an id counting up from the server's start, pages are drawn with the id
 they reflect, and a stream opens by saying the latest. A page that missed something while
@@ -374,6 +379,7 @@ Things discussed and deliberately left.
 - **Replies from the pusher.** Agents can read comments but not write them, since pushes
   to `refs/notes/*` are refused. Accepting pushes to the notes ref would need the hook to
   check that they only add comments, and never verdicts.
-- **Telling anyone.** Nothing announces a comment: not mailroom, not other open pages.
+- **Telling mailroom.** Open pages hear of a new comment; nothing outside does.
+  `Hub#commented` is where that would go.
 - **Merge commits** get a "merge" badge in the commit list. GitHub does not badge them;
   it shows the parents on the commit page instead. Undecided.

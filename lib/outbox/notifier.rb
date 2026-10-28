@@ -9,6 +9,7 @@ module Outbox
   #           was dismissed. Nothing in git moved.
   #   refs    the repository's refs may have moved: a push landed, a job
   #           finished, the repository appeared or went away.
+  #   comments  a review comment was written. No branch moved.
   #
   # Every message carries an id, counting up from the start of this process
   # (seq). Pages are rendered with the seq they reflect, and the stream
@@ -21,7 +22,7 @@ module Outbox
   # them. A client whose socket will not take a write is dropped rather
   # than waited on; its browser reconnects on its own.
   class Notifier
-    KINDS = %i[status refs].freeze
+    KINDS = %i[status refs comments].freeze
 
     # Seconds of quiet before a comment is sent, so a dead connection is
     # found and nothing in between times the stream out.

@@ -107,6 +107,11 @@ module Outbox
       @notifier.publish(repo.name, :status)
     end
 
+    # A review comment was written (App's POST .../comments), for the pages
+    # showing that repository to say so. A verdict comment needs no call:
+    # it is written by a job, and a finished job is announced as refs.
+    def commented(repo) = @notifier.publish(repo.name, :comments)
+
     # reviewer: who to name on the review comment the job leaves (RepoActor.verdict);
     # none without one.
     def approve(repo, branch, force: false, expected: nil, expected_upstream: nil, reviewer: nil) =

@@ -555,7 +555,7 @@
   <span class="spacer"></span>
   <button type="button" class="keys-help" data-shortcuts title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><kbd>?</kbd></button>
 </div></header>
-<main<% if @seq %> data-live data-seq="<%= @seq %>"<% if @repo %> data-repo="<%= h @repo.name %>"<% end %><% if @branch %> data-tips="<%= @branch.staged %> <%= @branch.upstream %>"<% end %><% end %>>
+<main<% if @seq %> data-live data-seq="<%= @seq %>"<% if @repo %> data-repo="<%= h @repo.name %>"<% end %><% if @branch %> data-tips="<%= @branch.staged %> <%= @branch.upstream %>"<% end %><% if @comments_seen %> data-comments-seen="<%= @comments_seen %>"<% end %><% end %>>
 <%= yield %>
 </main>
 <script>
@@ -579,6 +579,9 @@ document.addEventListener("submit", function (e) {
 //   (data-tips) or the page is gone, a notice says so and offers a reload,
 //   and the page's approve and discard buttons are disabled. These pages
 //   only look when refs may have moved, not at every progress line.
+//   New comments also get a notice, but leave the buttons enabled: a
+//   comment doesn't change what would be approved. data-comments-seen is a
+//   hash of the comments the page shows, to tell when they've changed.
 //
 // A hidden tab closes its stream, since a browser allows only a few
 // connections to one host over HTTP/1.1, and opens it again when shown. So
@@ -593,6 +596,8 @@ document.addEventListener("submit", function (e) {
   var repo = main.getAttribute("data-repo");
   var tips = main.getAttribute("data-tips");
   var seen = main.getAttribute("data-seq");
+  var comments = main.getAttribute("data-comments-seen");
+  var commentsNote = null;
   var source = null, timer = null, fetching = false, again = false, stale = false;
   // When the last fetch finished. The next waits at least SPACING after it,
   // so a repository reporting progress several times a second has the page
@@ -618,6 +623,8 @@ document.addEventListener("submit", function (e) {
           if (next.getAttribute("data-tips") !== tips) {
             var now = next.querySelector(".review .summary");
             outdated("This branch has changed since the page was loaded." + (now ? " Now: " + now.textContent.trim() + "." : ""));
+          } else if (comments !== null && next.getAttribute("data-comments-seen") !== comments) {
+            commentsChanged();
           }
         } else if (next && next.innerHTML !== main.innerHTML) {
           var open = Array.from(main.querySelectorAll("details"), function (d) { return d.open; });
@@ -632,29 +639,42 @@ document.addEventListener("submit", function (e) {
     if (again) schedule(0);
   }
 
-  function outdated(message) {
-    stale = true;
-    disconnect();
-    main.querySelectorAll('form[action$="/approve"] button, form[action$="/discard"] button').forEach(function (b) {
-      b.disabled = true;
-      b.title = "Reload to review what is staged now";
-    });
+  // Shown once; a reload picks up every change since.
+  function commentsChanged() {
+    if (commentsNote) return;
+    commentsNote = notice("panel outdated new-comments", "The comments have changed since the page was loaded. ");
+    document.body.appendChild(commentsNote);
+  }
+
+  function notice(className, message) {
     var note = document.createElement("div");
-    note.className = "panel warn outdated";
+    note.className = className;
     note.setAttribute("role", "status");
-    note.textContent = message + " ";
+    note.appendChild(document.createTextNode(message));
     var reload = document.createElement("button");
     reload.type = "button";
     reload.textContent = "Reload";
     reload.addEventListener("click", function () { location.reload(); });
     note.appendChild(reload);
-    document.body.appendChild(note);
+    return note;
+  }
+
+  function outdated(message) {
+    stale = true;
+    disconnect();
+    // That the branch moved says more, and the reload covers both.
+    if (commentsNote) commentsNote.remove();
+    main.querySelectorAll('form[action$="/approve"] button, form[action$="/discard"] button').forEach(function (b) {
+      b.disabled = true;
+      b.title = "Reload to review what is staged now";
+    });
+    document.body.appendChild(notice("panel warn outdated", message + " "));
   }
 
   function changed(e) {
     seen = e.lastEventId;
     if (repo && e.data !== repo) return;
-    if (tips && e.type !== "refs") return;
+    if (tips && e.type === "status") return;
     schedule(100);
   }
 
@@ -666,6 +686,7 @@ document.addEventListener("submit", function (e) {
     });
     source.addEventListener("status", changed);
     source.addEventListener("refs", changed);
+    source.addEventListener("comments", changed);
   }
 
   function disconnect() {

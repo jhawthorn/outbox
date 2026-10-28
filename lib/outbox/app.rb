@@ -4,6 +4,7 @@ require "sinatra/base"
 require "json"
 require "time"
 require "erb"
+require "digest"
 
 module Outbox
   class App < Sinatra::Base
@@ -530,6 +531,10 @@ module Outbox
         found
       end
 
+      # A hash of the comments a page shows, so a live page can tell when
+      # they've changed.
+      def comments_seen(comments) = Digest::SHA1.hexdigest(comments.map(&:id).sort.join(" "))[0, 16]
+
       # Who is reviewing, for the comments they leave: the username they gave
       # the password with. Any name does for the password, so this is only
       # what they call themselves.
@@ -911,6 +916,7 @@ module Outbox
       @position = list.size - index
       @total = list.size
       @comments = @repo.comments(params[:sha])
+      @comments_seen = comments_seen(@comments)
       erb :commit
     end
 
@@ -939,6 +945,7 @@ module Outbox
       @removed_commit = @repo.removed_lines_commit(@branch, rebase: @rebase) if @branch.staged
       @comments, @comment_places = review_comments(@repo, @branch, @removed_commit)
       @earlier_comments = @repo.earlier_comments(@branch)
+      @comments_seen = comments_seen(@comments + @earlier_comments.flat_map(&:last))
       erb :branch
     end
 
@@ -972,6 +979,7 @@ module Outbox
       text = params[:description].to_s.gsub("\r\n", "\n").strip
       raise ArgumentError, "the comment is empty" if text.empty?
       repo.add_comment!(branch.staged, Comment.new(author: reviewer, description: text, **comment_location(repo, branch)))
+      hub.commented(repo)
       redirect "#{branch_url(repo, branch.name)}#comments"
     end
   end

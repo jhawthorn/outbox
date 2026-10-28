@@ -60,7 +60,7 @@ class AppTest < OutboxTest::RepoCase
     seq = wait_for_seq { |s| s > before }
     assert_includes get("/"), %(<main data-live data-seq="#{seq}">)
     assert_includes get("/repos/demo"), %(<main data-live data-seq="#{seq}" data-repo="demo">)
-    live = %(<main data-live data-seq="#{seq}" data-repo="demo" data-tips="#{branch.staged} #{branch.upstream}">)
+    live = %(<main data-live data-seq="#{seq}" data-repo="demo" data-tips="#{branch.staged} #{branch.upstream}" data-comments-seen="#{Digest::SHA1.hexdigest("")[0, 16]}">)
     assert_includes get("/repos/demo/branches/main"), live
     assert_includes get("/repos/demo/branches/main/commits/#{sha}"), live
     assert_includes get("/offline"), "<main>"
@@ -1150,5 +1150,24 @@ class AppTest < OutboxTest::RepoCase
     assert_includes page, %(<a href="#f0-R1-R1"><code>lib/a.rb</code> line 1</a>)
     assert_includes get("/repos/demo/branches/main/commits/#{first}"), "Rename x"
     refute_includes get("/repos/demo/commit/#{second}"), "Review comments ("
+  end
+
+  def test_a_comment_is_announced_on_the_event_stream
+    staged = stage_commit
+    _, _, body = Outbox::App.call(Rack::MockRequest.env_for("/events"))
+    server, client = UNIXSocket.pair
+    body.call(server)
+    assert_equal 303, @request.post("/repos/demo/branches/main/comments", params: { expected: staged, description: "hi" }).status
+    received = +""
+    wait_until("the comment to be announced") do
+      received << client.read_nonblock(4096, exception: false).to_s if IO.select([client], nil, nil, 0.05)
+      received.include?("event: comments\ndata: demo\n\n")
+    end
+    # Pages compare the comments they show with those they would show now.
+    seen = %(data-comments-seen="#{Digest::SHA1.hexdigest(@repo.comments(staged).first.id)[0, 16]}")
+    assert_includes get("/repos/demo/branches/main"), seen
+    assert_includes get("/repos/demo/branches/main/commits/#{staged}"), seen
+  ensure
+    client&.close
   end
 end

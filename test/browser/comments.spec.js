@@ -1,6 +1,8 @@
 // @ts-check
 // Review comments on the "comments" repository's main: the thread under
-// the review panel, and line comments in the diff (assets/diffs.js).
+// the review panel, and line comments in the diff (assets/diffs.js). The
+// "commented" repository is the live test's, so that neither counts the
+// other's comments.
 const { test, expect } = require("@playwright/test");
 
 const BRANCH = "/repos/comments/branches/main";
@@ -52,3 +54,29 @@ test("a comment on a line is posted from the diff and drawn under the line", asy
   await expect(thread.locator(".comment .text").nth(1)).toHaveText("Looks fine otherwise");
   await expect(general).toBeHidden();
 });
+
+// Written elsewhere, another tab or another reviewer: the page says so,
+// and stays usable, since a comment changes nothing that would be approved.
+test("a comment written elsewhere is announced, and the page stays usable", async ({ page }) => {
+  const BRANCH = "/repos/commented/branches/main";
+  await page.goto(BRANCH);
+  await expect(page.locator("main.codeview")).toBeVisible();
+  const staged = (await page.locator("main").getAttribute("data-tips")).split(" ")[0];
+  const post = (description) => page.request.post(`${BRANCH}/comments`, { form: { expected: staged, description }, maxRedirects: 0 });
+
+  expect((await post("From another tab")).status()).toBe(303);
+  const note = page.locator(".panel.new-comments");
+  await expect(note).toContainText("The comments have changed since the page was loaded.");
+  await expect(page.locator(".panel.warn.outdated")).toHaveCount(0);
+  await expect(page.locator(".review .actions").getByRole("button", { name: "Approve and push to upstream" })).toBeEnabled();
+
+  // Another changes nothing more until the reader reloads.
+  await post("And another");
+  await expect(page.locator("section.comments .comment")).toHaveCount(0);
+  await expect(page.locator(".panel.new-comments")).toHaveCount(1);
+
+  await note.getByRole("button", { name: "Reload" }).click();
+  await expect(page.locator("section.comments .comment .text").last()).toHaveText("And another");
+  await expect(page.locator(".panel.new-comments")).toHaveCount(0);
+});
+
