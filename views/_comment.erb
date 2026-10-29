@@ -17,7 +17,7 @@
     <% if c.editable? %>
       <span class="comment-actions">
         <button type="button" class="link" popovertarget="edit-<%= c.id %>">Edit</button>
-        <form class="inline" method="post" action="<%= comment_url(@repo, sha, c) %>/delete" data-confirm="Delete this comment?">
+        <form class="inline" data-comment method="post" action="<%= comment_url(@repo, sha, c) %>/delete" data-confirm="Delete this comment?">
           <input type="hidden" name="back" value="<%= h request.path %>">
           <button type="submit" class="link danger">Delete</button>
         </form>
@@ -26,7 +26,7 @@
   </div>
   <div class="text"><%= hv c.description %></div>
   <% if c.editable? %>
-    <form class="comment-form" id="edit-<%= c.id %>" popover method="post" action="<%= comment_url(@repo, sha, c) %>/edit">
+    <form class="comment-form" data-comment id="edit-<%= c.id %>" popover method="post" action="<%= comment_url(@repo, sha, c) %>/edit">
       <input type="hidden" name="back" value="<%= h request.path %>">
       <label for="edit-<%= c.id %>-text">Edit comment</label>
       <textarea id="edit-<%= c.id %>-text" name="description" rows="4" required><%= h c.description %></textarea>

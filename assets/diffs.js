@@ -245,6 +245,26 @@ async function mount(root) {
     view.updateItem(item(f));
   };
 
+  // A comment posted, edited or deleted in place (layout.erb): the new
+  // list, from the page as it is now. The files with comments then or now
+  // are drawn again, and a form that was posted closes.
+  if (comments) {
+    document.addEventListener("outbox:comments", (e) => {
+      const touched = new Set([...comments.list, ...e.detail.comments.list].map((c) => c.path));
+      Object.assign(comments, e.detail.comments);
+      for (const f of files) {
+        const posted = f.draftForm && f.draftForm === e.detail.form;
+        if (posted) {
+          f.draft = null;
+          f.draftForm = null;
+        }
+        if (!posted && !touched.has(sidePath(f, "L")) && !touched.has(sidePath(f, "R"))) continue;
+        f.version++;
+        view.updateItem(item(f));
+      }
+    });
+  }
+
   const setCollapsed = (list, collapsed) => {
     if (list === files) collapsedAll = collapsed;
     for (const f of list) {
@@ -559,13 +579,14 @@ function commentThread(list) {
   return box;
 }
 
-// A plain form post, as the page's own comment form is: the server writes
-// the comment and the page comes back with it.
+// Posted in place, as the page's own comment form is (data-comment, see
+// layout.erb), and closed once the comment is in.
 function commentForm(file, comments, cancel) {
   const range = file.draft;
   const side = (range.side ?? "additions") === "deletions" ? "L" : "R";
   const [start, end] = [Math.min(range.start, range.end), Math.max(range.start, range.end)];
   const form = el("form", "comment-form line");
+  form.dataset.comment = "";
   form.method = "post";
   form.action = comments.url;
   const field = (name, value) => {

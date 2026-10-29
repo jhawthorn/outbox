@@ -10,6 +10,8 @@ const diff = (page) => page.locator("main.codeview diffs-container[data-file=f0]
 
 test("a comment on a line is posted from the diff and drawn under the line", async ({ page }) => {
   await page.goto(BRANCH);
+  // Posting happens in place: the page is never loaded again.
+  await page.evaluate(() => { window.notReloaded = true; });
   // Until there are comments, there is no thread to push the diff down.
   await expect(page.locator("section.comments")).toHaveCount(0);
   await expect(page.locator("#new-comment")).toBeHidden();
@@ -35,14 +37,15 @@ test("a comment on a line is posted from the diff and drawn under the line", asy
   await form.locator("textarea").fill("Why <new>?");
   await form.getByRole("button", { name: "Comment" }).click();
 
-  // Back on the page: in the thread, with a link to the line, and in the diff.
-  await expect(page).toHaveURL(/#comments$/);
+  // In the thread, with a link to the line, and in the diff, where the
+  // form has closed.
   const thread = page.locator("section.comments");
   await expect(thread.locator("h2")).toHaveText("Comments (1)");
   await expect(thread.locator(".comment .text")).toHaveText("Why <new>?");
   await expect(thread.locator(".comment a")).toHaveAttribute("href", "#f0-R2-R2");
   await expect(diff(page).locator(".line-comments .comment .text")).toHaveText("Why <new>?");
   await expect(diff(page).locator(".line-comments .comment .meta")).toContainText("on line 2");
+  await expect(form).toHaveCount(0);
 
   // And a comment on the whole of it, from the review panel.
   await page.locator(".review .actions").getByRole("button", { name: "Comment" }).click();
@@ -53,6 +56,24 @@ test("a comment on a line is posted from the diff and drawn under the line", asy
   await expect(thread.locator("h2")).toHaveText("Comments (2)");
   await expect(thread.locator(".comment .text").nth(1)).toHaveText("Looks fine otherwise");
   await expect(general).toBeHidden();
+  // Not announced as someone else's, either.
+  await page.waitForTimeout(1500);
+  await expect(page.locator(".panel.new-comments")).toHaveCount(0);
+  expect(await page.evaluate(() => window.notReloaded)).toBe(true);
+});
+
+test("a comment that cannot be posted says why in the form", async ({ page }) => {
+  await page.goto("/repos/edited/branches/main");
+  await expect(page.locator("main.codeview")).toBeVisible();
+  await page.locator(".review .actions").getByRole("button", { name: "Comment" }).click();
+  const general = page.locator("#new-comment");
+  await general.locator("input[name=expected]").evaluate((input) => { input.value = "0".repeat(40); });
+  await general.locator("textarea").fill("Too late");
+  await general.getByRole("button", { name: "Comment" }).click();
+  await expect(general.locator(".comment-error")).toContainText("changed since you read it");
+  await expect(general).toBeVisible();
+  await expect(general.locator("textarea")).toHaveValue("Too late");
+  await expect(general.getByRole("button", { name: "Comment" })).toBeEnabled();
 });
 
 // Written elsewhere, another tab or another reviewer: the page says so,
@@ -86,6 +107,7 @@ test("a comment is edited and deleted from the thread", async ({ page }) => {
   const staged = (await page.locator("main").getAttribute("data-tips")).split(" ")[0];
   await page.request.post(`${BRANCH}/comments`, { form: { expected: staged, description: "Frist" }, maxRedirects: 0 });
   await page.reload();
+  await page.evaluate(() => { window.notReloaded = true; });
 
   const comment = page.locator("section.comments .comment");
   await comment.getByRole("button", { name: "Edit" }).click();
@@ -100,5 +122,6 @@ test("a comment is edited and deleted from the thread", async ({ page }) => {
   page.once("dialog", (d) => d.accept());
   await comment.getByRole("button", { name: "Delete" }).click();
   await expect(page.locator("section.comments")).toHaveCount(0);
+  expect(await page.evaluate(() => window.notReloaded)).toBe(true);
 });
 

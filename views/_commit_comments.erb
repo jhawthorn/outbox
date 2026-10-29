@@ -1,6 +1,8 @@
 <%# The review comments on a commit shown on its own (Repo#comments): it was %>
 <%# a branch's staged tip when they were written. Lines the commit has link %>
 <%# to its diff below; removed ones were in the diff the reviewer read then. %>
+<%# Editing and deleting swap this in place (layout.erb). %>
+<div data-comment-thread>
 <% unless comments.empty? %>
   <% file_ids = @patch.files.each_with_index.to_h { |f, i| [f.path, "f#{i}"] } %>
   <section class="comments" id="comments">
@@ -12,3 +14,4 @@
     <% end %>
   </section>
 <% end %>
+</div>

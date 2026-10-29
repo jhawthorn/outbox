@@ -3,6 +3,8 @@
 <%# A comment on removed lines names the file as it was, so a renamed file is found by either name. %>
 <% file_ids = {} %>
 <% @patch.files.each_with_index { |f, i| file_ids[f.path] ||= "f#{i}"; file_ids[f.old_path] ||= "f#{i}" if f.old_path } %>
+<%# Posting, editing and deleting swap this in place (layout.erb). %>
+<div data-comment-thread>
 <%# Nothing until there is something to read, so the diff stays near the top. %>
 <% unless @comments.empty? %>
 <section class="comments" id="comments">
@@ -29,7 +31,7 @@
 <% end %>
 <% if @branch.staged %>
   <%# A comment on the whole of it, from the review panel's Comment button. %>
-  <form class="comment-form" id="new-comment" popover method="post" action="<%= branch_url(@repo, @branch.name) %>/comments">
+  <form class="comment-form" data-comment id="new-comment" popover method="post" action="<%= branch_url(@repo, @branch.name) %>/comments">
     <input type="hidden" name="expected" value="<%= @branch.staged %>">
     <label for="new-comment-text">Comment on <b><%= h @branch.name %></b> at <code><%= short(@branch.staged) %></code>.
       <span class="muted">For lines, click + beside one in the diff.</span></label>
@@ -38,3 +40,4 @@
       <button type="button" popovertarget="new-comment" popovertargetaction="hide">Cancel</button></div>
   </form>
 <% end %>
+</div>

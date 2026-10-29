@@ -570,6 +570,57 @@ document.addEventListener("submit", function (e) {
   if (question && !confirm(question)) e.preventDefault();
 });
 
+// Posting, editing and deleting a review comment (forms marked
+// data-comment) happen in place: the form is sent with fetch, and from the
+// page that comes back the thread (data-comment-thread) is swapped in and
+// the diff's line comments redrawn (diffs.js, on outbox:comments). The
+// reader keeps their place, and whatever else they had open. An error is
+// said in the form, which stays as it was.
+var posting = 0;
+document.addEventListener("submit", async function (e) {
+  var form = e.target;
+  if (e.defaultPrevented || !form.hasAttribute("data-comment") || !window.fetch) return;
+  e.preventDefault();
+  var buttons = form.querySelectorAll("button");
+  if (form.getAttribute("aria-busy") === "true") return;
+  form.setAttribute("aria-busy", "true");
+  buttons.forEach(function (b) { b.disabled = true; });
+  var old = form.querySelector(".comment-error");
+  if (old) old.remove();
+  posting++;
+  try {
+    var res = await fetch(form.action, { method: "POST", body: new URLSearchParams(new FormData(form)) });
+    var doc = new DOMParser().parseFromString(await res.text(), "text/html");
+    if (!res.ok) throw new Error(doc.querySelector(".panel.danger") ? doc.querySelector(".panel.danger").textContent.trim() : "The server answered " + res.status + ".");
+    if (new URL(res.url).pathname !== location.pathname) { location.href = res.url; return; }
+    var main = document.querySelector("main");
+    var next = doc.querySelector("main");
+    var thread = document.querySelector("[data-comment-thread]");
+    var fresh = doc.querySelector("[data-comment-thread]");
+    if (!thread || !fresh) { location.reload(); return; }
+    if (form.matches(":popover-open")) form.hidePopover();
+    // Earlier pushes' comments stay folded or open, as the reader left them.
+    var earlier = thread.querySelector("details.earlier");
+    var unfolded = fresh.querySelector("details.earlier");
+    if (earlier && unfolded) unfolded.open = earlier.open;
+    thread.replaceWith(document.adoptNode(fresh));
+    var seen = next && next.getAttribute("data-comments-seen");
+    if (seen) main.setAttribute("data-comments-seen", seen);
+    var patch = doc.querySelector(".patch[data-comments]");
+    if (patch) document.dispatchEvent(new CustomEvent("outbox:comments", { detail: { comments: JSON.parse(patch.getAttribute("data-comments")), form: form } }));
+  } catch (err) {
+    var note = document.createElement("div");
+    note.className = "comment-error panel danger";
+    note.setAttribute("role", "alert");
+    note.textContent = err instanceof TypeError ? "Could not reach outbox. Try again." : err.message;
+    form.appendChild(note);
+  } finally {
+    posting--;
+    form.removeAttribute("aria-busy");
+    buttons.forEach(function (b) { b.disabled = false; });
+  }
+});
+
 // Live pages (App#live!) follow what happens elsewhere: pushes, jobs, other
 // tabs. GET /events names each repository that changes (Notifier); the
 // index cares about all of them, a repository's pages about their own. On
@@ -585,7 +636,8 @@ document.addEventListener("submit", function (e) {
 //   only look when refs may have moved, not at every progress line.
 //   New comments also get a notice, but leave the buttons enabled: a
 //   comment doesn't change what would be approved. data-comments-seen is a
-//   hash of the comments the page shows, to tell when they've changed.
+//   hash of the comments the page shows, to tell when they've changed; the
+//   reader's own comments, swapped in as they are posted, update it.
 //
 // A hidden tab closes its stream, since a browser allows only a few
 // connections to one host over HTTP/1.1, and opens it again when shown. So
@@ -600,7 +652,6 @@ document.addEventListener("submit", function (e) {
   var repo = main.getAttribute("data-repo");
   var tips = main.getAttribute("data-tips");
   var seen = main.getAttribute("data-seq");
-  var comments = main.getAttribute("data-comments-seen");
   var commentsNote = null;
   var source = null, timer = null, fetching = false, again = false, stale = false;
   // When the last fetch finished. The next waits at least SPACING after it,
@@ -627,7 +678,10 @@ document.addEventListener("submit", function (e) {
           if (next.getAttribute("data-tips") !== tips) {
             var now = next.querySelector(".review .summary");
             outdated("This branch has changed since the page was loaded." + (now ? " Now: " + now.textContent.trim() + "." : ""));
-          } else if (comments !== null && next.getAttribute("data-comments-seen") !== comments) {
+          } else if (posting) {
+            // The reader's own comment, maybe: look again once it is in.
+            again = true;
+          } else if (main.hasAttribute("data-comments-seen") && next.getAttribute("data-comments-seen") !== main.getAttribute("data-comments-seen")) {
             commentsChanged();
           }
         } else if (next && next.innerHTML !== main.innerHTML) {
