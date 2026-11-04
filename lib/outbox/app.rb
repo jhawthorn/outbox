@@ -250,11 +250,11 @@ module Outbox
 
       # What a reworked commit changed about the upstream one it replaces,
       # beyond its patch: its old message, author and date. Empty when it
-      # differs only in its patch.
+      # differs only in its patch. Each note is HTML, as the date is markup.
       def rework_notes(new, old)
         notes = []
-        notes << "message was “#{old.subject}”" unless new.message == old.message
-        notes << "author was #{old.author}" unless new.author == old.author && new.author_email == old.author_email
+        notes << "message was “#{hv old.subject}”" unless new.message == old.message
+        notes << "author was #{hv old.author}" unless new.author == old.author && new.author_email == old.author_email
         notes << "dated #{when_label(old.date)} upstream" unless new.date == old.date
         notes
       end

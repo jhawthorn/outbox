@@ -827,16 +827,18 @@ class AppTest < OutboxTest::RepoCase
 
   def test_an_amended_commit_says_what_it_changed_about_the_upstream_one
     stage_commit("a.txt", "a\n", "Keep me")
-    stage_commit("b.txt", "b\nb\n", "Old subject")
+    stage_commit("b.txt", "b\nb\n", "Old <subject>")
     @repo.approve!("main")
     File.write(File.join(@stage, "b.txt"), "b\nb\nb\n")
     git("add", "b.txt", chdir: @stage)
-    git("commit", "--quiet", "--amend", "-m", "New subject", chdir: @stage)
+    git("commit", "--quiet", "--amend", "--date", "2026-10-15T14:28:00-07:00", "-m", "New subject", chdir: @stage)
     push(@stage, "main", force: true)
     @repo.fetch!
 
     body = get("/repos/demo/branches/main")
-    assert_includes body, "message was “Old subject”"
+    assert_includes body, "message was “Old &lt;subject&gt;”"
+    assert_match(%r{; dated <span title="[^"]+">\d{4}-\d\d-\d\d \d\d:\d\d <span class="off">UTC[^<]*</span></span> upstream\.}, body,
+                 "the old date is shown as a timestamp, not as escaped markup")
     assert_equal 1, body.scan(">New subject<").size, "the staged commit is listed once"
     refute_includes body, "Reworked from upstream ("
     refute_includes body, "Dropped from upstream"
