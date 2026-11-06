@@ -129,7 +129,7 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `bin/outbox` — CLI for the same operations, synchronous, in its own process.
 - `test/` — minitest unit tests, `smoke_test.rb` against a booted server, and `browser/`,
   Playwright tests in Chromium for what only runs in the browser: the diff viewer, live
-  updates, confirm dialogs, the offline page.
+  updates, confirm dialogs, the offline page, and that pages fit a phone's screen.
 
 Pushes to upstream use `--force-with-lease` against the last fetched sha. Diverged
 branches need an explicit force. Approve and discard carry both the staged and the upstream sha the reviewer

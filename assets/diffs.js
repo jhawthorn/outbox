@@ -622,6 +622,7 @@ function wholeToggle(file, onclick) {
   if (!oldBlob || !newBlob || file.fileDiff.hunks.length === 0) return undefined;
   const b = button(file.whole ? "Show changes" : "Show whole file", "", (e) => { e.stopPropagation(); onclick(); });
   b.className = "whole";
+  b.dataset.short = file.whole ? "Changes" : "Whole file";
   b.title = file.whole ? "Show only the changed lines and their context" : "Show every line of the file";
   b.setAttribute("aria-pressed", String(file.whole));
   return b;
@@ -632,6 +633,7 @@ function viewLink(file) {
   const { viewUrl } = file.data;
   if (!viewUrl) return undefined;
   const a = el("a", "muted", "View file");
+  a.dataset.short = "View";
   a.href = viewUrl;
   a.title = "View the whole file as it is after this change";
   a.addEventListener("click", (e) => e.stopPropagation());
