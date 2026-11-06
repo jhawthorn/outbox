@@ -118,12 +118,14 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
   Jobs (fetch, approve, discard) arrive on its port; it reports progress and results.
 - `lib/outbox/hub.rb` — main-Ractor side: spawns actors, queues jobs, folds their events
   into a per-repo Status that the UI reads. Reads (branches, diffs) bypass the actor.
-  Applies the configuration at boot and after each approval on `_config`. Tells open
-  pages about every change, through the notifier.
+  Applies the configuration at boot and after each approval on `_config`. Fetches after
+  every push and on a 30-minute timer (Fetching, below). Tells open pages about every
+  change, through the notifier.
 - `lib/outbox/notifier.rb` — the `/events` stream: holds every open page's connection
   and writes to them all from one thread.
 - `lib/outbox/push_watcher.rb` — notices pushes, which land through the git daemon in
-  another container, by the mark each repo's `post-receive` hook leaves.
+  another container, by the mark each repo's `post-receive` hook leaves, for the hub to
+  tell open pages and fetch.
 - `bin/outbox` — CLI for the same operations, synchronous, in its own process.
 - `test/` — minitest unit tests, `smoke_test.rb` against a booted server, and `browser/`,
   Playwright tests in Chromium for what only runs in the browser: the diff viewer, live
@@ -324,9 +326,25 @@ create and re-checked on every fetch.
 ## Fetching
 
 Every remote of a repo is fetched, the push remote first, when its entry is approved or
-changed, once per repo at boot, and when you click "Fetch upstream" on a repo page or
-"Fetch all upstreams" on the index. Never on a timer. A fetch-only remote that fails does
-not stop the push remote's fetch from taking effect.
+changed, once per repo at boot, after every push to it, every 30 minutes, and when you
+click "Fetch upstream" on a repo page or "Fetch all upstreams" on the index. A fetch-only
+remote that fails does not stop the push remote's fetch from taking effect.
+
+The fetch after a push is what keeps a branch page honest. It is computed against upstream
+as of the last fetch, so a branch an agent built on a newer upstream than the outbox had
+would otherwise show upstream's own commits as new work. The `PushWatcher` notices the
+push and queues the fetch behind whatever the repo is doing; a burst of pushes shares one,
+since a fetch that has not started yet will see all of them.
+
+The timer looks once a minute and fetches every repo whose last fetch finished 30 minutes
+ago or more, whatever started it, unless one is already queued or running. So a repo that
+gets pushed to often is not also fetched on the clock, and one whose upstream is down is
+tried again every 30 minutes rather than hammered. A successful fetch clears an earlier
+fetch's failure, but leaves another job's failure (an approval refused, say) showing until
+it is dismissed, so a fetch nobody asked for does not hide it.
+
+A push can land while a fetch runs. A branch only follows upstream from the sha the fetch
+saw it at (`update-ref` with the old value), so a push in between stands.
 
 Clones see only `refs/heads/*` unless told otherwise (review comments are fetched the
 same way; see Review comments). A client that also fetches
@@ -365,11 +383,8 @@ Things discussed and deliberately left.
   `refs/remotes/upstream/main` of `_config.git` rather than `main` if they want only
   approved entries. Serving the approved copy read-only under its own name would be
   plainer, at the cost of a second served repo.
-- **Staleness.** Everything on a branch page is computed against upstream as of the last
-  fetch. If an agent builds on a newer upstream than the outbox has and pushes, upstream's
-  own commits show up as new work. Fetching when a push arrives (the HTTP middleware
-  already sees every `git-receive-pack`) would fix the common case at one fetch per push.
-  Not done because fetch policy was explicitly limited to add, boot and the button.
+- **Upstream webhooks.** Fetching on a push from GitHub would see upstream changes within
+  seconds rather than 30 minutes, but needs the outbox reachable from the internet.
 - **Diff base for a new branch** is the merge-base with the nearest base, like a GitHub
   compare. A branch forked from a remote branch that is not a base shows that branch's
   commits too. `git rev-list --boundary <branch> --not --remotes` finds the exact

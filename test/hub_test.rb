@@ -6,17 +6,59 @@ require "socket"
 class HubTest < OutboxTest::RepoCase
   def setup
     super
-    @hub = Outbox::Hub.new
+    @hub = Outbox::Hub.new(push_check: 0.05)
   end
 
   def teardown
+    @release&.close
     @hub.shutdown
+    @stub&.kill
+    @stub_server&.close
     super
   end
 
   def wait_idle(repo = @repo)
     wait_until("#{repo.name} to go idle") { !@hub.status(repo).busy? }
   end
+
+  # Every push to a staging repo is followed by a fetch. Wait for it, so
+  # that it does not land in the middle of what the test does next.
+  def push(work, *refspecs, **opts)
+    url = File.realpath(git("remote", "get-url", "origin", chdir: work).strip)
+    repo = Outbox::Repo.all.find { |r| File.realpath(r.path) == url }
+    return super unless repo
+
+    before = @hub.status(repo).fetched_at
+    super
+    wait_until("the fetch after a push to #{repo.name}") do
+      s = @hub.status(repo)
+      s.fetched_at != before && !s.busy?
+    end
+  end
+
+  # An http server that takes requests and answers none (404) until
+  # released, so that a fetch from it stays running for as long as a test
+  # needs. Returns its url.
+  def stalled_remote
+    @release = Thread::Queue.new
+    server = @stub_server = TCPServer.new("127.0.0.1", 0)
+    @stub = Thread.new do
+      loop do
+        Thread.new(server.accept) do |c|
+          loop { line = c.gets; break if line.nil? || line.strip.empty? }
+          @release.pop
+          c.write "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        rescue IOError, SystemCallError
+          # git gave up
+        ensure
+          c.close
+        end
+      end
+    end
+    "http://127.0.0.1:#{server.addr[1]}/stalled.git"
+  end
+
+  def release_remote = @release.close
 
   def test_unknown_repo_is_idle
     s = @hub.status(@repo)
@@ -123,6 +165,94 @@ class HubTest < OutboxTest::RepoCase
     assert_equal :fetch, s.last.job
     assert s.last.ok?
     assert_equal staged, rev(@upstream, "main")
+  end
+
+  def test_a_push_is_followed_by_a_fetch
+    up = upstream_commit
+    refute_equal up, rev(@repo.path, "refs/remotes/upstream/main"), "the outbox has not seen it yet"
+    stage_commit(branch: "main:feature")
+    assert_equal up, rev(@repo.path, "refs/remotes/upstream/main")
+    assert_equal up, rev(@repo.path, "refs/heads/main"), "and main, with nothing staged, follows it"
+    s = @hub.status(@repo)
+    assert_equal :fetch, s.last.job
+    assert s.last.ok?
+    assert_equal 0, s.fetches_queued
+  end
+
+  def test_a_fetch_queued_and_not_started_serves_every_push
+    @repo.git("config", "remote.upstream.url", stalled_remote)
+    @hub.fetch(@repo)
+    wait_until("the fetch to start") { @hub.status(@repo).job == :fetch }
+
+    3.times { @hub.send(:noticed, "demo", true) }
+    s = @hub.status(@repo)
+    assert_equal 1, s.fetches_queued, "one fetch waits behind the running one, for all three pushes"
+    assert_equal 2, s.queued
+    refute_includes @hub.fetch_stale(Time.now + Outbox::Hub::FETCH_EVERY).map(&:name), "demo"
+
+    release_remote
+    wait_idle
+    s = @hub.status(@repo)
+    assert_equal 0, s.fetches_queued
+    refute s.last.ok?, "the stub only ever says 404"
+    assert_equal :fetch, s.last.job
+  end
+
+  def test_a_repo_appearing_is_not_fetched_for_it
+    other_upstream, = make_upstream("other")
+    other = Outbox::Repo.create("other", other_upstream)
+    client = subscribe
+    @hub.send(:noticed, "other", false)
+    read_until(client, /event: refs\ndata: other\n\n/)
+    refute @hub.status(other).busy?
+    assert_nil @hub.status(other).last
+  end
+
+  def test_fetch_stale_fetches_what_was_fetched_long_enough_ago
+    every = Outbox::Hub::FETCH_EVERY
+    assert_empty @hub.fetch_stale, "a repo this hub never fetched counts from its start"
+    assert_equal %w[_config demo], @hub.fetch_stale(Time.now + every).map(&:name)
+    wait_idle
+    wait_idle(Outbox::Config.staging)
+
+    fetched_at = @hub.status(@repo).fetched_at
+    assert_kind_of Time, fetched_at
+    assert_empty @hub.fetch_stale(fetched_at + every - 1).map(&:name) & ["demo"]
+    assert_includes @hub.fetch_stale(fetched_at + every).map(&:name), "demo"
+    assert_empty @hub.fetch_stale(fetched_at + every).map(&:name), "not while that one is queued or running"
+    wait_idle
+    wait_idle(Outbox::Config.staging)
+  end
+
+  def test_the_timer_fetches_on_its_own
+    @hub.shutdown
+    @hub = Outbox::Hub.new(fetch_every: 0, fetch_check: 0.05)
+    up = upstream_commit
+    wait_until("the timer to fetch") { rev(@repo.path, "refs/heads/main") == up }
+  end
+
+  def test_a_fetch_that_works_leaves_another_jobs_failure_showing
+    @hub.approve(@repo, "main")
+    wait_idle
+    @hub.fetch(@repo)
+    wait_idle
+    s = @hub.status(@repo)
+    assert_equal :approve, s.last.job
+    refute s.last.ok?
+    assert s.fetched_at
+  end
+
+  def test_a_fetch_that_works_clears_a_failed_fetch
+    url = @repo.git("config", "remote.upstream.url").strip
+    @repo.git("config", "remote.upstream.url", File.join(@dir, "nowhere.git"))
+    @hub.fetch(@repo)
+    wait_idle
+    refute @hub.status(@repo).last.ok?
+
+    @repo.git("config", "remote.upstream.url", url)
+    @hub.fetch(@repo)
+    wait_idle
+    assert @hub.status(@repo).last.ok?
   end
 
   def test_fetch_all_skips_repos_that_are_already_busy
@@ -275,6 +405,12 @@ class HubTest < OutboxTest::RepoCase
     client = subscribe
     stage_commit
     read_until(client, /event: refs\ndata: demo\n\n/)
+  end
+
+  def test_shutdown_stops_the_timer
+    @hub.shutdown
+    refute @hub.instance_variable_get(:@timer).alive?
+    @hub = Outbox::Hub.new
   end
 
   def test_a_dismissal_is_announced

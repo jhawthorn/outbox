@@ -400,6 +400,33 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal :diverged, status_of
   end
 
+  # A push that lands while fetch! runs, after it read the staged refs and
+  # before it moves them, is not overwritten: the branch has something
+  # staged after all.
+  def test_following_upstream_leaves_a_branch_pushed_meanwhile
+    seen = rev(@repo.path, "refs/heads/main")
+    up = upstream_commit
+    staged = stage_commit
+    @repo.follow!("main", up, seen)
+    assert_equal staged, rev(@repo.path, "refs/heads/main")
+
+    git("push", "--quiet", "origin", "main~:refs/heads/nb", chdir: @stage)
+    seen = rev(@repo.path, "refs/heads/nb")
+    git("push", "--quiet", "origin", "main:refs/heads/nb", chdir: @stage)
+    @repo.follow!("nb", nil, seen)
+    assert_equal staged, rev(@repo.path, "refs/heads/nb"), "nor deleted"
+  end
+
+  def test_following_upstream_moves_a_branch_nobody_pushed_to
+    seen = rev(@repo.path, "refs/heads/main")
+    up = upstream_commit
+    git("fetch", "--quiet", "upstream", chdir: @repo.path)
+    @repo.follow!("main", up, seen)
+    assert_equal up, rev(@repo.path, "refs/heads/main")
+    @repo.follow!("main", nil, up)
+    refute ref_exists?(@repo.path, "refs/heads/main")
+  end
+
   def test_fetch_mirrors_new_upstream_branch
     sha = add_upstream_branch("nb")
     assert_equal sha, rev(@repo.path, "refs/heads/nb")

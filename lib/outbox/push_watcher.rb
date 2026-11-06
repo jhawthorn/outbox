@@ -7,6 +7,8 @@ module Outbox
   # This thread stats those once per interval and reports the names that
   # changed, and those of repositories that appeared or went away (an
   # approved configuration change, or `bin/outbox` in another process).
+  # Each name comes with whether it was a push: true only for a repository
+  # that was there before and after.
   class PushWatcher
     INTERVAL = 1
 
@@ -30,7 +32,10 @@ module Outbox
     def run
       while @stop.pop(timeout: @interval).nil? && !@stop.closed?
         now = snapshot
-        (now.keys | @seen.keys).each { |name| @changed.call(name) if now.fetch(name, :gone) != @seen.fetch(name, :gone) }
+        (now.keys | @seen.keys).each do |name|
+          was, is = @seen.fetch(name, :gone), now.fetch(name, :gone)
+          @changed.call(name, was != :gone && is != :gone) if was != is
+        end
         @seen = now
       end
     end

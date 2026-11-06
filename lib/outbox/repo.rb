@@ -445,18 +445,32 @@ module Outbox
       after.each do |branch, sha|
         old = before[branch]
         untouched = staged[branch].nil? ? old.nil? : staged[branch] == old
-        git("update-ref", "-m", "outbox: follow upstream", "refs/heads/#{branch}", sha) if untouched && staged[branch] != sha
+        follow!(branch, sha, staged[branch]) if untouched && staged[branch] != sha
       end
 
       (before.keys - after.keys).each do |branch|
-        next unless staged[branch] == before[branch]
-        git("update-ref", "-m", "outbox: follow upstream", "-d", "refs/heads/#{branch}", staged[branch])
+        follow!(branch, nil, staged[branch]) if staged[branch] == before[branch]
       end
 
       follow_upstream_head! unless after.empty?
       others = remotes.keys - [push_remote]
       fetch_remotes(others, &progress) unless others.empty?
       optimize_for_clones!
+    end
+
+    # Move a branch with nothing staged to upstream's sha, or delete it (sha
+    # nil), but only from was, what fetch! saw it at. A push can land in
+    # between, since a fetch follows every push; then the branch has
+    # something staged after all, and the push stands.
+    def follow!(branch, sha, was)
+      ref = "refs/heads/#{branch}"
+      if sha
+        git("update-ref", "-m", "outbox: follow upstream", ref, sha, was.to_s)
+      else
+        git("update-ref", "-m", "outbox: follow upstream", "-d", ref, was)
+      end
+    rescue GitError
+      raise if git("rev-parse", "--quiet", "--verify", ref, ok: [0, 1]).strip == was.to_s
     end
 
     # Clients clone from this repo over the git daemon. Without a
