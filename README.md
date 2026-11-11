@@ -35,10 +35,12 @@ may use it. Remote names are ref path components in every clone: no `/` or `.`, 
 
 - `push` is the remote approvals go to (`upstream` in the rest of this README).
 - `fetch`, any number, are remotes that are only ever fetched: the repo a fork came from,
-  say. Commits any remote has are never counted as a branch's own.
+  say.
 - `base`, any number, as `remote/branch`, are where new work starts. A new branch is
   shown against the one it builds on, the one leaving it the fewest commits of its own,
   the first listed on a tie. Without any, the base is the push remote's default branch.
+  Its commits are everything from where it forks off that base, the same range its diff
+  covers, including any another remote has, such as those of a branch it is stacked on.
 
 `upstream = <url>` in place of `push` is the older form: a push remote called `upstream`,
 with that url. It can be combined with `fetch` and `base`.

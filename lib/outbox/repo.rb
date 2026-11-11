@@ -15,8 +15,8 @@ module Outbox
   #
   # A branch is "pending" whenever the first two differ. Approving pushes the
   # staged ref to upstream; discarding resets the staged ref back to upstream.
-  # Commits any remote has are not a branch's own, and a new branch is shown
-  # against the nearest of the repo's bases (outbox.base).
+  # A new branch is shown against the nearest of the repo's bases
+  # (outbox.base), with every commit since it forked off that base.
   #
   # Reads (branches, commits, diff) are safe from any thread. Writes (fetch!,
   # approve!, discard!) are only ever called from the repo's RepoActor, which
@@ -909,7 +909,7 @@ module Outbox
     def branch_info(name, staged, upstream, time)
       status, ahead, behind =
         if upstream.nil?
-          [:new, count("refs/heads/#{name}", "--not", "--remotes"), 0]
+          [:new, count(*new_revs("refs/heads/#{name}", staged)), 0]
         elsif staged.nil?
           [:deleted, 0, count(upstream_ref(name), "--not", "--branches")]
         elsif staged == upstream
@@ -986,10 +986,21 @@ module Outbox
     def incoming_revs(b)
       return ["refs/heads/#{b.name}", "--not", "--remotes"] if b.rebased?
       case b.status
-      when :new then ["refs/heads/#{b.name}", "--not", "--remotes"]
+      when :new then new_revs("refs/heads/#{b.name}", b.staged)
       when :ready, :diverged then ["#{upstream_ref(b.name)}..refs/heads/#{b.name}"]
       else nil
       end
+    end
+
+    # A new branch's commits: everything from where it forks off its nearest
+    # base, the commit #base shows and #diff starts from, so every commit the
+    # diff covers is listed. That includes commits another remote has, such
+    # as those of a branch this one is stacked on: a pull request against the
+    # base carries them. All of the branch's history when it shares none
+    # with any base.
+    def new_revs(ref, sha)
+      fork = nearest_base(sha)&.last
+      fork ? ["#{fork}..#{ref}"] : [ref]
     end
 
     def outgoing_revs(b)

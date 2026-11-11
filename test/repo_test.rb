@@ -967,6 +967,48 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal ["feature.txt"], @repo.diff(b).files.map(&:path)
   end
 
+  # A branch stacked on another the push remote already has, which is not a
+  # base. A pull request against the base carries the lower branch's commit,
+  # and the diff covers it, so the commit list must not leave it out and
+  # show the upper commit sitting on the base.
+  def test_a_new_branch_stacked_on_an_upstream_branch_lists_the_lower_commits_too
+    add_theirs
+    start_on_theirs("lower")
+    stage_commit("lower.txt", "lower\n", "Lower", branch: "lower")
+    @repo.approve!("lower")
+    stage_commit("upper.txt", "upper\n", "Upper", branch: "lower:upper")
+
+    b = @repo.branch("upper")
+    assert_equal :new, b.status
+    assert_equal 2, b.ahead
+    commits = @repo.commits(b)
+    assert_equal %w[Upper Lower], commits.map(&:subject)
+    assert_equal @repo.commit_count(b), commits.size
+    base = @repo.base(b)
+    assert_equal "theirs/main", base.ref
+    assert_equal "Theirs b", base.commit.subject
+    assert_equal [base.commit.sha], commits.last.parents, "the oldest commit listed sits on the base shown"
+    assert_equal %w[lower.txt upper.txt], @repo.diff(b).files.map(&:path).sort
+  end
+
+  # The same when the other branch is merged in rather than built on.
+  def test_a_new_branch_that_merges_an_upstream_branch_lists_its_commits
+    add_theirs
+    start_on_theirs("other")
+    stage_commit("other.txt", "other\n", "Other", branch: "other")
+    @repo.approve!("other")
+    start_on_theirs("feature")
+    commit(@stage, "feature.txt", "feature\n", "Feature")
+    git("merge", "--quiet", "--no-edit", "other", chdir: @stage)
+    push(@stage, "feature")
+
+    b = @repo.branch("feature")
+    assert_equal 3, b.ahead
+    assert_includes @repo.commits(b).map(&:subject), "Other"
+    assert_equal "theirs/main", @repo.base(b).ref
+    assert_equal %w[feature.txt other.txt], @repo.diff(b).files.map(&:path).sort
+  end
+
   def test_a_new_branch_is_shown_against_the_base_it_builds_on
     add_theirs(bases: %w[theirs/main theirs/stable])
     # theirs' release branch, off the first commit, with a backport.
