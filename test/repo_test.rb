@@ -861,6 +861,15 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal "upstream/main", base.ref
   end
 
+  def test_a_branch_with_no_history_in_common_with_upstream_has_no_base
+    git("checkout", "--quiet", "--orphan", "unrelated", chdir: @stage)
+    git("rm", "-r", "--quiet", "--cached", ".", chdir: @stage)
+    commit(@stage, "other.txt", "other\n", "Start over")
+    push(@stage, "unrelated:main", force: true)
+    assert_equal :diverged, status_of
+    assert_nil @repo.base("main")
+  end
+
   def test_nothing_staged_has_no_base
     assert_nil @repo.base("main")
   end

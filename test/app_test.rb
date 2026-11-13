@@ -764,6 +764,16 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, '<span class="count add">+1</span> <span class="count del">−0</span>'
   end
 
+  def test_branch_page_of_a_branch_with_no_history_in_common_with_upstream
+    git("checkout", "--quiet", "--orphan", "unrelated", chdir: @stage)
+    git("rm", "-r", "--quiet", "--cached", ".", chdir: @stage)
+    commit(@stage, "other.txt", "other\n", "Start over")
+    push(@stage, "unrelated:main", force: true)
+    body = get("/repos/demo/branches/main")
+    assert_includes body, "Start over"
+    refute_includes body, "fork point"
+  end
+
   def test_branch_page_draws_dropped_upstream_commits_like_the_staged_ones
     stage_commit
     upstream_commit("up.txt", "one\ntwo\n")

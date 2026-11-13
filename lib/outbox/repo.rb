@@ -672,7 +672,7 @@ module Outbox
       case b.status
       when :ready, :diverged
         sha = fork_point(b)
-        Base.new(commit: commit_detail(sha), ref: "#{push_remote}/#{b.name}")
+        Base.new(commit: commit_detail(sha), ref: "#{push_remote}/#{b.name}") if sha
       when :new
         ref, sha = nearest_base(b.staged)
         Base.new(commit: commit_detail(sha), ref: ref) if sha
