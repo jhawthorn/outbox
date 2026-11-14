@@ -1037,6 +1037,31 @@ class RepoTest < OutboxTest::RepoCase
     assert_equal ["feature.txt"], @repo.diff("feature").files.map(&:path)
   end
 
+  # The list counts every new branch at once (Repo#new_commit_counts); each
+  # must come out as it does for the branch alone.
+  def test_listing_counts_new_branches_as_each_alone
+    add_theirs(bases: %w[theirs/main theirs/stable])
+    git("checkout", "--quiet", "-b", "stable", "main~2", chdir: @their_work)
+    commit(@their_work, "backport.txt", "backport\n", "Backport")
+    push(@their_work, "stable")
+    @repo.fetch!
+
+    start_on_theirs("fix", from: "stable")
+    stage_commit("fix.txt", "fix\n", "Fix on stable", branch: "fix")
+    start_on_theirs("lower")
+    stage_commit("lower.txt", "lower\n", "Lower", branch: "lower")
+    @repo.approve!("lower")
+    stage_commit("upper.txt", "upper\n", "Upper", branch: "lower:upper")
+    git("checkout", "--quiet", "--orphan", "unrelated", chdir: @stage)
+    git("rm", "-r", "--quiet", "--cached", ".", chdir: @stage)
+    commit(@stage, "other.txt", "other\n", "Start over")
+    stage_commit("again.txt", "again\n", "Again", branch: "unrelated")
+
+    listed = @repo.branches.select { |b| b.status == :new }.to_h { |b| [b.name, b.ahead] }
+    assert_equal({ "fix" => 1, "upper" => 2, "unrelated" => 2 }, listed)
+    listed.each { |name, ahead| assert_equal @repo.branch(name).ahead, ahead, name }
+  end
+
   # Off a commit both bases have, the branch is as much on one as the other.
   def test_a_tie_between_bases_goes_to_the_first_listed
     add_theirs(bases: %w[theirs/main upstream/main])

@@ -408,7 +408,8 @@ module Outbox
     def branches
       staged, upstream, times = all_refs
       names = (staged.keys | upstream.keys).sort_by { |n| [-times[n], n] }
-      names.map { |n| branch_info(n, staged[n], upstream[n], times[n]) }
+      own = new_commit_counts(names.select { |n| upstream[n].nil? })
+      names.map { |n| branch_info(n, staged[n], upstream[n], times[n], new_ahead: own[n]) }
     end
 
     def branch(name)
@@ -906,10 +907,12 @@ module Outbox
       raise GitError, "#{b.name} #{what} since you reviewed it (reviewed #{was}, now #{now}). Review it again."
     end
 
-    def branch_info(name, staged, upstream, time)
+    # new_ahead: a new branch's commit count when the caller has it already
+    # (#new_commit_counts).
+    def branch_info(name, staged, upstream, time, new_ahead: nil)
       status, ahead, behind =
         if upstream.nil?
-          [:new, count(*new_revs("refs/heads/#{name}", staged)), 0]
+          [:new, new_ahead || count(*new_revs("refs/heads/#{name}", staged)), 0]
         elsif staged.nil?
           [:deleted, 0, count(upstream_ref(name), "--not", "--branches")]
         elsif staged == upstream
@@ -1001,6 +1004,32 @@ module Outbox
     def new_revs(ref, sha)
       fork = nearest_base(sha)&.last
       fork ? ["#{fork}..#{ref}"] : [ref]
+    end
+
+    # How many commits each of the new branches named has, { name => count },
+    # as #new_revs lists them, for all of them at once: one for-each-ref per
+    # base rather than a merge-base and a rev-list per branch and base. The
+    # commits a branch has that a base lacks are the ones since it forked
+    # off that base, and #nearest_base is the base with fewest. A branch
+    # that shares no history with any base lacks from each all of its
+    # commits, which is what #new_revs lists then. Empty when there are no
+    # bases; #branch_info then counts each branch itself.
+    #
+    # Only the new branches are named: ahead-behind walks history for each
+    # ref it prints, and most branches are not new.
+    def new_commit_counts(names)
+      return {} if names.empty?
+      refs = names.map { |n| "#{STAGED_PREFIX}#{n}" }
+      counts = {}
+      bases.each do |b|
+        out = git("for-each-ref", "--format=%(refname) %(ahead-behind:#{REMOTES_PREFIX}#{b})", *refs)
+        out.each_line do |line|
+          ref, ahead, = line.split
+          name = ref.delete_prefix(STAGED_PREFIX)
+          counts[name] = [counts[name], ahead.to_i].compact.min
+        end
+      end
+      counts
     end
 
     def outgoing_revs(b)
