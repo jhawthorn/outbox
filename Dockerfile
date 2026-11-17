@@ -40,4 +40,4 @@ VOLUME /data
 EXPOSE 8080
 # Starts as root to fix volume ownership, then runs as outbox. See bin/entrypoint.
 ENTRYPOINT ["/app/bin/entrypoint"]
-CMD ["bundle", "exec", "puma", "-b", "tcp://0.0.0.0:8080", "config.ru"]
+CMD ["bundle", "exec", "puma", "--tag", "outbox", "-b", "tcp://0.0.0.0:8080", "config.ru"]
