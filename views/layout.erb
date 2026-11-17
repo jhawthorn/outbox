@@ -217,8 +217,8 @@
   button.fold:hover { color: var(--fg); }
   .file-actions { display: inline-flex; gap: 8px; align-items: center; margin-left: 8px; }
   .file-actions .file-notes { margin: 0; }
-  button.whole { font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 1px 8px; color: var(--muted); }
-  button.whole:hover { color: var(--fg); }
+  button.whole, button.file-edit { font: 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 1px 8px; color: var(--muted); }
+  button.whole:hover, button.file-edit:hover { color: var(--fg); }
   button.whole[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
   .file-notes { display: inline-flex; gap: 8px; align-items: center; margin: 0 8px;
                 font: 12px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -607,6 +607,72 @@
                     width: max-content; max-width: calc(100% - 32px); background: var(--bg);
                     box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
   .panel.outdated button { margin-left: 8px; }
+
+  /* --- Editing while reviewing (lib/outbox/edit.rb). --- */
+  /* The branch's last move was an edit: what it did, and Undo. */
+  .panel.edited { display: flex; gap: 8px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+                  margin: 0 0 8px; padding: 8px 16px; border-left: 4px solid var(--accent); font-size: 14px; }
+  .panel.edited span { min-width: 0; overflow-wrap: anywhere; }
+  /* A commit's menu (views/_commit_edit.erb): a popover under its button. */
+  .history.editable .commit { position: relative; padding-right: 54px; }
+  .history .commit-menu-button { position: absolute; top: 10px; right: 12px; }
+  .commit-menu-button { line-height: 1; }
+  .commit-menu[popover] { position: absolute; inset: auto; top: anchor(bottom); right: anchor(right); margin: 4px 0 0; padding: 4px;
+                   min-width: 180px; max-width: min(340px, calc(100vw - 24px)); border: 1px solid var(--line); border-radius: 8px;
+                   background: var(--bg); color: var(--fg); box-shadow: 0 8px 24px rgb(0 0 0 / .2);
+                   position-try-fallbacks: flip-block; }
+  .commit-menu[popover]:popover-open { display: flex; flex-direction: column; }
+  .commit-menu button { border: 0; background: none; text-align: left; padding: 6px 10px; border-radius: 6px; font-size: 14px;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+  .commit-menu button:hover, .commit-menu button:focus-visible { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); outline: none; }
+  .commit-menu button.danger:hover, .commit-menu button.danger:focus-visible { background: color-mix(in srgb, var(--bad) 12%, var(--bg)); }
+  .commit-menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+  /* A commit's message, edited where it is shown: in its row of the list,
+     or at the head of its page. */
+  form.reword { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  form.reword textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; resize: vertical;
+                         field-sizing: content; min-height: 76px; max-height: 60vh;
+                         background: var(--bg); color: var(--fg); font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  form.reword textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  form.reword .hint { font-size: 12.5px; }
+  .commit.rewording .title, .commit.rewording .meta, .commit.rewording .commit-menu-button { display: none; }
+  .commit.rewording form.reword { margin: 2px 0; }
+  .commit-head.rewording .pad, .commit-head.rewording .commit-meta > :not(form.reword) { display: none; }
+  .commit-head.rewording .commit-meta { border-top: 0; background: none; padding: 16px; }
+  .commit-head form.reword { flex: 1 1 100%; font-size: 15px; }
+  /* Files being edited in the viewer (diffs.js): the file's button, and
+     the bar that saves them, over the foot of the page. */
+  button.file-edit[aria-pressed="true"], .file-bar button[data-edit-file][aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; }
+  .edit-bar { position: fixed; z-index: 11; left: 50%; bottom: 16px; transform: translateX(-50%); width: max-content;
+              max-width: calc(100% - 24px); padding: 8px 10px 8px 16px; border: 1px solid var(--accent); border-radius: 10px;
+              background: var(--bg); box-shadow: 0 6px 24px rgb(0 0 0 / .25); font-size: 14px; }
+  .edit-bar .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .edit-bar .what { font-weight: 600; margin-right: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+  .edit-bar select, .edit-bar input[type=text] { font: inherit; font-size: 13px; padding: 4px 8px; border: 1px solid var(--line);
+                                                  border-radius: 6px; background: var(--bg); color: var(--fg); }
+  .edit-bar select { max-width: 300px; text-overflow: ellipsis; }
+  .edit-bar input[type=text] { min-width: 0; width: 260px; }
+  .edit-bar .error { color: var(--bad); font-size: 13px; margin: 0 0 6px; max-width: 640px; overflow-wrap: anywhere; }
+  /* Room under the last file for the bar, the caret kept clear of it as the
+     view follows it, and the notice of a moved branch above it. */
+  body.editing main.codeview { padding-bottom: 72px; scroll-padding-bottom: 88px; }
+  body.editing .panel.outdated { bottom: 84px; }
+  /* An edit that was refused, said over the page it was asked on. */
+  .panel.edit-error { position: fixed; z-index: 12; left: 50%; bottom: 16px; transform: translateX(-50%); margin: 0;
+                      width: max-content; max-width: min(640px, calc(100% - 32px)); background: var(--bg);
+                      box-shadow: 0 4px 16px rgb(0 0 0 / .2); display: flex; gap: 12px; align-items: center; }
+  @media (max-width: 700px) {
+    .edit-bar { left: 8px; right: 8px; bottom: 8px; transform: none; width: auto; max-width: none; padding: 8px 10px; }
+    /* What is edited and Discard, then where it goes and the button that saves it. */
+    .edit-bar .what { flex: 1 1 50%; max-width: none; margin: 0; }
+    .edit-bar .controls > button[type=button] { order: 1; }
+    .edit-bar select, .edit-bar input[type=text] { order: 2; flex: 1 1 100%; width: auto; max-width: none; }
+    .edit-bar button[type=submit] { order: 3; flex: 1; }
+    body.editing main.codeview { padding-bottom: 150px; scroll-padding-bottom: 160px; }
+    body.editing .panel.outdated { bottom: 160px; }
+    form.reword .hint { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -622,9 +688,81 @@
 // Forms that do something hard to undo ask first. The question is data, not
 // script: it can hold a branch name, which is the pusher's.
 document.addEventListener("submit", function (e) {
-  var question = e.target.getAttribute("data-confirm");
+  var question = (e.submitter && e.submitter.getAttribute("data-confirm")) || e.target.getAttribute("data-confirm");
   if (question && !confirm(question)) e.preventDefault();
 });
+// Edits of a branch's commits (forms marked data-edit: a commit's menu, its
+// message, Undo) are sent with fetch, so that one that is refused, because
+// a commit no longer applies, say, is said over the page as it is, and
+// nothing typed is lost. One that is made goes where the server sends it:
+// usually this page again, which then comes back to where it was.
+document.addEventListener("submit", async function (e) {
+  var form = e.target;
+  if (e.defaultPrevented || !form.hasAttribute("data-edit") || !window.fetch) return;
+  e.preventDefault();
+  if (form.getAttribute("aria-busy") === "true") return;
+  var action = e.submitter && e.submitter.hasAttribute("formaction") ? e.submitter.formAction : form.action;
+  var buttons = form.querySelectorAll("button");
+  form.setAttribute("aria-busy", "true");
+  buttons.forEach(function (b) { b.disabled = true; });
+  var old = document.querySelector(".edit-error");
+  if (old) old.remove();
+  try {
+    var res = await fetch(action, { method: "POST", body: new URLSearchParams(new FormData(form)) });
+    if (!res.ok) {
+      var said = new DOMParser().parseFromString(await res.text(), "text/html").querySelector(".panel.danger");
+      throw new Error(said ? said.textContent.trim() : "The server answered " + res.status + ".");
+    }
+    if (new URL(res.url).pathname === location.pathname) location.reload();
+    else location.href = res.url;
+  } catch (err) {
+    if (form.matches("[popover]:popover-open")) form.hidePopover();
+    var note = document.createElement("div");
+    note.className = "panel danger edit-error";
+    note.setAttribute("role", "alert");
+    note.appendChild(document.createTextNode(err instanceof TypeError ? "Could not reach outbox. Try again." : err.message));
+    var close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "Dismiss";
+    close.addEventListener("click", function () { note.remove(); });
+    note.appendChild(close);
+    document.body.appendChild(note);
+    form.removeAttribute("aria-busy");
+    buttons.forEach(function (b) { b.disabled = false; });
+  }
+});
+// A commit's message is edited in place of it (views/_commit_edit.erb):
+// Edit message shows the form, Cancel or Escape puts the message back, and
+// Ctrl+Enter (Cmd+Enter) saves.
+(function () {
+  function host(form) { return form.closest(".commit, .commit-head"); }
+  function close(form) {
+    form.reset();
+    form.hidden = true;
+    host(form).classList.remove("rewording");
+  }
+  document.addEventListener("click", function (e) {
+    var open = e.target.closest && e.target.closest("[data-reword]");
+    var cancel = e.target.closest && e.target.closest("[data-reword-cancel]");
+    if (cancel) return close(cancel.closest("form"));
+    if (!open) return;
+    var form = document.querySelector('[data-reword-form="' + open.getAttribute("data-reword") + '"]');
+    var menu = open.closest("[popover]");
+    if (menu) menu.hidePopover();
+    form.hidden = false;
+    host(form).classList.add("rewording");
+    var text = form.querySelector("textarea");
+    text.focus({ preventScroll: true });
+    text.setSelectionRange(text.value.length, text.value.length);
+    text.scrollIntoView({ block: "nearest" });
+  });
+  document.addEventListener("keydown", function (e) {
+    var form = e.target.closest && e.target.closest("form.reword");
+    if (!form) return;
+    if (e.key === "Escape") { e.preventDefault(); close(form); }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); }
+  });
+})();
 
 // Posting, editing and deleting a review comment (forms marked
 // data-comment) happen in place: the form is sent with fetch, and from the

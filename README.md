@@ -87,10 +87,12 @@ podman compose exec -u outbox outbox bin/outbox add myapp git@github.com:you/mya
 - `lib/outbox/git_http.rb` — Rack middleware serving smart HTTP via `git http-backend`.
 - `lib/outbox/app.rb`, `views/` — Sinatra UI. Routes: `/`, `/repos/:name` (what awaits review),
   `/repos/:name/branches/*`, `.../commits/:sha`, each also as `.patch` (raw diff),
-  plus POST `approve`, `discard`, `comments`, `fetch`, and `/events`, which keeps pages current
-  (below). The browsing pages are under `/repos/:name` too (Browsing, below).
+  plus POST `approve`, `discard`, `comments`, `fetch`, the edits (Editing, below), and `/events`,
+  which keeps pages current (below). The browsing pages are under `/repos/:name` too (Browsing, below).
 - `lib/outbox/comment.rb` — a review comment, in git-appraise's format (Review comments,
   below).
+- `lib/outbox/edit.rb` — editing a staged branch while reviewing it: changing files in its
+  own commits, and rewording, squashing, moving and dropping those commits (Editing, below).
 - `lib/outbox/browse.rb` — what the browsing pages read: branch names in URLs, history,
   the file list, `git grep`, `git blame`, every ref with its tip.
 - `lib/outbox/diff.rb` — parses a patch for the summary: files, status, counts, and
@@ -243,6 +245,58 @@ Keys: `/` search, `t` find a file by name, `y` turn the URL into a permalink (th
 replaced by its sha), `b` blame, `h` history, `j`/`k` next and previous file in a diff, `?`
 the list.
 
+## Editing
+
+A small fix needn't go back to whoever pushed. The commits a branch adds, the ones no
+remote has yet, can be edited while reviewing them, and what that makes is staged like
+any push: it waits for review, and nothing reaches upstream until it is approved.
+
+- **Files, in the diff.** Each file in a branch's or a commit's diff has an Edit button,
+  which turns the diff into an editor where it is (pierre's, so the diff stays current as
+  you type). Several files can be edited at once. A bar at the foot of the page saves
+  them: folded into one of the branch's commits, which keeps its message, or as a new
+  commit on top, with a message. It offers the commit the page is of, on a commit's page;
+  otherwise the last of the branch's commits to change the file, as that is most likely
+  where a fix belongs; a new commit if none did. <kbd>Ctrl</kbd>+<kbd>Enter</kbd> saves.
+  A file's own page (Code) has the same Edit on a branch being reviewed.
+- **Commits, in the list.** Each of the branch's own commits has a menu, in the branch
+  page's list and on its own page: Edit message (in place of the message), Squash into
+  the commit before it (adding this message to that one's), Fixup into it (keeping only
+  that one's), Move up and down (in the list), Drop.
+- **Undo.** While an edit is the branch's last move, its page says what it did, with Undo,
+  which puts the tip back.
+
+Only a straight line of commits is edited (no merges), up to 200, and only files that are
+text: not binary, not a symlink, UTF-8, under 1 MB. A file whose lines end in CRLF keeps
+them.
+
+Nothing here has a worktree. A change to files is made as a commit on the commit whose
+files were edited (a throwaway index: `GIT_INDEX_FILE`, `update-index --index-info`,
+`write-tree`), and then every edit is a replay, as `git rebase -i` would do it: each of
+the branch's commits made again on the one before, with `git merge-tree
+--merge-base=<its parent>` and `git commit-tree`, keeping its author, author date and
+message; the committer is whoever edited. A change folded into a commit is a `fixup` put
+after it; one made on an earlier commit's page is of the files as they were then, and the
+later commits are replayed on it. A commit already on the right parent is kept as it is,
+sha and all, and one a replay leaves empty is dropped. If a commit no longer applies,
+nothing changes and the page says which commit and which files; what was typed stays.
+
+An edit moves the branch the way a push does: `update-ref` from the tip it was read at,
+so a push that lands first wins and the edit is refused. That is why edits are written
+from the request, as comments are, and not queued on the repo's actor: they are pushes
+from the browser, and git's compare-and-swap is what keeps them apart from the other
+pushes. A file edit is not refused only because the branch has moved on: it is made on
+the commit that was edited, if that is still one of the branch's.
+
+Each edit is in the branch's reflog as `outbox: edit by <who>: <what>`, which is how the
+page knows the last move was one. Every edit also leaves a review comment on the tip it
+replaced, "Edited in the outbox: <what>. <branch> is now <sha>.", so whoever pushed that
+learns from its review what became of it. Undo takes the comment back.
+
+New commits are authored, and every commit an edit makes is committed, as
+`OUTBOX_AUTHOR` (`Name <email>`) from the server's environment; without it, as the
+reviewer's username, `<outbox@localhost>`.
+
 ## Live pages
 
 Pages follow what happens without a reload: a push landing, a job queued, running and
@@ -380,6 +434,11 @@ nothing needs root.
 ## Not yet done
 
 Things discussed and deliberately left.
+
+- **Adding, deleting and renaming files from the browser, and editing a branch with
+  nothing to review.** Editing is for fixing what is being reviewed; new work is pushed.
+- **Resolving a conflict in the browser.** An edit that does not replay cleanly is
+  refused, with the commit and files named.
 
 - **Reading the approved configuration from a clone.** Agents have to know to look at
   `refs/remotes/upstream/main` of `_config.git` rather than `main` if they want only

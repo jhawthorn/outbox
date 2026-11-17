@@ -20,6 +20,7 @@
     <span class="muted"><% if @lines %><%= pluralize(@lines, "line") %> · <% end %><%= byte_size(@size) %></span>
     <span class="spacer"></span>
     <a class="button" href="<%= raw %>">Raw</a>
+    <% if @edit && !@source %><button type="button" data-edit-file hidden title="Edit this file on <%= h @rev.name %>">Edit</button><% end %>
     <% unless @binary || @image %><a class="button" href="<%= blame_url(@repo, @rev.name, @path) %>" data-hotkey-blame>Blame</a><% end %>
     <a class="button" href="<%= history_url(@repo, @rev.name, @path) %>" data-hotkey-history>History</a>
     <% unless @rev.commit? %><a class="button" href="<%= tree_url(@repo, @sha, @path) %>" data-permalink title="A link to this file at this commit, which will not move (y)">Permalink</a><% end %>
@@ -33,7 +34,7 @@
 <% elsif @source %>
   <div class="box"><%= erb :_markdown, layout: false, locals: { source: @source, dir: File.dirname(@path).sub(/\A\.\z/, "") } %></div>
 <% else %>
-  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= repo_url(@repo) %>/blobs/<%= @blob %>">
+  <div class="file-view" data-file-name="<%= h @path %>" data-blob-url="<%= repo_url(@repo) %>/blobs/<%= @blob %>"<% if @edit %> data-edit="<%= h JSON.generate(@edit) %>"<% end %>>
     <noscript>JavaScript is off. <a href="<%= raw %>">View the raw file.</a></noscript>
   </div>
   <% if diffs_built? %><script type="module" src="/diffs/diffs.js"></script><% end %>

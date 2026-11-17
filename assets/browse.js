@@ -245,7 +245,10 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.target.closest?.("input, textarea, select, [contenteditable], dialog")) {
+  // Where it was typed: inside a shadow root (the editor in a diff), the
+  // event's target is only the root's host.
+  const at = e.composedPath?.()[0] ?? e.target;
+  if (at.closest?.("input, textarea, select, [contenteditable], dialog") || e.target.closest?.("dialog")) {
     if (e.key === "Escape" && e.target.matches?.("[data-hotkey]")) e.target.blur();
     return;
   }

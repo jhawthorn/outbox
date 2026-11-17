@@ -367,8 +367,8 @@ test("a rebased branch says so and shows only what changed besides the rebase", 
   await expect(page.locator(".review .rebase")).toContainText("Of upstream's 2 commits: 1 carried over unchanged, 1 changed, none dropped.");
   await expect(page.locator("h2", { hasText: "Dropped from upstream" })).toHaveCount(0);
   await expect(page.locator(".history .commit .subject")).toHaveText(["Add docs", "Add greeter"]);
-  await expect(page.locator(".history .commit", { hasText: "Add docs" }).locator(".badge")).toHaveText("changed");
-  await expect(page.locator(".history .commit", { hasText: "Add greeter" }).locator(".badge")).toHaveText("unchanged");
+  await expect(page.locator(".history .commit", { has: page.locator(".subject", { hasText: "Add docs" }) }).locator(".badge")).toHaveText("changed");
+  await expect(page.locator(".history .commit", { has: page.locator(".subject", { hasText: "Add greeter" }) }).locator(".badge")).toHaveText("unchanged");
   await expect(page.locator(".history .commit.base")).toContainText("Upstream change");
   await expect(page.locator(".history .commit.base")).toContainText("upstream/main · rebased onto");
   await expect(page.locator("h2", { hasText: "Files changed (1)" })).toBeVisible();
@@ -415,13 +415,14 @@ test("a file can be viewed whole, with lines selected from the URL", async ({ pa
 test("a directory is browsed at the same kind of URL", async ({ page }) => {
   await page.goto(BRANCH);
   await page.getByRole("link", { name: "Browse files" }).click();
-  await expect(page).toHaveURL(/\/repos\/review\/tree\/[0-9a-f]{40}$/);
+  // By the branch's name, where its files can be edited.
+  await expect(page).toHaveURL(/\/repos\/review\/tree\/main$/);
   await expect(page.locator("table.tree td.name a")).toHaveText(["lib", "README"]);
   await page.locator("table.tree").getByRole("link", { name: "lib" }).click();
-  await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib$/);
+  await expect(page).toHaveURL(/\/tree\/main\/lib$/);
   await expect(page.locator("table.tree td.name a")).toHaveText(["..", "long.rb", "thing.rb"]);
   await page.locator("table.tree").getByRole("link", { name: "thing.rb" }).click();
-  await expect(page).toHaveURL(/\/tree\/[0-9a-f]{40}\/lib\/thing\.rb$/);
+  await expect(page).toHaveURL(/\/tree\/main\/lib\/thing\.rb$/);
   await expect(page.locator("main.codeview diffs-container").getByText("class Thing")).toBeVisible();
 });
 

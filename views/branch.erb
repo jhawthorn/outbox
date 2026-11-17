@@ -3,7 +3,7 @@
 <div class="page-head">
   <h1><a class="crumb" href="<%= review_url(@repo) %>">Review</a><span class="sep">/</span><%= h @branch.name %>
     <span class="badge <%= @branch.status %>"><%= status_label(@branch) %></span></h1>
-  <% if @branch.staged %><a class="button" href="<%= tree_url(@repo, @branch.staged) %>">Browse files</a><% end %>
+  <% if @branch.staged %><a class="button" href="<%= tree_url(@repo, browsable_name(@repo, @branch)) %>">Browse files</a><% end %>
   <form class="inline" method="post" action="<%= repo_url(@repo) %>/fetch">
     <input type="hidden" name="back" value="<%= h branch_url(@repo, @branch.name) %>">
     <button type="submit">Fetch upstream</button>
@@ -57,6 +57,7 @@
   <% end %>
 </div>
 
+<%= erb :_last_edit, layout: false %>
 <%= erb :_comments, layout: false %>
 
 <% unless @dropped.empty? %>
@@ -71,9 +72,9 @@
 
 <% unless @commits.empty? %>
   <h2>Commits (<%= commit_total(@commits.size, @commit_count) %>)</h2>
-  <div class="history">
+  <div class="history<%= " editable" if @stack %>">
     <% change_shares(@commits, @stats).each do |c, before, share| %>
-      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), tips: @tips, whole: "branch's change", rewrite: @rewrite } %>
+      <%= erb :_commit, layout: false, locals: { c: c, stats: @stats, before: before, share: share, url: commit_url(@repo, @branch.name, c), tips: @tips, whole: "branch's change", rewrite: @rewrite, stack: @stack } %>
     <% end %>
     <% if @base %>
       <div class="commit base">
@@ -106,5 +107,6 @@
   <% elsif @branch.status == :diverged %>
     <p class="muted">Against upstream's <code><%= short(@branch.upstream) %></code>, which approving replaces. Changes only upstream has appear as removed.</p>
   <% end %>
-  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name), @branch.staged, comments: line_comments_data) %>
+  <%= render_patch(@patch, branch_patch_url(@repo, @branch.name), @branch.staged, comments: line_comments_data,
+                   edit: (edit_data(@repo, @branch, @stack, base: @branch.staged) if @stack)) %>
 <% end %>

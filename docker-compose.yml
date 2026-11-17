@@ -14,6 +14,8 @@ services:
       OUTBOX_PASSWORD: ${OUTBOX_PASSWORD:?set OUTBOX_PASSWORD in .env}
       OUTBOX_GIT_AUTH: ${OUTBOX_GIT_AUTH:-password}
       OUTBOX_UPSTREAM_TOKEN: ${OUTBOX_UPSTREAM_TOKEN:-}
+      # "Name <email>": who commits made by editing in the browser are by.
+      OUTBOX_AUTHOR: ${OUTBOX_AUTHOR:-}
     volumes:
       - outbox-repos:/data/repos
       # The approved configuration. Not in repos/, so the daemon cannot

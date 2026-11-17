@@ -47,6 +47,10 @@ module Outbox
         end
       end
 
+      # The same in plain text, for where markup cannot go: an attribute, a
+      # field, JSON. A hidden character is written out, as <U+202E>.
+      def visible(text) = text.to_s.gsub(Diff::INVISIBLE_RE) { |c| "<U+#{c.ord.to_s(16).upcase.rjust(4, "0")}>" }
+
       def hub = Outbox.hub
 
       # Marks the page being rendered as live: it listens on /events and
@@ -274,9 +278,9 @@ module Outbox
       # rev is the commit whose files the summary links to, if any.
       # comments, on a branch page: what diffs.js needs to draw its line
       # comments and offer a form on the lines selected (line_comments_data).
-      def render_patch(patch, patch_url, rev = nil, comments: nil)
+      def render_patch(patch, patch_url, rev = nil, comments: nil, edit: nil)
         patch_url = "#{patch_url}?w=1" if ignore_whitespace?
-        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev, comments: comments }
+        erb :_patch, layout: false, locals: { patch: patch, patch_url: patch_url, rev: rev, comments: comments, edit: edit }
       end
 
       # The branch page's line comments, for the diff viewer, and where a new
@@ -488,6 +492,9 @@ module Outbox
           else
             @binary = true
           end
+          branch = (@repo.branch(rev.name) rescue nil) if rev.branch? && !@binary && !@image
+          stack = branch && editable_stack(@repo, branch)
+          @edit = edit_data(@repo, branch, stack, base: @sha) if stack && branch.staged == @sha
           erb :file
         when "tree"
           load_tree(rev, path)
@@ -584,6 +591,71 @@ module Outbox
           places[c] = [c.path, side] if side
         end
         [comments, places]
+      end
+
+      # --- editing (lib/outbox/edit.rb) ---
+
+      # Who the commits an edit makes are by (Repo::Identity).
+      def editor_identity = Repo::Identity.for(reviewer)
+
+      # How the code browser can name what is staged on a branch: by the
+      # branch's name, where its files can be edited, unless a remote's
+      # branch or a tag takes that name (Repo#resolve_path), and then by its
+      # sha.
+      def browsable_name(repo, branch)
+        rev, rest = repo.resolve_path(branch.name)
+        rev&.branch? && rest.empty? && rev.name == branch.name ? branch.name : branch.staged
+      end
+
+      # The branch's own commits (Repo::Stack) when they can be edited: it
+      # has some awaiting review, in a straight line. nil otherwise.
+      def editable_stack(repo, branch)
+        return nil unless branch.staged && branch.pending?
+        stack = repo.stack(branch)
+        stack.empty? ? nil : stack
+      rescue ArgumentError
+        nil
+      end
+
+      # What the viewer needs to edit files in place and save them
+      # (diffs.js): where to post, the commit whose files the page shows,
+      # the commits a change can be folded into, newest first, and which of
+      # them it is offered first: into, or the last to touch the file.
+      def edit_data(repo, branch, stack, base:, into: nil, back: nil)
+        {
+          url: "#{branch_url(repo, branch.name)}/files", branch: branch.name, base:, into:, back:,
+          commits: stack.commits.reverse.map { |c| { sha: c.sha, short: c.short[0, 7], subject: visible(c.subject) } },
+          touched: into ? {} : repo.touched(stack),
+        }
+      end
+
+      # The staged tip an edit was planned on. Required, like expected_shas!:
+      # an edit of whatever happens to be there now is not what was asked for.
+      def expected_tip! = params.fetch("expected") { raise ArgumentError, "missing expected: the staged sha that was edited" }.to_s
+
+      # What a commit's menu asks for (views/_commit_edit.erb), as the
+      # Repo::Steps of a replay that leaves every other commit as it is.
+      # later and earlier move the commit one place.
+      def commit_steps(stack, sha, action, message)
+        shas = stack.commits.map(&:sha)
+        i = shas.index(sha) or raise NotFound, "#{sha[0, 10]} is not one of the commits that can be edited"
+        case action
+        when "reword", "squash", "fixup", "drop"
+          shas.map { |s| s == sha ? Repo::Step.new(action.to_sym, s, (message if action == "reword")) : Repo::Step.new(:pick, s) }
+        when "later", "earlier"
+          j = action == "later" ? i + 1 : i - 1
+          raise ArgumentError, "there is no commit to move it past" unless j.between?(0, shas.size - 1)
+          shas[i], shas[j] = shas[j], shas[i]
+          shas.map { |s| Repo::Step.new(:pick, s) }
+        else raise NotFound, "no such edit: #{action}"
+        end
+      end
+
+      # Where to go after an edit: the page of what became of the commit
+      # the reviewer was on, if they were on one and it is still there.
+      def after_edit_url(repo, edit, back)
+        sha = edit.rewritten[back.to_s]
+        sha ? commit_url(repo, edit.branch, repo.commit_detail(sha)) : branch_url(repo, edit.branch)
       end
 
       def send_patch(patch)
@@ -929,6 +1001,9 @@ module Outbox
       @total = list.size
       @comments = @repo.comments(params[:sha])
       @comments_seen = comments_seen(@comments)
+      @stack = editable_stack(@repo, @branch)
+      @stack = nil unless @stack&.include?(@commit.sha)
+      @last_edit = @repo.last_edit(@branch.name) if @branch.pending?
       erb :commit
     end
 
@@ -958,7 +1033,59 @@ module Outbox
       @comments, @comment_places = review_comments(@repo, @branch, @removed_commit)
       @earlier_comments = @repo.earlier_comments(@branch)
       @comments_seen = comments_seen(@comments + @earlier_comments.flat_map(&:last))
+      @stack = editable_stack(@repo, @branch)
+      @last_edit = @repo.last_edit(@branch.name) if @branch.staged && @branch.pending?
       erb :branch
+    end
+
+    # Editing while reviewing (lib/outbox/edit.rb). Each of these moves the
+    # staged branch, as a push would, from the request itself.
+
+    # Files edited in the viewer (diffs.js), posted as JSON: base, the
+    # commit whose files were edited; files, each a path and its new
+    # content; into, the commit to fold the change into, or message for a
+    # new commit on top; back, the commit whose page this was. Answers with
+    # where to go next, or with why not.
+    post "/repos/:name/branches/*/files" do
+      content_type :json
+      begin
+        repo = Repo.find!(params[:name])
+        branch = repo.branch(params[:splat].first)
+        data = JSON.parse(request.body.read)
+        raise ArgumentError, "expected a JSON object" unless data.is_a?(Hash)
+        changes = Array(data["files"]).map { |f| Repo::FileChange.new(path: f["path"].to_s, content: f["content"].to_s) }
+        into = data["into"].to_s
+        edit = repo.commit_files!(branch.name, base: data["base"].to_s, changes:, identity: editor_identity, by: reviewer,
+                                               into: (into unless into.empty?), message: data["message"].to_s)
+        hub.edited(repo)
+        JSON.generate(url: after_edit_url(repo, edit, data["back"]), description: edit.description)
+      rescue JSON::ParserError
+        status 422
+        JSON.generate(error: "that was not JSON")
+      rescue ArgumentError, GitError => e
+        status 422
+        JSON.generate(error: e.message)
+      end
+    end
+
+    # A commit's menu: reword (with message), squash or fixup into the
+    # commit before it, drop, or move it one place later or earlier.
+    post "/repos/:name/branches/*/commits/:sha/:action" do
+      repo = Repo.find!(params[:name])
+      branch = repo.branch(params[:splat].first)
+      steps = commit_steps(repo.stack(branch), params[:sha], params[:action], params[:message].to_s)
+      edit = repo.rewrite!(branch, steps:, expected: expected_tip!, identity: editor_identity, by: reviewer)
+      hub.edited(repo)
+      redirect after_edit_url(repo, edit, params[:back])
+    end
+
+    # Put the branch back as it was before the last edit.
+    post "/repos/:name/branches/*/undo" do
+      repo = Repo.find!(params[:name])
+      branch = repo.branch(params[:splat].first)
+      repo.undo_edit!(branch.name, expected: expected_tip!, by: reviewer)
+      hub.edited(repo)
+      redirect branch_url(repo, branch.name)
     end
 
     # Approve and discard are queued on the repo's actor. The outcome shows

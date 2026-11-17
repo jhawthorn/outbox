@@ -143,6 +143,10 @@ module Outbox
     # it is written by a job, and a finished job is announced as refs.
     def commented(repo) = @notifier.publish(repo.name, :comments)
 
+    # A branch was edited from the browser (lib/outbox/edit.rb): refs moved,
+    # as after a push, and a comment may have been left.
+    def edited(repo) = @notifier.publish(repo.name, :refs)
+
     # reviewer: who to name on the review comment the job leaves (RepoActor.verdict);
     # none without one.
     def approve(repo, branch, force: false, expected: nil, expected_upstream: nil, reviewer: nil) =

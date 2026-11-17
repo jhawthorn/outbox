@@ -19,7 +19,13 @@
 // File headers are pierre's: change icon, old → new name on a rename, and
 // line counts. The slots around the name carry what pierre does not know: a
 // fold toggle, mode changes, binary files, and lines with hidden characters.
-import { CodeView, processFile, getFiletypeFromFileName } from "@pierre/diffs";
+//
+// Where the branch's own commits can be edited (data-edit), a file's Edit
+// button turns its diff into an editor, in place: pierre's, which keeps
+// the diff current as it is typed in. A bar at the foot of the page saves
+// what was changed, into one of the branch's commits or as a new one.
+import { CodeView, processFile, getFiletypeFromFileName, parseDiffFromFile } from "@pierre/diffs";
+import { Editor } from "@pierre/diffs/edit";
 import { shebangLang } from "./lang.js";
 import { getOrCreateWorkerPoolSingleton } from "@pierre/diffs/worker";
 
@@ -149,7 +155,7 @@ async function mount(root) {
   // one on some lines is posted.
   const comments = root.dataset.comments ? JSON.parse(root.dataset.comments) : null;
   const annotations = (f) => [...(imageAnnotations(f) ?? []), ...commentAnnotations(f, comments)];
-  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, annotations: annotations(f), collapsed: f.collapsed, version: f.version });
+  const item = (f) => ({ id: f.id, type: "diff", fileDiff: f.fileDiff, annotations: annotations(f), collapsed: f.collapsed, version: f.version, edit: f.editing });
   // Whether the reader has collapsed everything, which files still to come join.
   let collapsedAll = false;
 
@@ -195,7 +201,8 @@ async function mount(root) {
     },
     renderHeaderMetadata: (_diff, ctx) => {
       const f = byId.get(ctx.item.id);
-      const notes = [hiddenBadge(f), wholeToggle(f, () => showWhole(f, !f.whole)), viewLink(f)].filter(Boolean);
+      // An editor is of the whole file, and has no use for the toggle.
+      const notes = [hiddenBadge(f), editToggle(f, bar && (() => setEditing(f, !f.editing))), !f.editing && wholeToggle(f, () => showWhole(f, !f.whole)), viewLink(f)].filter(Boolean);
       if (!notes.length) return undefined;
       const span = el("span", "file-actions");
       span.append(...notes);
@@ -227,8 +234,57 @@ async function mount(root) {
     }),
     renderCodeViewHeader: () => header,
     renderCodeViewFooter: () => footer,
+    // Editing a file in place (setEditing, below).
+    createEditor: (type, editorOptions, key) => new Editor(type, editorOptions, key),
+    onItemEditChange: (event, changed) => {
+      const f = byId.get(changed.id);
+      if (!f?.editing) return;
+      f.edited = event.editor.getText();
+      bar.update();
+    },
+    // Leaving edit mode puts the file back as it was: what was saved is
+    // shown by the page that follows.
+    onItemEditComplete: () => "reject",
   };
   const view = new CodeView(options, workerPool());
+
+  // Files are edited as they are in the commit the page shows (edit.base).
+  // The text a file had is kept to tell whether it has changed.
+  const edit = root.dataset.edit ? JSON.parse(root.dataset.edit) : null;
+  const bar = edit && saveBar(edit, {
+    editing: () => files.filter((f) => f.editing).map((f) => f.data.path),
+    changes: () => files.filter((f) => f.editing && f.edited != null && f.edited !== f.original).map((f) => ({ path: f.data.path, content: f.edited })),
+    stop: () => { for (const f of files) if (f.editing) setEditing(f, false, true); },
+    saved: (url, paths) => {
+      // The same place in what the page shows now: a branch's page has the
+      // same URL, and comes back to where it was scrolled (place, below).
+      const f = files.find((x) => x.data.path === paths[0]);
+      if (new URL(url, location.href).pathname === location.pathname) location.reload();
+      else location.replace(`${url}${f ? `#${f.id}` : ""}`);
+    },
+  });
+  const setEditing = async (f, editing, sure = false) => {
+    if (editing === f.editing) return;
+    if (editing) {
+      f.original ??= await fetchText(`${root.dataset.blobUrl}/${f.data.newBlob}`);
+      f.edited = null;
+      if (f.whole) showWhole(f, false);
+      // An editor needs the whole of both sides. loadDiffFiles gets them
+      // for a file that was changed; an added one has only the one, and
+      // its diff is made from that.
+      if (!f.data.oldBlob && f.fileDiff.isPartial) {
+        f.fileDiff = parseDiffFromFile(null, { name: f.data.path, contents: f.original });
+        blobs.set(f.fileDiff, f.data);
+      }
+      setCollapsed([f], false);
+    } else if (!sure && f.edited != null && f.edited !== f.original && !confirm(`Discard your changes to ${f.data.path}?`)) {
+      return;
+    }
+    f.editing = editing;
+    f.version++;
+    view.updateItem(item(f));
+    bar.update();
+  };
 
   // One form at a time: opening one closes any other.
   const setDraft = (f, range) => {
@@ -323,7 +379,7 @@ async function mount(root) {
       const t = performance.now();
       const fileDiff = processFile(text, { isGitDiff: true });
       const slot = fileDiff && (slots.get(fileDiff.name) ?? slots.get(fileDiff.prevName));
-      if (slot) batch.push({ id: slot.id, data: slot.data, fileDiff, text, collapsed: false, version: 0, whole: false, instance: null });
+      if (slot) batch.push({ id: slot.id, data: slot.data, fileDiff, text, collapsed: false, version: 0, whole: false, instance: null, editing: false });
       worked += performance.now() - t;
     }
     return batch;
@@ -615,6 +671,136 @@ function commentForm(file, comments, cancel) {
   return form;
 }
 
+// --- editing ---------------------------------------------------------------
+
+// Whether a key was typed into something: a field, or pierre's editor,
+// which is in a shadow root, so the event's target is only its host.
+function typing(e) {
+  const at = e.composedPath?.()[0] ?? e.target;
+  return Boolean(at.closest?.("input, textarea, select, [contenteditable]"));
+}
+
+// In a file's header, where its new side is text that can be edited.
+function editToggle(file, onclick) {
+  if (!onclick || !("editable" in file.data)) return undefined;
+  const b = button(file.editing ? "Editing" : "Edit", "", (e) => { e.stopPropagation(); onclick(); });
+  b.className = "file-edit";
+  b.title = file.editing ? "Stop editing this file, and put it back as it was" : "Edit this file here";
+  b.setAttribute("aria-pressed", String(file.editing));
+  return b;
+}
+
+// The bar that saves what was edited, fixed to the foot of the page while
+// any file is being edited. edit is the page's data-edit (App#edit_data).
+// The change goes into the commit chosen, offered in this order: the one
+// the page is of, the last to touch the first file edited, a new commit.
+// hooks: editing(), the paths in edit mode; changes(), the files changed,
+// each a path and content; stop(), leave edit mode everywhere; saved(url,
+// paths), once the server has it.
+function saveBar(edit, hooks) {
+  const element = el("form", "edit-bar");
+  element.hidden = true;
+  const label = el("span", "what");
+  const target = el("select");
+  target.setAttribute("aria-label", "Where the change goes");
+  const amend = el("optgroup");
+  amend.label = "Amend a commit";
+  for (const c of edit.commits) {
+    const option = el("option", null, `${c.short} ${c.subject}`);
+    option.value = c.sha;
+    amend.append(option);
+  }
+  const fresh = el("option", null, "New commit…");
+  fresh.value = "";
+  target.append(amend, fresh);
+  const message = el("input");
+  message.type = "text";
+  message.placeholder = "Message for the new commit";
+  message.setAttribute("aria-label", "Message for the new commit");
+  const save = el("button", "primary", "Save");
+  save.type = "submit";
+  const discard = button("Discard", "Stop editing, and put the files back as they were", () => {
+    if (hooks.changes().length && !confirm("Discard your changes?")) return;
+    hooks.stop();
+  });
+  const error = el("div", "error");
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  const controls = el("div", "controls");
+  controls.append(label, target, message, save, discard);
+  element.append(error, controls);
+  document.body.append(element);
+
+  let chosen = false; // by the reader, and then it is left alone
+  let saving = false;
+  let leaving = false;
+  target.addEventListener("change", () => { chosen = true; update(); if (!target.value) message.focus(); });
+  message.addEventListener("input", () => update());
+  const fail = (text) => {
+    error.textContent = text;
+    error.hidden = !text;
+  };
+
+  function update() {
+    const editing = hooks.editing();
+    const changes = hooks.changes();
+    element.hidden = editing.length === 0;
+    document.body.classList.toggle("editing", editing.length > 0);
+    if (!editing.length) {
+      chosen = false;
+      fail("");
+      return;
+    }
+    if (!chosen) target.value = edit.into ?? edit.touched[editing[0]] ?? "";
+    message.hidden = target.value !== "";
+    const names = changes.map((c) => c.path.split("/").pop());
+    label.textContent = !changes.length ? `Editing ${editing.length === 1 ? editing[0].split("/").pop() : `${editing.length} files`}`
+      : changes.length === 1 ? `${names[0]} edited` : `${changes.length} files edited`;
+    label.title = (changes.length ? changes.map((c) => c.path) : editing).join("\n");
+    save.textContent = saving ? "Saving…" : target.value ? "Amend commit" : "Commit";
+    save.disabled = saving || !changes.length || (!target.value && !message.value.trim());
+    save.title = !changes.length ? "Nothing has been changed yet" : "";
+  }
+
+  element.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const changes = hooks.changes();
+    if (saving || !changes.length) return;
+    saving = true;
+    fail("");
+    update();
+    try {
+      const res = await fetch(edit.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ base: edit.base, back: edit.back, into: target.value || null, message: message.value, files: changes }),
+      });
+      const answer = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(answer.error ?? `The server answered ${res.status}.`);
+      leaving = true;
+      hooks.saved(answer.url, changes.map((c) => c.path));
+    } catch (err) {
+      fail(err instanceof TypeError ? "Could not reach outbox. Try again." : err.message);
+      saving = false;
+      update();
+    }
+  });
+  // Ctrl+Enter (Cmd+Enter) saves, from the bar or from an editor.
+  document.addEventListener("keydown", (e) => {
+    if (element.hidden || e.key !== "Enter" || !(e.ctrlKey || e.metaKey)) return;
+    if (e.target.closest?.("form") && !element.contains(e.target)) return;
+    // Not a new line in the editor as well.
+    e.preventDefault();
+    e.stopPropagation();
+    if (!save.disabled) element.requestSubmit();
+    else if (!target.value && hooks.changes().length) message.focus();
+  }, true);
+  window.addEventListener("beforeunload", (e) => {
+    if (!leaving && hooks.changes().length) e.preventDefault();
+  });
+  return { update };
+}
+
 // Only for a file whose two sides can be fetched: added and deleted files
 // are whole already.
 function wholeToggle(file, onclick) {
@@ -830,7 +1016,7 @@ function navigation(main, view, files, top, go) {
   const scrolled = () => { moved = true; };
   for (const type of ["wheel", "touchstart", "pointerdown"]) main.addEventListener(type, scrolled, { passive: true });
   document.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || typing(e)) return;
     if (e.key !== "j" && e.key !== "k") return scrolled(); // space, arrows, page keys
     e.preventDefault();
     let i = current;
@@ -857,6 +1043,30 @@ async function mountFile(root) {
   const main = root.closest("main");
   const header = el("div", "codeview-head");
   const hash = ({ range: { start, end } }) => (start === end ? `#L${start}` : `#L${start}-L${end}`);
+  const id = "file";
+  // The file can be edited where it is on a branch whose commits can be
+  // (data-edit), from the page's Edit button.
+  const edit = root.dataset.edit ? JSON.parse(root.dataset.edit) : null;
+  const editButton = edit && document.querySelector("[data-edit-file]");
+  let editing = false;
+  let edited = null;
+  let version = 0;
+  const bar = editButton && saveBar(edit, {
+    editing: () => (editing ? [name] : []),
+    changes: () => (editing && edited != null && edited !== contents ? [{ path: name, content: edited }] : []),
+    stop: () => setEditing(false, true),
+    saved: () => location.reload(),
+  });
+  const setEditing = (on, sure = false) => {
+    if (on === editing) return;
+    if (!on && !sure && edited != null && edited !== contents && !confirm(`Discard your changes to ${name}?`)) return;
+    editing = on;
+    edited = null;
+    editButton.textContent = on ? "Editing" : "Edit";
+    editButton.setAttribute("aria-pressed", String(on));
+    view.updateItem(fileItem());
+    bar.update();
+  };
   const view = new CodeView({
     ...OPTIONS,
     // The page above it names the file and says what it is.
@@ -866,17 +1076,29 @@ async function mountFile(root) {
       history.replaceState(history.state, "", `${location.pathname}${location.search}${selection ? hash(selection) : ""}`);
     },
     renderCodeViewHeader: () => header,
+    createEditor: (type, editorOptions, key) => new Editor(type, editorOptions, key),
+    onItemEditChange: (event) => {
+      if (!editing) return;
+      edited = event.editor.getText();
+      bar.update();
+    },
+    onItemEditComplete: () => "reject",
   }, workerPool());
   root.remove();
   header.append(...main.childNodes);
   main.classList.add("codeview");
   document.body.classList.add("codeview");
   view.setup(main);
-  const id = "file";
   // Pierre goes by the name; a script with none (bin/foo) is read by its shebang.
   const named = getFiletypeFromFileName(name);
   const lang = !named || named === "text" ? shebangLang(contents) : undefined;
-  view.setItems([{ id, type: "file", file: { name, contents, cacheKey: root.dataset.blobUrl, ...(lang && { lang }) }, version: 0 }]);
+  const fileItem = () => ({ id, type: "file", file: { name, contents, cacheKey: root.dataset.blobUrl, ...(lang && { lang }) }, version: version++, edit: editing });
+  view.setItems([fileItem()]);
+  if (editButton) {
+    editButton.hidden = false;
+    editButton.setAttribute("aria-pressed", "false");
+    editButton.addEventListener("click", () => setEditing(!editing));
+  }
 
   const m = /^#L(\d+)(?:-L?(\d+))?$/.exec(location.hash);
   if (m) {

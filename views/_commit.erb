@@ -1,6 +1,8 @@
 <%# One row of a commit list (.history): title, hash/author/time, size bar. %>
 <%# url is nil for commits that have no page of their own. rewrite, when %>
-<%# given, says whether the commit carries over an upstream one. %>
+<%# given, says whether the commit carries over an upstream one. stack, when %>
+<%# given, is the Repo::Stack whose commits can be edited here. %>
+<% stack = nil unless defined?(stack) && stack&.include?(c.sha) %>
 <% added, deleted = stats.fetch(c.sha, [0, 0]) %>
 <div class="commit">
   <div class="rail"></div>
@@ -36,4 +38,5 @@
     <div class="bar"><i class="before" style="width: <%= "%.1f" % before %>%"></i><i class="share" style="width: <%= "%.1f" % [share, 1.2].max %>%"></i></div>
     <span class="count add">+<%= added %></span> <span class="count del">−<%= deleted %></span>
   </div>
+  <% if stack %><%= erb :_commit_edit, layout: false, locals: { c: c, stack: stack, back: nil, list: true } %><% end %>
 </div>

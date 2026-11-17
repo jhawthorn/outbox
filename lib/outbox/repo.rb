@@ -20,7 +20,8 @@ module Outbox
   #
   # Reads (branches, commits, diff) are safe from any thread. Writes (fetch!,
   # approve!, discard!) are only ever called from the repo's RepoActor, which
-  # serialises them. Config.apply! also writes, to the remotes alone.
+  # serialises them. Config.apply! also writes, to the remotes alone, and
+  # edits (edit.rb) move a staged branch from a request, as a push would.
   class Repo
     # No leading "." or "-": those would be path traversal or a git flag.
     NAME_RE = /\A[A-Za-z0-9_][A-Za-z0-9._-]*\z/

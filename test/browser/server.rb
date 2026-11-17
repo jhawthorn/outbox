@@ -30,6 +30,9 @@
 #   browse    for browse.spec.js: a README.md with links, an image and
 #             things that must not survive sanitising, docs, an image, a
 #             second staged branch with a slash in its name. Read-only.
+#   edit-diff, edit-new, edit-commit, edit-menu, edit-refused, edit-browse
+#             three staged commits on main, for edit.spec.js, one
+#             repository a test.
 #   live      nothing staged. live.spec.js clones it over HTTP, pushes, and
 #             watches open pages follow.
 require "fileutils"
@@ -149,6 +152,17 @@ def seed(dir)
   stage(add_repo(dir, "commented", upstream), "Say more", "README" => "hello there\n")
   upstream, = make_upstream(dir, "edited", "README" => "hello\n")
   stage(add_repo(dir, "edited", upstream), "Say less", "README" => "hi\n")
+
+  # For edit.spec.js, each test a repository of its own: three staged
+  # commits on main, each adding a file, the last also adding to the first's,
+  # so that it no longer applies without the first.
+  %w[edit-diff edit-new edit-commit edit-menu edit-refused edit-browse].each do |name|
+    upstream, = make_upstream(dir, name, "README" => "hello\n", "lib/app.rb" => "class App\n  def call = :ok\nend\n")
+    work = add_repo(dir, name, upstream)
+    stage(work, "Add one", "one.txt" => "one\nuno\neins\n")
+    stage(work, "Add two\n\nTwo is the second.\n", "two.txt" => "two\n")
+    stage(work, "Add three", "three.txt" => "three\n", "one.txt" => "one\nuno\neins\nand a bit\n")
+  end
 
   upstream, = make_upstream(dir, "discard", "README" => "hello\n")
   stage(add_repo(dir, "discard", upstream), "Discard me", "README" => "discarded\n")

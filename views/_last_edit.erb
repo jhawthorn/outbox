@@ -1,0 +1,11 @@
+<%# The branch's last move was an edit made here (Repo#last_edit): what it %>
+<%# did, and a way back. %>
+<% if @last_edit %>
+  <div class="panel edited">
+    <span><b><%= h @last_edit.by %></b> edited <b class="branch-name"><%= h @branch.name %></b> <%= @last_edit.time ? committed_label(@last_edit.time) : "" %>: <%= hv @last_edit.description %>.</span>
+    <form class="inline" method="post" action="<%= branch_url(@repo, @branch.name) %>/undo" data-edit>
+      <input type="hidden" name="expected" value="<%= @branch.staged %>">
+      <button type="submit" title="Put <%= h @branch.name %> back to <%= short(@last_edit.old) %>, as it was before">Undo</button>
+    </form>
+  </div>
+<% end %>

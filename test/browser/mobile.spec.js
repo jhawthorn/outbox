@@ -43,7 +43,7 @@ test("a branch page's buttons wrap under its title rather than over it", async (
 
 test("a commit's hash, author, dates and size are not drawn over each other", async ({ page }) => {
   await open(page, "/repos/rebased/branches/feature");
-  const commit = page.locator(".history .commit", { hasText: "Add docs" });
+  const commit = page.locator(".history .commit", { has: page.locator(".subject", { hasText: "Add docs" }) });
   const parts = [commit.locator(".hash"), commit.locator(".name").first(), commit.locator(".when").first(), commit.locator(".size")];
   for (let i = 0; i < parts.length; i++) {
     for (let j = i + 1; j < parts.length; j++) expect(await overlap(parts[i], parts[j]), `parts ${i} and ${j}`).toBe(false);
@@ -56,3 +56,26 @@ test("the summary's file list keeps each path in view", async ({ page }) => {
   expect(widths.length).toBe(5);
   for (const width of widths) expect(width).toBeGreaterThan(40);
 });
+
+test("editing a file in a diff, and its commit, fit a phone's screen", async ({ page }) => {
+  await open(page, "/repos/review/branches/main");
+  await page.getByRole("button", { name: "Edit commit Add thing" }).click();
+  const menu = page.locator(".commit-menu:popover-open");
+  const box = await menu.boundingBox();
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(320);
+  await menu.getByRole("button", { name: "Edit message" }).click();
+  expect(await tooWide(page)).toEqual([]);
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await page.locator(".patch-summary").getByRole("link", { name: "lib/long.rb", exact: true }).click();
+  await page.locator("diffs-container", { hasText: "long.rb" }).getByRole("button", { name: "Edit", exact: true }).click();
+  const bar = page.locator(".edit-bar");
+  await expect(bar).toBeVisible();
+  await bar.getByRole("combobox").selectOption({ label: "New commit…" });
+  const edge = await bar.boundingBox();
+  expect(edge.x).toBeGreaterThanOrEqual(0);
+  expect(edge.x + edge.width).toBeLessThanOrEqual(320);
+  expect(await tooWide(page)).toEqual([]);
+});
+

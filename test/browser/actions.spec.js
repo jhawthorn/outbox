@@ -43,7 +43,7 @@ test("approve pushes the branch and the repo page updates in place", async ({ pa
 
 test("discard asks first, and declining changes nothing", async ({ page }) => {
   await page.goto("/repos/discard/branches/main");
-  const discard = page.getByRole("button", { name: "Discard" });
+  const discard = page.getByRole("button", { name: "Discard", exact: true });
 
   const declined = answerConfirm(page, "dismiss");
   await discard.click();

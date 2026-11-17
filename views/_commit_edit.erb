@@ -1,0 +1,36 @@
+<%# What can be done to one of the branch's own commits (c) while reviewing: %>
+<%# a menu, and the form its message is edited in, which takes the place of %>
+<%# the message (layout.erb). stack is the Repo::Stack it is in. back names %>
+<%# the commit whose page this is, to return to what becomes of it. list: %>
+<%# whether this is a row of the commit list, where the commit can be moved, %>
+<%# and the menu is the only way to its message. %>
+<% i = stack.commits.index { |x| x.sha == c.sha } %>
+<% parent = i.positive? ? stack.commits[i - 1] : nil %>
+<% action = ->(name) { "#{commit_url(@repo, @branch.name, c)}/#{name}" } %>
+<% id = "commit-menu-#{c.sha[0, 12]}" %>
+<button type="button" class="button icon-only commit-menu-button" popovertarget="<%= id %>" style="anchor-name: --<%= id %>" title="Edit this commit" aria-label="Edit commit <%= h visible(c.subject) %>"><svg class="icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M8 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM1.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm13 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg></button>
+<form class="commit-menu" id="<%= id %>" popover style="position-anchor: --<%= id %>" method="post" data-edit>
+  <input type="hidden" name="expected" value="<%= @branch.staged %>">
+  <% if back %><input type="hidden" name="back" value="<%= back %>"><% end %>
+  <% if list %><button type="button" data-reword="<%= c.sha %>">Edit message</button><% end %>
+  <% if parent %>
+    <button type="submit" formaction="<%= action.("squash") %>" title="Fold this commit into the one before it, adding this message to its own">Squash into <span class="muted"><%= hv parent.subject %></span></button>
+    <button type="submit" formaction="<%= action.("fixup") %>" title="Fold this commit into the one before it, keeping only that one's message">Fixup into <span class="muted"><%= hv parent.subject %></span></button>
+  <% end %>
+  <% if list && i < stack.commits.size - 1 %><button type="submit" formaction="<%= action.("later") %>" title="Swap it with the commit after it">Move up</button><% end %>
+  <% if list && parent %><button type="submit" formaction="<%= action.("earlier") %>" title="Swap it with the commit before it">Move down</button><% end %>
+  <% if list || parent %><hr><% end %>
+  <button type="submit" class="danger" formaction="<%= action.("drop") %>" data-confirm="Drop <%= h c.short[0, 7] %> “<%= h visible(c.subject) %>” from <%= h @branch.name %>?">Drop commit</button>
+</form>
+<form class="reword" method="post" action="<%= action.("reword") %>" data-edit data-reword-form="<%= c.sha %>" hidden>
+  <input type="hidden" name="expected" value="<%= @branch.staged %>">
+  <% if back %><input type="hidden" name="back" value="<%= back %>"><% end %>
+  <%# The newline after the tag is the parser's: without it, a message starting with a blank line would lose it. %>
+  <%# A hidden character is written out, as everywhere, so saving the message as it is shown takes it out. %>
+  <textarea name="message" rows="<%= (c.message.lines.size + 1).clamp(3, 20) %>" required spellcheck="true" aria-label="Commit message"><%= "\n" %><%= h visible(c.message) %></textarea>
+  <div class="actions">
+    <button type="submit" class="primary">Save message</button>
+    <button type="button" data-reword-cancel>Cancel</button>
+    <span class="muted hint"><kbd>Ctrl</kbd> <kbd>Enter</kbd> saves, <kbd>Esc</kbd> cancels<% if i < stack.commits.size - 1 %>. The commits after it are made again on the new one<% end %></span>
+  </div>
+</form>
