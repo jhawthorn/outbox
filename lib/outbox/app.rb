@@ -670,6 +670,8 @@ module Outbox
       # Repos with something to review first, then the rest; within each, the
       # most recently pushed first, and never-pushed ones by name.
       @repos = @repos.sort_by { |r, branches, _, pushed| [branches.any?(&:pending?) ? 0 : 1, pushed ? -pushed.to_i : 0, r.name] }
+      # The tip of each branch awaiting review, to say what it is.
+      @latest = @repos.to_h { |r, branches, _, _| [r.name, branches.any?(&:pending?) ? latest_commits(r) : {}] }
       @problems = Config.load.problems
       # Fetches of https upstreams fail without the token; say so up front
       # rather than once per repo.

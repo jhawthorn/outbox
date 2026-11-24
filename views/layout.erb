@@ -66,6 +66,9 @@
                 gap: 5px 12px; align-items: baseline; margin-top: 10px; }
   ul.branches li { display: contents; }
   ul.branches .badge { justify-self: start; }
+  /* The tip commit's subject, then the count; the count wraps under a long one. */
+  ul.branches .what { min-width: 0; display: flex; gap: 0 10px; align-items: baseline; flex-wrap: wrap; }
+  ul.branches .subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
   .branch-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
   .muted { color: var(--muted); }
   .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px;
@@ -564,7 +567,8 @@
     /* The index: a branch's name, then what it has under it, so a long name
        wraps instead of pushing the summary off the card. */
     ul.branches { grid-template-columns: max-content minmax(0, 1fr); row-gap: 2px; }
-    ul.branches .muted { grid-column: 2; font-size: 13px; margin-bottom: 6px; }
+    ul.branches .what { grid-column: 2; margin-bottom: 6px; }
+    ul.branches .muted { font-size: 13px; }
     ul.branches .branch-name { overflow-wrap: anywhere; }
     /* A repository's review list: a card per branch, not a table. */
     table.pending thead { display: none; }

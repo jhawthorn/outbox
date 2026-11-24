@@ -40,6 +40,7 @@ class AppTest < OutboxTest::RepoCase
     body = get("/")
     assert_includes body, ">demo<"
     assert_includes body, "ready"
+    assert_includes body, '<span class="subject" title="Staged change">Staged change</span>', "the tip commit says what is staged"
     assert_operator body.index(">demo<"), :<, body.index(">_config<"), "pending repos sort first"
     assert_includes body, ">_config<"
     assert_includes body, "http://example.org/_config.git"

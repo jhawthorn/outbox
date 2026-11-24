@@ -50,7 +50,10 @@
         <li>
           <span class="badge <%= b.status %>"><%= status_label(b) %></span>
           <a class="branch-name" href="<%= branch_url(repo, b.name) %>"><%= h b.name %></a>
-          <span class="muted"><%= h summary(b) %></span>
+          <span class="what">
+            <% if b.staged && (tip = @latest[repo.name][b.name]) %><span class="subject" title="<%= h tip.subject %>"><%= hv tip.subject %></span><% end %>
+            <span class="muted"><%= h summary(b) %></span>
+          </span>
         </li>
       <% end %>
       </ul>

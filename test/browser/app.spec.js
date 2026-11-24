@@ -27,7 +27,7 @@ test("the index puts repositories with something to review first", async ({ page
   // Pending ones come first, then the rest; no idle repo above a pending one.
   expect(pending.lastIndexOf(true)).toBeLessThan(pending.indexOf(false));
   const review = page.locator("li.repo", { has: page.locator(".repo-name", { hasText: /^review$/ }) });
-  await expect(review.locator("ul.branches li")).toContainText(["ready main 2 commits to push"]);
+  await expect(review.locator("ul.branches li")).toContainText(["ready main Add thing 2 commits to push"]);
   await review.getByRole("link", { name: "main" }).click();
   await expect(page).toHaveURL("/repos/review/branches/main");
 
