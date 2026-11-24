@@ -941,6 +941,7 @@ class AppTest < OutboxTest::RepoCase
     assert_includes body, 'title="2026-10-15T14:28:54-07:00"', "the full timestamp is on hover"
     assert_equal 2, body.scan('class="line committer"').size, "only the commits with a different time or committer"
     assert_includes body, "Bot <i>&lt;bot@example.com&gt;</i>"
+    assert_equal 1, body.scan(%(2026-10-17 00:00 <span class="off">)).size, "a committer at the author's time doesn't repeat it"
   end
 
   def test_commit_bodies_are_shown_in_full_on_the_branch_page

@@ -225,11 +225,12 @@ module Outbox
       # What the second line of a commit shows, if anything: the committer
       # when they differ from the author, and when the commit was made when
       # that is a different time. Compared as displayed, so two clocks that
-      # agree to the minute don't produce a line repeating the first.
+      # agree to the minute don't repeat the time the first line shows.
       def committer_line(c)
         who = c.committer_differs? ? identity(c.committer, c.committer_email) : ""
         at = when_label(c.commit_date)
-        return nil if who.empty? && at == when_label(c.date)
+        at = "" if at == when_label(c.date)
+        return nil if who.empty? && at.empty?
         [who, at]
       end
 
